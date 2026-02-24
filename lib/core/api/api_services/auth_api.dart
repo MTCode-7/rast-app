@@ -40,6 +40,11 @@ class AuthApi {
     await _client.post('auth/logout');
   }
 
+  /// POST /api/auth/delete-account — permanently delete user account (Apple requirement)
+  Future<void> deleteAccount() async {
+    await _client.post('auth/delete-account');
+  }
+
   /// GET /api/auth/me
   Future<Map<String, dynamic>> me() async {
     final res = await _client.get('auth/me');

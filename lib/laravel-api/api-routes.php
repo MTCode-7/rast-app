@@ -62,6 +62,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/me', [AuthController::class, 'me']);
         Route::put('/profile', [AuthController::class, 'updateProfile']);
         Route::put('/password', [AuthController::class, 'changePassword']);
+        Route::post('/delete-account', [AuthController::class, 'deleteAccount']);
     });
 
     // Booking routes

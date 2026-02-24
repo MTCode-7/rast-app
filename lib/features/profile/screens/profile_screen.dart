@@ -56,6 +56,42 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
+  Future<void> _deleteAccount() async {
+    final lang = context.read<AppSettingsProvider>().language;
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => Directionality(
+        textDirection: context.read<AppSettingsProvider>().textDirection,
+        child: AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(24),
+          ),
+          title: Text(AppStrings.t('deleteAccountConfirm', lang)),
+          content: Text(AppStrings.t('deleteAccountConfirmMessage', lang)),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: Text(AppStrings.t('cancel', lang)),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              style: FilledButton.styleFrom(backgroundColor: Colors.red),
+              child: Text(AppStrings.t('deleteAccountConfirm', lang)),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (confirm == true && mounted) {
+      try {
+        await Api.auth.deleteAccount();
+      } catch (_) {}
+      await AuthService.logout();
+      if (mounted) setState(() {});
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final settings = context.watch<AppSettingsProvider>();
@@ -230,6 +266,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       context,
                       MaterialPageRoute(builder: (_) => const BookingsScreen()),
                     ),
+                  ),
+                  SizedBox(height: Responsive.spacing(context, 10)),
+                  _buildActionTile(
+                    icon: Icons.delete_forever_rounded,
+                    title: AppStrings.t('deleteAccount', lang),
+                    onTap: _deleteAccount,
+                    iconColor: Colors.red.shade600,
+                    textColor: Colors.red.shade600,
                   ),
                   SizedBox(height: Responsive.spacing(context, 10)),
                   _buildActionTile(

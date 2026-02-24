@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\Booking;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -127,6 +128,28 @@ class AuthController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Password changed successfully',
+        ]);
+    }
+
+    /**
+     * Delete the authenticated user's account (Apple App Store requirement).
+     * Revokes all tokens then deletes the user and related data.
+     */
+    public function deleteAccount(Request $request)
+    {
+        $user = $request->user();
+
+        // Revoke all tokens so the user is logged out everywhere
+        $user->tokens()->delete();
+
+        // Delete user's bookings (and related reviews) to avoid foreign key errors
+        Booking::where('user_id', $user->id)->delete();
+
+        $user->delete();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Account deleted successfully',
         ]);
     }
 }
