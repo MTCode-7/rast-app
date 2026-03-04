@@ -44,10 +44,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _isLoading = true);
     try {
+      final phone = _phoneController.text.trim();
       final data = await Api.auth.register(
         name: _nameController.text.trim(),
         email: _emailController.text.trim(),
-        phone: _phoneController.text.trim(),
+        phone: phone.isEmpty ? null : phone,
         password: _passwordController.text,
         passwordConfirmation: _confirmPasswordController.text,
       );
@@ -197,13 +198,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
               decoration: _fieldDecoration(
                 fill,
                 primary: primary,
-                label: 'Phone',
+                label: 'Phone (optional)',
                 hint: '05xxxxxxxx',
                 icon: Icons.phone_outlined,
               ),
-              validator: (v) => (v == null || v.trim().length < 9)
-                  ? 'Invalid phone number'
-                  : null,
+              validator: (v) {
+                if (v == null || v.trim().isEmpty) return null;
+                if (v.trim().length < 9) return 'Invalid phone number';
+                return null;
+              },
             ),
             SizedBox(height: Responsive.spacing(context, 12)),
             TextFormField(

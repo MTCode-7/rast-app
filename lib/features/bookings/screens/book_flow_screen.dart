@@ -55,7 +55,13 @@ class _BookFlowScreenState extends State<BookFlowScreen> {
   Map<String, dynamic>? _bookingConfig;
   bool _isNonSaudi = false;
 
-  /// قيم مُستخرجة مرة واحدة عند فتح الشاشة لضمان ظهورها في ملخص الحجز
+  /// معاينة الأسعار من الـ API (نفس أرقام الفاتورة) - للمرحلة 1
+  Map<String, dynamic>? _previewData;
+  /// معاينة الأسعار للمرحلة 3 (ملخص الحجز) حسب nationality
+  Map<String, dynamic>? _previewConfirm;
+  bool _loadingPreview = false;
+
+  /// قيم احتياطية من الخريطة إن فشل الـ API
   late double _resolvedPrice;
   late double _resolvedHomeServiceFeeRaw;
 
@@ -90,6 +96,7 @@ class _BookFlowScreenState extends State<BookFlowScreen> {
     return 0.0;
   }
 
+  /// استخراج رسوم الخدمة المنزلية من الخريطة (مطابق للباكند: home_service_price أو من المختبر).
   static double _extractHomeFee(Map<String, dynamic> map) {
     var v = map['home_service_price'] ?? map['home_price'] ?? map['home_service_fee'];
     if (v is num) return v.toDouble();
@@ -101,9 +108,9 @@ class _BookFlowScreenState extends State<BookFlowScreen> {
     if (ps is Map<String, dynamic>) {
       final h = ps['home_service_price'] ?? ps['home_price'];
       if (h is num) return h.toDouble();
-      if (h != null) return double.tryParse(h.toString()) ?? 25;
+      if (h != null) return double.tryParse(h.toString()) ?? 0;
     }
-    return 25;
+    return 0;
   }
 
   double get _price => _resolvedPrice;
@@ -121,6 +128,31 @@ class _BookFlowScreenState extends State<BookFlowScreen> {
     _lab = widget.lab;
     if (_lab == null) _loadLab();
     _loadBookingConfig();
+    _loadPreview();
+  }
+
+  /// جلب معاينة الأسعار من الباكند (نفس منطق الفاتورة)
+  Future<void> _loadPreview() async {
+    if (_loadingPreview) return;
+    setState(() => _loadingPreview = true);
+    try {
+      final data = await Api.bookings.getBookingPreview(_providerServiceId, nationality: 'saudi');
+      if (mounted) setState(() => _previewData = data);
+    } catch (_) {
+      if (mounted) setState(() => _previewData = null);
+    } finally {
+      if (mounted) setState(() => _loadingPreview = false);
+    }
+  }
+
+  Future<void> _loadConfirmPreview() async {
+    try {
+      final nationality = _isNonSaudi ? 'non_saudi' : 'saudi';
+      final data = await Api.bookings.getBookingPreview(_providerServiceId, nationality: nationality);
+      if (mounted) setState(() => _previewConfirm = data);
+    } catch (_) {
+      if (mounted) setState(() => _previewConfirm = null);
+    }
   }
 
   Future<void> _loadBookingConfig() async {
@@ -218,6 +250,7 @@ class _BookFlowScreenState extends State<BookFlowScreen> {
         _error = null;
         if (_step == 2 && _selectedDate != null) _loadTimeSlots();
       });
+      if (_step == 3) _loadConfirmPreview();
     }
   }
 
@@ -568,15 +601,21 @@ class _BookFlowScreenState extends State<BookFlowScreen> {
   }
 
   Widget _buildStepServiceType() {
+    final inClinicTotal = _previewData != null && _previewData!['in_clinic'] is Map
+        ? _parseNum((_previewData!['in_clinic'] as Map)['total_amount'])
+        : _price;
+    final homeTotal = _previewData != null && _previewData!['home_service'] is Map
+        ? _parseNum((_previewData!['home_service'] as Map)['total_amount'])
+        : _homeTotal;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text('نوع الزيارة', style: TextStyle(fontSize: Responsive.fontSize(context, 18), fontWeight: FontWeight.bold)),
         SizedBox(height: Responsive.spacing(context, 12)),
-        _serviceTypeChip('in_clinic', 'في المختبر', Icons.business_rounded, '${_price.toStringAsFixed(2)} ر.س'),
+        _serviceTypeChip('in_clinic', 'في المختبر', Icons.business_rounded, '${inClinicTotal.toStringAsFixed(2)} ر.س'),
         if (_homeAvailable) ...[
           SizedBox(height: Responsive.spacing(context, 10)),
-          _serviceTypeChip('home_service', 'زيارة منزلية', Icons.home_rounded, '${_homeTotal.toStringAsFixed(2)} ر.س'),
+          _serviceTypeChip('home_service', 'زيارة منزلية', Icons.home_rounded, '${homeTotal.toStringAsFixed(2)} ر.س'),
         ],
         if (_serviceType == 'home_service') ...[
           SizedBox(height: Responsive.spacing(context, 20)),
@@ -729,7 +768,10 @@ class _BookFlowScreenState extends State<BookFlowScreen> {
               SizedBox(height: Responsive.spacing(context, 12)),
               CheckboxListTile(
                 value: _isNonSaudi,
-                onChanged: (v) => setState(() => _isNonSaudi = v ?? false),
+                onChanged: (v) {
+                  setState(() => _isNonSaudi = v ?? false);
+                  _loadConfirmPreview();
+                },
                 title: Text('أنا غير سعودي (تُطبّق الضريبة)', style: TextStyle(fontSize: Responsive.fontSize(context, 13))),
                 controlAffinity: ListTileControlAffinity.leading,
                 contentPadding: EdgeInsets.zero,
@@ -739,17 +781,7 @@ class _BookFlowScreenState extends State<BookFlowScreen> {
               const Divider(height: 24),
               Text('تفاصيل المبلغ', style: TextStyle(fontSize: Responsive.fontSize(context, 14), fontWeight: FontWeight.w600, color: AppTheme.onSurface)),
               SizedBox(height: Responsive.spacing(context, 10)),
-              _confirmRow('سعر التحليل', '${_price.toStringAsFixed(2)} ر.س'),
-              if (_serviceType == 'home_service')
-                _confirmRow(' الخدمة المنزلية', '+ ${_homeServiceFee.toStringAsFixed(2)} ر.س'),
-              _confirmRow('خصم المنصة ${_platformDiscountRate.toStringAsFixed(0)}%', '- ${_discountAmount.toStringAsFixed(2)} ر.س', valueStyle: TextStyle(color: AppTheme.success, fontWeight: FontWeight.w600)),
-              if (_isNonSaudi)
-                _confirmRow('الضريبة ${_vatRate.toStringAsFixed(0)}%', '+ ${_vatAmount.toStringAsFixed(2)} ر.س', valueStyle: TextStyle(color: const Color.fromARGB(255, 255, 0, 0))),
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 4),
-                child: Divider(height: 1, color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.5)),
-              ),
-              _confirmRow('المبلغ الإجمالي', '${_totalAmount.toStringAsFixed(2)} ر.س', valueStyle: TextStyle(color: AppTheme.primary, fontWeight: FontWeight.bold, fontSize: Responsive.fontSize(context, 16))),
+              _buildConfirmAmounts(),
             ],
           ),
         ),
@@ -767,6 +799,54 @@ class _BookFlowScreenState extends State<BookFlowScreen> {
           Flexible(child: Text(value, style: valueStyle ?? const TextStyle(fontWeight: FontWeight.w600), textAlign: TextAlign.left, overflow: TextOverflow.ellipsis)),
         ],
       ),
+    );
+  }
+
+  /// تفاصيل المبلغ في ملخص الحجز: من معاينة الـ API إن وُجدت (نفس الفاتورة)
+  Widget _buildConfirmAmounts() {
+    final row = _previewConfirm != null && _previewConfirm![_serviceType] is Map
+        ? _previewConfirm![_serviceType] as Map<String, dynamic>
+        : null;
+    if (row != null) {
+      final servicePrice = _parseNum(row['service_price']);
+      final homeFee = _parseNum(row['home_service_fee']);
+      final discount = _parseNum(row['platform_discount']);
+      final vatAmount = _parseNum(row['vat_amount']);
+      final total = _parseNum(row['total_amount']);
+      final discountRate = _parseNum(row['platform_discount_rate']);
+      final vatRate = _parseNum(row['vat_rate']);
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _confirmRow('سعر التحليل', '${servicePrice.toStringAsFixed(2)} ر.س'),
+          if (_serviceType == 'home_service')
+            _confirmRow('الخدمة المنزلية', '+ ${homeFee.toStringAsFixed(2)} ر.س'),
+          _confirmRow('خصم المنصة ${discountRate.toStringAsFixed(0)}%', '- ${discount.toStringAsFixed(2)} ر.س', valueStyle: TextStyle(color: AppTheme.success, fontWeight: FontWeight.w600)),
+          if (_isNonSaudi && vatAmount > 0)
+            _confirmRow('الضريبة ${vatRate.toStringAsFixed(0)}%', '+ ${vatAmount.toStringAsFixed(2)} ر.س', valueStyle: TextStyle(color: const Color.fromARGB(255, 255, 0, 0))),
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: Divider(height: 1, color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.5)),
+          ),
+          _confirmRow('المبلغ الإجمالي', '${total.toStringAsFixed(2)} ر.س', valueStyle: TextStyle(color: AppTheme.primary, fontWeight: FontWeight.bold, fontSize: Responsive.fontSize(context, 16))),
+        ],
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _confirmRow('سعر التحليل', '${_price.toStringAsFixed(2)} ر.س'),
+        if (_serviceType == 'home_service')
+          _confirmRow('الخدمة المنزلية', '+ ${_homeServiceFee.toStringAsFixed(2)} ر.س'),
+        _confirmRow('خصم المنصة ${_platformDiscountRate.toStringAsFixed(0)}%', '- ${_discountAmount.toStringAsFixed(2)} ر.س', valueStyle: TextStyle(color: AppTheme.success, fontWeight: FontWeight.w600)),
+        if (_isNonSaudi)
+          _confirmRow('الضريبة ${_vatRate.toStringAsFixed(0)}%', '+ ${_vatAmount.toStringAsFixed(2)} ر.س', valueStyle: TextStyle(color: const Color.fromARGB(255, 255, 0, 0))),
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Divider(height: 1, color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.5)),
+        ),
+        _confirmRow('المبلغ الإجمالي', '${_totalAmount.toStringAsFixed(2)} ر.س', valueStyle: TextStyle(color: AppTheme.primary, fontWeight: FontWeight.bold, fontSize: Responsive.fontSize(context, 16))),
+      ],
     );
   }
 

@@ -45,6 +45,9 @@ Route::prefix('providers')->group(function () {
 Route::get('/offers', [ServiceController::class, 'offers']);
 Route::get('/packages', [ServiceController::class, 'packages']);
 
+// معاينة أسعار الحجز (بدون تسجيل دخول) - نفس أرقام الفاتورة
+Route::get('/booking-preview', [BookingController::class, 'preview']);
+
 // Mobile slides for apps
 Route::get('/mobile/slides', [\App\Http\Controllers\Api\MobileSlideController::class, 'index']);
 Route::get('/branches', [ProviderController::class, 'branches']);

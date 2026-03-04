@@ -12,21 +12,23 @@ class AuthApi {
     return res['data'] as Map<String, dynamic>;
   }
 
-  /// POST /api/auth/register
+  /// POST /api/auth/register — رقم الهاتف اختياري
   Future<Map<String, dynamic>> register({
     required String name,
     required String email,
-    required String phone,
+    String? phone,
     required String password,
     required String passwordConfirmation,
   }) async {
-    final res = await _client.post('auth/register', body: {
+    final body = <String, dynamic>{
       'name': name,
       'email': email,
-      'phone': phone,
       'password': password,
       'password_confirmation': passwordConfirmation,
-    });
+    };
+    final phoneTrim = phone?.trim();
+    if (phoneTrim != null && phoneTrim.isNotEmpty) body['phone'] = phoneTrim;
+    final res = await _client.post('auth/register', body: body);
     return res['data'] as Map<String, dynamic>;
   }
 

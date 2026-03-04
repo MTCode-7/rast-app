@@ -67,6 +67,64 @@ class BookingController extends Controller
         ]);
     }
 
+    /**
+     * معاينة أسعار الحجز (بدون إنشاء حجز) - نفس منطق الحساب المستخدم في store.
+     * GET /api/booking-preview?provider_service_id=123&nationality=saudi|non_saudi
+     */
+    public function preview(Request $request)
+    {
+        $validated = $request->validate([
+            'provider_service_id' => 'required|exists:provider_services,id',
+            'nationality' => 'nullable|in:saudi,non_saudi',
+        ]);
+        $nationality = $validated['nationality'] ?? 'saudi';
+
+        $providerService = ProviderService::with(['provider', 'service'])
+            ->findOrFail($validated['provider_service_id']);
+
+        if (!$providerService->is_available) {
+            return response()->json(['success' => false, 'message' => 'Service not available'], 422);
+        }
+
+        $settings = Settings::first();
+        $platformDiscountRate = $settings ? ($settings->platform_discount_rate / 100) : 0.07;
+        $vatRate = $settings ? ($settings->vat_rate / 100) : 0.15;
+
+        $inClinicPrice = (float) $providerService->final_price;
+        $homeServiceFee = 0;
+        if ($providerService->provider->home_service_available ?? false) {
+            $homeServiceFee = (float) ($providerService->home_service_price ?? $providerService->provider->home_service_fee ?? 0);
+        }
+
+        $result = [];
+        foreach (['in_clinic', 'home_service'] as $serviceType) {
+            $fee = $serviceType === 'home_service' ? $homeServiceFee : 0;
+            $basePrice = $inClinicPrice + $fee;
+            $platformDiscount = round($inClinicPrice * $platformDiscountRate, 2);
+            $subTotal = round($basePrice - $platformDiscount, 2);
+            $vatAmount = 0;
+            if ($nationality === 'non_saudi') {
+                $vatAmount = round($subTotal * $vatRate, 2);
+            }
+            $totalAmount = round($subTotal + $vatAmount, 2);
+            $result[$serviceType] = [
+                'service_price' => round($inClinicPrice, 2),
+                'home_service_fee' => round($fee, 2),
+                'platform_discount' => round($platformDiscount, 2),
+                'platform_discount_rate' => round($platformDiscountRate * 100, 2),
+                'vat_rate' => round($vatRate * 100, 2),
+                'vat_amount' => round($vatAmount, 2),
+                'sub_total' => round($subTotal, 2),
+                'total_amount' => round($totalAmount, 2),
+            ];
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => $result,
+        ]);
+    }
+
     public function store(Request $request)
     {
         $validated = $request->validate([

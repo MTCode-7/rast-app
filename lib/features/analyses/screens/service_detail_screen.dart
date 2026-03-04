@@ -828,38 +828,59 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
     _showLabPickerSheet(context, service);
   }
 
+  /// يُرجع خريطة provider_service للمرور لشاشة الحجز، مع سعر التحليل ورسوم المنزل من الـ API.
   Map<String, dynamic> _buildProviderServiceMap(
     Map<String, dynamic> service,
     dynamic providerServiceId,
   ) {
-    double price = ApiConfig.priceFromMap(service);
-    if (price == 0.0 && _providerServices.isNotEmpty) {
-      final id = providerServiceId is int
-          ? providerServiceId
-          : int.tryParse(providerServiceId?.toString() ?? '');
-      if (id != null) {
-        for (final ps in _providerServices) {
-          final psId = ps['id'] is int
-              ? ps['id'] as int
-              : int.tryParse(ps['id']?.toString() ?? '');
-          if (psId == id) {
-            price = ApiConfig.priceFromMap(ps);
-            break;
-          }
+    final id = providerServiceId is int
+        ? providerServiceId
+        : int.tryParse(providerServiceId?.toString() ?? '');
+    Map<String, dynamic>? matchedPs;
+    if (id != null && _providerServices.isNotEmpty) {
+      for (final ps in _providerServices) {
+        final psId = ps['id'] is int
+            ? ps['id'] as int
+            : int.tryParse(ps['id']?.toString() ?? '');
+        if (psId == id) {
+          matchedPs = ps;
+          break;
         }
       }
     }
-    if (price == 0.0)
-      price = (service['price'] is num ? service['price'] as num : 0)
-          .toDouble();
-    final homePriceRaw =
-        (service['home_price'] is num
-            ? (service['home_price'] as num).toDouble()
-            : null) ??
-        (_providerServices.isNotEmpty && providerServiceId != null
-            ? _findHomePriceForProviderService(providerServiceId)
-            : null);
-    final homePrice = homePriceRaw ?? price + 25;
+    double price = 0.0;
+    double? homePriceRaw;
+    if (matchedPs != null) {
+      price = ApiConfig.priceFromMap(matchedPs);
+      if (price == 0.0 && matchedPs['service'] is Map<String, dynamic>) {
+        price = ApiConfig.priceFromMap(matchedPs['service'] as Map<String, dynamic>);
+      }
+      final v = matchedPs['home_service_price'] ?? matchedPs['home_price'];
+      if (v is num) {
+        homePriceRaw = v.toDouble();
+      } else if (v != null) {
+        homePriceRaw = double.tryParse(v.toString());
+      }
+      if (homePriceRaw == null) {
+        final provider = matchedPs['provider'] is Map ? matchedPs['provider'] as Map<String, dynamic> : null;
+        final fee = provider?['home_service_fee'];
+        if (fee is num) homePriceRaw = fee.toDouble();
+        else if (fee != null) homePriceRaw = double.tryParse(fee.toString());
+      }
+    }
+    if (price == 0.0) {
+      price = ApiConfig.priceFromMap(service);
+      if (price == 0.0) {
+        price = (service['price'] is num ? service['price'] as num : 0).toDouble();
+      }
+    }
+    if (homePriceRaw == null) {
+      homePriceRaw = (service['home_price'] is num
+          ? (service['home_price'] as num).toDouble()
+          : null) ??
+          (id != null ? _findHomePriceForProviderService(id) : null);
+    }
+    final homePrice = homePriceRaw ?? 0.0;
     return {
       'id': providerServiceId,
       'final_price': price,
@@ -889,6 +910,7 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
     return null;
   }
 
+  /// يبني خريطة provider_service من عنصر provider_services القادم من الـ API (مطابق لحساب الفاتورة في الباكند).
   Map<String, dynamic> _psToProviderServiceMap(
     Map<String, dynamic> ps,
     String serviceNameAr,
@@ -898,13 +920,19 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
       price = ApiConfig.priceFromMap(ps['service'] as Map<String, dynamic>);
     }
     var homeVal = ps['home_service_price'] ?? ps['home_price'];
-    double homePrice = 25.0;
+    double homePrice = 0.0;
     if (homeVal is num) {
       homePrice = homeVal.toDouble();
     } else if (homeVal != null) {
-      homePrice = double.tryParse(homeVal.toString()) ?? (price + 25);
+      homePrice = double.tryParse(homeVal.toString()) ?? 0.0;
     } else {
-      homePrice = price + 25;
+      final provider = ps['provider'] is Map ? ps['provider'] as Map<String, dynamic> : null;
+      final fee = provider?['home_service_fee'];
+      if (fee is num) {
+        homePrice = fee.toDouble();
+      } else if (fee != null) {
+        homePrice = double.tryParse(fee.toString()) ?? 0.0;
+      }
     }
     return {
       'id': ps['id'],

@@ -28,6 +28,16 @@ class BookingsApi {
     return res['data'] as Map<String, dynamic>;
   }
 
+  /// GET /api/booking-preview - معاينة أسعار الحجز (نفس أرقام الفاتورة من الباكند)
+  Future<Map<String, dynamic>> getBookingPreview(int providerServiceId, {String nationality = 'saudi'}) async {
+    final res = await _client.get('booking-preview', queryParams: {
+      'provider_service_id': providerServiceId.toString(),
+      if (nationality.isNotEmpty) 'nationality': nationality,
+    });
+    final data = res['data'];
+    return data is Map<String, dynamic> ? data : <String, dynamic>{};
+  }
+
   /// POST /api/bookings - إنشاء حجز
   Future<Map<String, dynamic>> create(Map<String, dynamic> body) async {
     final res = await _client.post('bookings', body: body);

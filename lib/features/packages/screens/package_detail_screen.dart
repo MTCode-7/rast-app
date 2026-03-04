@@ -113,7 +113,18 @@ class _PackageDetailScreenState extends State<PackageDetailScreen> {
     final isArabic = context.read<AppSettingsProvider>().isArabic;
     final pkgName = LocaleUtils.localizedName(pkg, isArabic);
     final price = (ps['final_price'] ?? ps['price'] ?? 0) is num ? (ps['final_price'] ?? ps['price'] as num).toDouble() : 0.0;
-    final homeFee = (ps['home_service_price'] is num) ? (ps['home_service_price'] as num).toDouble() : 25.0;
+    var homeFee = 0.0;
+    final h = ps['home_service_price'] ?? ps['home_price'];
+    if (h is num) {
+      homeFee = h.toDouble();
+    } else if (h != null) {
+      homeFee = double.tryParse(h.toString()) ?? 0;
+    }
+    if (homeFee == 0) {
+      final fee = provider['home_service_fee'];
+      if (fee is num) homeFee = fee.toDouble();
+      else if (fee != null) homeFee = double.tryParse(fee.toString()) ?? 0;
+    }
     final providerService = {
       'id': ps['id'],
       'final_price': price,
