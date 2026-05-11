@@ -61,6 +61,13 @@ class ApiConfig {
   static String? packageImageUrl(Map<String, dynamic>? pkg) {
     final url = imageFromMap(pkg) ?? resolveImageUrl(pkg?['image_url'], pkg?['image'] ?? pkg?['image_path']);
     if (url != null && url.isNotEmpty) return url;
+    final packageImages = pkg?['package_images'];
+    if (packageImages is List && packageImages.isNotEmpty) {
+      for (final item in packageImages) {
+        final parsed = resolveImageUrl(item, null);
+        if (parsed != null && parsed.isNotEmpty) return parsed;
+      }
+    }
     final psList = pkg?['provider_services'] ?? pkg?['providerServices'];
     if (psList is List && psList.isNotEmpty) {
       final first = psList.first;

@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:geolocator/geolocator.dart';
 import 'package:rast/core/theme/app_theme.dart';
 import 'package:rast/core/services/location_service.dart';
 import 'package:rast/core/widgets/gradient_button.dart';
@@ -38,37 +37,20 @@ class _DefaultLocationScreenState extends State<DefaultLocationScreen> {
       _message = null;
     });
     try {
-      var permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-      }
-      if (permission == LocationPermission.deniedForever) {
+      final location = await LocationService.getCurrentLocation();
+      if (location == null) {
         if (mounted) {
           setState(() {
             _isLoading = false;
-            _message = 'السماح بالموقع مطلوب للعثور على المختبرات القريبة';
+            _message = 'السماح بالموقع وتفعيل خدمة الموقع مطلوبان للعثور على المختبرات القريبة';
+            _isSuccess = false;
           });
         }
         return;
       }
-      if (!await Geolocator.isLocationServiceEnabled()) {
-        if (mounted) {
-          setState(() {
-            _isLoading = false;
-            _message = 'تفعيل خدمة الموقع أولاً';
-          });
-        }
-        return;
-      }
-      final pos = await Geolocator.getCurrentPosition();
-      await LocationService.setDefaultLocation(
-        latitude: pos.latitude,
-        longitude: pos.longitude,
-        label: 'موقعي الحالي',
-      );
       if (mounted) {
         setState(() {
-          _savedLocation = (lat: pos.latitude, lng: pos.longitude, label: 'موقعي الحالي');
+          _savedLocation = location;
           _isLoading = false;
           _message = 'تم حفظ موقعك الافتراضي';
           _isSuccess = true;

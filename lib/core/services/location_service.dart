@@ -1,3 +1,4 @@
+import 'package:geolocator/geolocator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// خدمة حفظ واسترجاع الموقع الافتراضي للمستخدم (للعثور على المختبرات القريبة)
@@ -17,6 +18,31 @@ class LocationService {
     if (label != null) {
       await prefs.setString(_keyLabel, label);
     }
+  }
+
+  static Future<({double lat, double lng, String? label})?> getCurrentLocation({
+    bool saveAsDefault = true,
+  }) async {
+    var permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+    }
+    if (permission == LocationPermission.denied ||
+        permission == LocationPermission.deniedForever) {
+      return null;
+    }
+    if (!await Geolocator.isLocationServiceEnabled()) return null;
+
+    final position = await Geolocator.getCurrentPosition();
+    const label = 'موقعي الحالي';
+    if (saveAsDefault) {
+      await setDefaultLocation(
+        latitude: position.latitude,
+        longitude: position.longitude,
+        label: label,
+      );
+    }
+    return (lat: position.latitude, lng: position.longitude, label: label);
   }
 
   static Future<void> clearDefaultLocation() async {

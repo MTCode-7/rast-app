@@ -130,10 +130,64 @@ class ProviderController extends Controller
             ->orderBy('start_time')
             ->get();
 
+        $data = $timeSlots->map(function ($ts) {
+            $arr = $ts->toArray();
+            $meta = self::periodMetaFromStartTime($arr['start_time'] ?? null);
+            $arr['period_key'] = $meta['period_key'];
+            $arr['period_label_ar'] = $meta['period_label_ar'];
+            if (!array_key_exists('remaining_capacity', $arr)) {
+                $remaining = null;
+                if (isset($arr['capacity'])) {
+                    $booked = (int) ($arr['bookings_count'] ?? $arr['booked_count'] ?? 0);
+                    $remaining = max(0, (int) $arr['capacity'] - $booked);
+                }
+                $arr['remaining_capacity'] = $remaining;
+            }
+
+            return $arr;
+        });
+
         return response()->json([
             'success' => true,
-            'data' => $timeSlots,
+            'data' => $data,
         ]);
+    }
+
+    /**
+     * فترات الحجز الأربع (كل فترة 6 ساعات) — متوافق مع مواصفات التطبيق.
+     *
+     * @return array{period_key: string|null, period_label_ar: string|null}
+     */
+    private static function periodMetaFromStartTime(?string $startTime): array
+    {
+        if ($startTime === null || $startTime === '') {
+            return ['period_key' => null, 'period_label_ar' => null];
+        }
+        $parts = explode(':', trim($startTime));
+        $hour = (int) ($parts[0] ?? 0);
+        if ($hour >= 0 && $hour < 6) {
+            return [
+                'period_key' => 'night',
+                'period_label_ar' => 'منتصف الليل – الفجر (٠٠:٠٠ – ٠٦:٠٠)',
+            ];
+        }
+        if ($hour >= 6 && $hour < 12) {
+            return [
+                'period_key' => 'morning',
+                'period_label_ar' => 'الصباح (٠٦:٠٠ – ١٢:٠٠)',
+            ];
+        }
+        if ($hour >= 12 && $hour < 18) {
+            return [
+                'period_key' => 'afternoon',
+                'period_label_ar' => 'بعد الظهر (١٢:٠٠ – ١٨:٠٠)',
+            ];
+        }
+
+        return [
+            'period_key' => 'evening',
+            'period_label_ar' => 'المساء – الليل (١٨:٠٠ – ٢٤:٠٠)',
+        ];
     }
 
     /**

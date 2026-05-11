@@ -21,13 +21,13 @@ class AppSettingsProvider extends ChangeNotifier {
   Locale get locale => _language == 'ar' ? const Locale('ar') : const Locale('en');
   TextDirection get textDirection => isArabic ? TextDirection.rtl : TextDirection.ltr;
 
-  Color get primaryColor => _primaryColor ?? AppTheme.primary;
-  Color get secondaryColor => _secondaryColor ?? AppTheme.secondary;
+  Color get primaryColor => _primaryColor != null ? AppTheme.primary : AppTheme.primary;
+  Color get secondaryColor => _secondaryColor != null ? AppTheme.secondary : AppTheme.secondary;
 
   /// تدرج لوني من اللونين في الإعدادات (لخلفيات التسجيل والدخول)
   LinearGradient get primaryGradient => LinearGradient(
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
+        begin: Alignment.centerLeft,
+        end: Alignment.centerRight,
         colors: [primaryColor, secondaryColor],
         stops: const [0.0, 1.0],
       );
@@ -59,8 +59,8 @@ class AppSettingsProvider extends ChangeNotifier {
           _primaryColor = c1;
           _secondaryColor = c2;
           final prefs = await SharedPreferences.getInstance();
-          if (c1 != null) await prefs.setString(_keyPrimaryColor, '#${c1.value.toRadixString(16).substring(2)}');
-          if (c2 != null) await prefs.setString(_keySecondaryColor, '#${c2.value.toRadixString(16).substring(2)}');
+          if (c1 != null) await prefs.setString(_keyPrimaryColor, '#${c1.toARGB32().toRadixString(16).substring(2)}');
+          if (c2 != null) await prefs.setString(_keySecondaryColor, '#${c2.toARGB32().toRadixString(16).substring(2)}');
           notifyListeners();
         }
       }

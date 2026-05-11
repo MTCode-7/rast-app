@@ -34,6 +34,42 @@ class BookingResource extends JsonResource
         return (string) $value;
     }
 
+    /**
+     * @return array{period_key: string|null, period_label_ar: string|null}
+     */
+    private function periodMetaFromStartTime(?string $startTime): array
+    {
+        if ($startTime === null || $startTime === '') {
+            return ['period_key' => null, 'period_label_ar' => null];
+        }
+        $startTime = trim($startTime);
+        $parts = explode(':', $startTime);
+        $hour = (int) ($parts[0] ?? 0);
+        if ($hour >= 0 && $hour < 6) {
+            return [
+                'period_key' => 'night',
+                'period_label_ar' => 'منتصف الليل – الفجر (٠٠:٠٠ – ٠٦:٠٠)',
+            ];
+        }
+        if ($hour >= 6 && $hour < 12) {
+            return [
+                'period_key' => 'morning',
+                'period_label_ar' => 'الصباح (٠٦:٠٠ – ١٢:٠٠)',
+            ];
+        }
+        if ($hour >= 12 && $hour < 18) {
+            return [
+                'period_key' => 'afternoon',
+                'period_label_ar' => 'بعد الظهر (١٢:٠٠ – ١٨:٠٠)',
+            ];
+        }
+
+        return [
+            'period_key' => 'evening',
+            'period_label_ar' => 'المساء – الليل (١٨:٠٠ – ٢٤:٠٠)',
+        ];
+    }
+
     public function toArray(Request $request): array
     {
         $booking = $this->resource;
@@ -62,11 +98,24 @@ class BookingResource extends JsonResource
             'currency' => 'SAR',
         ];
 
+        $bookingPeriodMeta = ['period_key' => null, 'period_label_ar' => null];
+        if ($booking->relationLoaded('timeSlot') && $booking->timeSlot) {
+            $start = $booking->timeSlot->start_time;
+            $startStr = is_string($start) ? $start : (is_object($start) && method_exists($start, 'format') ? $start->format('H:i:s') : null);
+            $bookingPeriodMeta = $this->periodMetaFromStartTime($startStr);
+        } elseif ($booking->booking_time) {
+            $bt = $booking->booking_time;
+            $startStr = is_string($bt) ? $bt : (is_object($bt) && method_exists($bt, 'format') ? $bt->format('H:i:s') : null);
+            $bookingPeriodMeta = $this->periodMetaFromStartTime($startStr);
+        }
+
         return [
             'id' => $booking->id,
             'booking_number' => $booking->booking_number,
             'booking_date' => $this->formatDate($booking->booking_date),
             'booking_time' => $booking->booking_time,
+            'booking_period_key' => $bookingPeriodMeta['period_key'],
+            'booking_period_label_ar' => $bookingPeriodMeta['period_label_ar'],
             'service_type' => $booking->service_type,
             'status' => $booking->status,
             'payment_status' => $booking->payment_status,
@@ -123,11 +172,17 @@ class BookingResource extends JsonResource
                 if (!$ts) return null;
                 $date = $ts->date;
                 $dateStr = is_object($date) && method_exists($date, 'format') ? $date->format('Y-m-d') : (string) $date;
+                $startRaw = $ts->start_time;
+                $startStr = is_string($startRaw) ? $startRaw : (is_object($startRaw) && method_exists($startRaw, 'format') ? $startRaw->format('H:i:s') : null);
+                $period = $this->periodMetaFromStartTime($startStr);
+
                 return [
                     'id' => $ts->id,
                     'date' => $dateStr,
                     'start_time' => $ts->start_time,
                     'end_time' => $ts->end_time,
+                    'period_key' => $period['period_key'],
+                    'period_label_ar' => $period['period_label_ar'],
                 ];
             }),
             'review' => $this->whenLoaded('review', fn () => $booking->review ? [

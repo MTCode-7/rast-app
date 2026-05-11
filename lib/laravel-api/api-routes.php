@@ -23,6 +23,9 @@ Route::get('/popup', [AppConfigController::class, 'popup']);
 Route::prefix('auth')->group(function () {
     Route::post('/register', [AuthController::class, 'register']);
     Route::post('/login', [AuthController::class, 'login']);
+    Route::post('/forgot-password', [AuthController::class, 'forgotPassword']);
+    Route::post('/reset-password', [AuthController::class, 'resetPassword']);
+    Route::post('/reset-password-otp', [AuthController::class, 'resetPasswordOtp']);
 });
 
 // Service & Provider public routes
@@ -52,10 +55,8 @@ Route::get('/booking-preview', [BookingController::class, 'preview']);
 Route::get('/mobile/slides', [\App\Http\Controllers\Api\MobileSlideController::class, 'index']);
 Route::get('/branches', [ProviderController::class, 'branches']);
 
-// Chatbot API (for mobile app) – requires auth
-Route::prefix('chat')->middleware('auth:sanctum')->group(function () {
-    Route::post('/message', [\App\Http\Controllers\Api\ChatController::class, 'message']);
-});
+// Chatbot API — عام، لا يتطلب Bearer token
+Route::post('/chat/message', [\App\Http\Controllers\Api\ChatController::class, 'message']);
 
 // Protected routes
 Route::middleware('auth:sanctum')->group(function () {

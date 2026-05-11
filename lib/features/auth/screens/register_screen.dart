@@ -4,10 +4,11 @@ import 'package:provider/provider.dart';
 import 'package:rast/core/api/api_client.dart';
 import 'package:rast/core/api/api_services.dart';
 import 'package:rast/core/providers/app_settings_provider.dart';
-import 'package:rast/core/theme/app_theme.dart';
 import 'package:rast/core/utils/responsive.dart';
 import 'package:rast/core/widgets/gradient_button.dart';
+import 'package:rast/core/widgets/rast_ui.dart';
 import 'package:rast/features/auth/services/auth_service.dart';
+import 'package:rast/features/chat/screens/chat_screen.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key, this.onSuccess});
@@ -29,6 +30,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
   bool _obscurePassword = true;
   bool _obscureConfirm = true;
   bool _isLoading = false;
+
+  bool _isStrongPassword(String value) {
+    final hasUpper = RegExp(r'[A-Z]').hasMatch(value);
+    final hasLower = RegExp(r'[a-z]').hasMatch(value);
+    final hasDigit = RegExp(r'\d').hasMatch(value);
+    return value.length >= 8 && hasUpper && hasLower && hasDigit;
+  }
 
   @override
   void dispose() {
@@ -95,35 +103,79 @@ class _RegisterScreenState extends State<RegisterScreen> {
     return Directionality(
       textDirection: settings.textDirection,
       child: Scaffold(
-        body: Container(
-          decoration: BoxDecoration(gradient: settings.primaryGradient),
-          child: Stack(
-            children: [
-              Positioned(top: -70, left: -70, child: _deco(190)),
-              Positioned(bottom: 110, right: -65, child: _deco(160)),
-              SafeArea(
+        backgroundColor: RastUi.screenSurface(context),
+        body: Stack(
+          children: [
+            Container(
+              height: 132,
+              decoration: const BoxDecoration(gradient: RastUi.headerGradient),
+            ),
+            SafeArea(
+              child: Align(
+                alignment: Alignment.topRight,
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 12, right: 20),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: const [
+                      Text(
+                        'حساب جديد',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 17,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      SizedBox(width: 8),
+                      Icon(
+                        Icons.arrow_forward_ios_rounded,
+                        color: Colors.white,
+                        size: 18,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            Positioned.fill(
+              top: 108,
+              child: Container(
+                decoration: BoxDecoration(
+                  color: RastUi.screenSurface(context),
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(30)),
+                ),
                 child: SingleChildScrollView(
-                  padding: EdgeInsets.all(Responsive.spacing(context, 20)),
+                  padding: EdgeInsets.fromLTRB(
+                    Responsive.spacing(context, 24),
+                    Responsive.spacing(context, 12),
+                    Responsive.spacing(context, 24),
+                    Responsive.spacing(context, 90),
+                  ),
                   child: Column(
                     children: [
-                      SizedBox(height: Responsive.spacing(context, 12)),
                       _header()
                           .animate()
                           .fadeIn(duration: 420.ms)
                           .slideY(begin: 0.1, end: 0),
-                      SizedBox(height: Responsive.spacing(context, 18)),
+                      SizedBox(height: Responsive.spacing(context, 20)),
                       _buildCard(context, isDark)
                           .animate()
                           .fadeIn(delay: 120.ms, duration: 420.ms)
                           .slideY(begin: 0.07, end: 0),
-                      SizedBox(height: Responsive.spacing(context, 14)),
+                      SizedBox(height: Responsive.spacing(context, 8)),
                       _bottomLink(),
                     ],
                   ),
                 ),
               ),
-            ],
-          ),
+            ),
+            RastSupportBubble(
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const ChatScreen()),
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -131,58 +183,37 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   Widget _buildCard(BuildContext context, bool isDark) {
     final primary = context.watch<AppSettingsProvider>().primaryColor;
-    final fill = isDark
-        ? const Color(0xFF0F172A)
-        : AppTheme.surfaceVariant.withValues(alpha: 0.45);
+    final fill = isDark ? const Color(0xFF0F172A) : Colors.white;
 
     return Container(
-      padding: EdgeInsets.all(Responsive.spacing(context, 20)),
-      decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF162033) : Colors.white,
-        borderRadius: BorderRadius.circular(26),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: isDark ? 0.32 : 0.10),
-            blurRadius: 28,
-            offset: const Offset(0, 14),
-          ),
-        ],
-      ),
+      padding: EdgeInsets.zero,
       child: Form(
         key: _formKey,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text(
-              'Create New Account',
-              style: TextStyle(
-                fontSize: Responsive.fontSize(context, 20),
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            SizedBox(height: Responsive.spacing(context, 16)),
             TextFormField(
               controller: _nameController,
               textCapitalization: TextCapitalization.words,
               decoration: _fieldDecoration(
                 fill,
                 primary: primary,
-                label: 'Full Name',
-                hint: 'Enter your full name',
+                label: '',
+                hint: 'الاسم الكامل',
                 icon: Icons.person_outline_rounded,
               ),
               validator: (v) =>
                   (v == null || v.trim().isEmpty) ? 'Name is required' : null,
             ),
-            SizedBox(height: Responsive.spacing(context, 12)),
+            SizedBox(height: Responsive.spacing(context, 20)),
             TextFormField(
               controller: _emailController,
               keyboardType: TextInputType.emailAddress,
               decoration: _fieldDecoration(
                 fill,
                 primary: primary,
-                label: 'Email',
-                hint: 'example@email.com',
+                label: '',
+                hint: 'البريد الإلكتروني',
                 icon: Icons.email_outlined,
               ),
               validator: (v) {
@@ -191,15 +222,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 return null;
               },
             ),
-            SizedBox(height: Responsive.spacing(context, 12)),
+            SizedBox(height: Responsive.spacing(context, 20)),
             TextFormField(
               controller: _phoneController,
               keyboardType: TextInputType.phone,
               decoration: _fieldDecoration(
                 fill,
                 primary: primary,
-                label: 'Phone (optional)',
-                hint: '05xxxxxxxx',
+                label: '',
+                hint: 'رقم الهاتف',
                 icon: Icons.phone_outlined,
               ),
               validator: (v) {
@@ -208,15 +239,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 return null;
               },
             ),
-            SizedBox(height: Responsive.spacing(context, 12)),
+            SizedBox(height: Responsive.spacing(context, 20)),
             TextFormField(
               controller: _passwordController,
               obscureText: _obscurePassword,
               decoration: _fieldDecoration(
                 fill,
                 primary: primary,
-                label: 'Password',
-                hint: 'At least 8 characters',
+                label: '',
+                hint: 'كلمة المرور',
                 icon: Icons.lock_outline_rounded,
                 suffix: IconButton(
                   icon: Icon(
@@ -228,18 +259,19 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       setState(() => _obscurePassword = !_obscurePassword),
                 ),
               ),
-              validator: (v) =>
-                  (v == null || v.length < 8) ? 'Password is too short' : null,
+              validator: (v) => (v == null || !_isStrongPassword(v))
+                  ? 'كلمة المرور يجب أن تحتوي على حرف كبير وصغير ورقم (8 أحرف على الأقل)'
+                  : null,
             ),
-            SizedBox(height: Responsive.spacing(context, 12)),
+            SizedBox(height: Responsive.spacing(context, 20)),
             TextFormField(
               controller: _confirmPasswordController,
               obscureText: _obscureConfirm,
               decoration: _fieldDecoration(
                 fill,
                 primary: primary,
-                label: 'Confirm Password',
-                hint: 'Repeat your password',
+                label: '',
+                hint: 'تأكيد كلمة المرور',
                 icon: Icons.lock_reset_rounded,
                 suffix: IconButton(
                   icon: Icon(
@@ -255,7 +287,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   ? 'Passwords do not match'
                   : null,
             ),
-            SizedBox(height: Responsive.spacing(context, 18)),
+            SizedBox(height: Responsive.spacing(context, 28)),
             GradientFilledButton(
               onPressed: _isLoading ? null : _submit,
               style: FilledButton.styleFrom(
@@ -263,7 +295,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   vertical: Responsive.spacing(context, 15),
                 ),
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
+                  borderRadius: BorderRadius.circular(30),
                 ),
               ),
               child: _isLoading
@@ -276,7 +308,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       ),
                     )
                   : Text(
-                      'Create Account',
+                      'إنشاء الحساب',
                       style: TextStyle(
                         fontSize: Responsive.fontSize(context, 16),
                         fontWeight: FontWeight.w700,
@@ -298,22 +330,22 @@ class _RegisterScreenState extends State<RegisterScreen> {
     Widget? suffix,
   }) {
     return InputDecoration(
-      labelText: label,
+      labelText: label.isEmpty ? null : label,
       hintText: hint,
       prefixIcon: Icon(icon, color: primary.withValues(alpha: 0.85)),
       suffixIcon: suffix,
       filled: true,
       fillColor: fill,
       border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(16),
-        borderSide: BorderSide.none,
+        borderRadius: BorderRadius.circular(28),
+        borderSide: const BorderSide(color: Color(0xFFD7D4DA)),
       ),
       enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(16),
-        borderSide: BorderSide.none,
+        borderRadius: BorderRadius.circular(28),
+        borderSide: const BorderSide(color: Color(0xFFD7D4DA)),
       ),
       focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(28),
         borderSide: BorderSide(color: primary, width: 2),
       ),
     );
@@ -322,35 +354,21 @@ class _RegisterScreenState extends State<RegisterScreen> {
   Widget _header() {
     return Column(
       children: [
-        Container(
-          padding: const EdgeInsets.all(22),
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: Colors.white.withValues(alpha: 0.14),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.28)),
-          ),
-          child: const Icon(
-            Icons.person_add_rounded,
-            size: 52,
-            color: Colors.white,
-          ),
-        ),
-        SizedBox(height: Responsive.spacing(context, 16)),
         Text(
-          'Create Your Account',
+          'إنشاء حساب جديد',
           textAlign: TextAlign.center,
           style: TextStyle(
-            color: Colors.white,
+            color: RastUi.blue,
             fontSize: Responsive.fontSize(context, 26),
             fontWeight: FontWeight.w800,
           ),
         ),
         SizedBox(height: Responsive.spacing(context, 6)),
         Text(
-          'Start booking analyses in seconds',
+          'أنشئ حسابك وابدأ بحجز التحاليل خلال ثواني',
           textAlign: TextAlign.center,
           style: TextStyle(
-            color: Colors.white.withValues(alpha: 0.92),
+            color: RastUi.textPurple,
             fontSize: Responsive.fontSize(context, 14),
           ),
         ),
@@ -359,43 +377,24 @@ class _RegisterScreenState extends State<RegisterScreen> {
   }
 
   Widget _bottomLink() {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.22)),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const Text(
-            'Already have an account?',
-            style: TextStyle(color: Colors.white),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text(
-              'Sign In',
-              style: TextStyle(
-                color: Theme.of(context).colorScheme.secondary,
-                fontWeight: FontWeight.w700,
-              ),
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        const Text(
+          'لديك حساب بالفعل؟',
+          style: TextStyle(color: Color(0xFFBDB9C3), fontSize: 12),
+        ),
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: Text(
+            'تسجيل الدخول',
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.secondary,
+              fontWeight: FontWeight.w700,
             ),
           ),
-        ],
-      ),
-    );
-  }
-
-  Widget _deco(double size) {
-    return Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: Colors.white.withValues(alpha: 0.05),
-      ),
+        ),
+      ],
     );
   }
 }

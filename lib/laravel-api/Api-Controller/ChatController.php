@@ -26,7 +26,8 @@ class ChatController extends Controller
             'history.*.text' => ['required_with:history', 'string', 'max:5000'],
         ]);
 
-        $user = $request->user(); // auth:sanctum
+        // مسار عام — قد يكون المستخدم ضيفاً؛ إن وُجد Bearer يُمرَّر للخدمة اختيارياً
+        $user = $request->user();
         $result = $this->chatbot->sendMessage(
             $validated['message'],
             $validated['history'] ?? [],

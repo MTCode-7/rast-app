@@ -86,7 +86,8 @@ class ServiceController extends Controller
     public function index(Request $request)
     {
         $query = Service::with('category')
-            ->active();
+            ->active()
+            ->whereHas('category', fn ($q) => $q->active());
 
         if ($request->has('category_id')) {
             $query->byCategory($request->category_id);
@@ -118,6 +119,7 @@ class ServiceController extends Controller
             'packageItems.service',
         ])
             ->active()
+            ->whereHas('category', fn ($q) => $q->active())
             ->findOrFail($id);
 
         $data = $this->appendImageUrl($service);
@@ -177,6 +179,7 @@ class ServiceController extends Controller
     {
         $query = Service::with(['category', 'packageItems.service', 'providerServices'])
             ->active()
+            ->whereHas('category', fn ($q) => $q->active())
             ->where('service_type', 'package');
 
         if ($request->has('category_id')) {

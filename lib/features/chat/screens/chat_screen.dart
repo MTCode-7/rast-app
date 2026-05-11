@@ -1,14 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:rast/core/constants/app_strings.dart';
 import 'package:rast/core/providers/app_settings_provider.dart';
-import 'package:rast/core/theme/app_theme.dart';
 import 'package:rast/core/utils/responsive.dart';
-import 'package:rast/core/widgets/gradient_button.dart';
+import 'package:rast/core/widgets/rast_ui.dart';
 import 'package:rast/core/api/api_services.dart';
 import 'package:rast/core/api/api_client.dart';
 import 'package:rast/features/auth/services/auth_service.dart';
-import 'package:rast/features/auth/screens/login_screen.dart';
 
 class ChatMessage {
   final String role; // 'user' | 'model'
@@ -16,7 +13,7 @@ class ChatMessage {
   final DateTime at;
 
   ChatMessage({required this.role, required this.text, DateTime? at})
-      : at = at ?? DateTime.now();
+    : at = at ?? DateTime.now();
 }
 
 class ChatScreen extends StatefulWidget {
@@ -31,6 +28,13 @@ class _ChatScreenState extends State<ChatScreen> {
   final TextEditingController _controller = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   bool _sending = false;
+  bool _compactHeader = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollController.addListener(_onChatScroll);
+  }
 
   @override
   void dispose() {
@@ -42,15 +46,6 @@ class _ChatScreenState extends State<ChatScreen> {
   Future<void> _sendMessage() async {
     final text = _controller.text.trim();
     if (text.isEmpty || _sending) return;
-    if (!AuthService.isLoggedIn) {
-      final ok = await Navigator.push(
-        context,
-        MaterialPageRoute(builder: (_) => const LoginScreen()),
-      );
-      if (ok != true || !mounted) return;
-      setState(() {});
-      return;
-    }
 
     _controller.clear();
     setState(() {
@@ -77,16 +72,19 @@ class _ChatScreenState extends State<ChatScreen> {
     } on ApiException catch (e) {
       if (mounted) {
         setState(() => _sending = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.message)),
-        );
+        final message = e.message.toLowerCase().contains('unauthenticated')
+            ? 'تعذّر الوصول للمساعد. تأكد من أن السيرفر يعرّض POST /api/chat/message بدون اشتراط تسجيل الدخول.'
+            : e.message;
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(message)));
       }
     } catch (e) {
       if (mounted) {
         setState(() => _sending = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.toString().split('\n').first)),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(e.toString().split('\n').first)));
       }
     }
   }
@@ -103,304 +101,437 @@ class _ChatScreenState extends State<ChatScreen> {
     });
   }
 
+  void _onChatScroll() {
+    if (!_scrollController.hasClients) return;
+    final compact = _scrollController.offset > 24;
+    if (compact != _compactHeader && mounted) {
+      setState(() => _compactHeader = compact);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final settings = context.watch<AppSettingsProvider>();
-    final lang = settings.language;
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    if (!AuthService.isLoggedIn) {
-      return Directionality(
-        textDirection: settings.textDirection,
+    return Directionality(
+      textDirection: settings.textDirection,
+      child: Container(
+        decoration: const BoxDecoration(gradient: RastUi.headerGradient),
         child: Scaffold(
-          backgroundColor: Theme.of(context).colorScheme.surface,
-          appBar: AppBar(
-            title: Text(AppStrings.t('chat', lang)),
-            backgroundColor: Colors.transparent,
-            elevation: 0,
-            leading: IconButton(
-              icon: const Icon(Icons.arrow_back_ios_new_rounded),
-              onPressed: () => Navigator.pop(context),
-            ),
-          ),
-          body: Center(
-            child: Padding(
-              padding: EdgeInsets.all(Responsive.spacing(context, 24)),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    Icons.chat_bubble_outline_rounded,
-                    size: 72,
-                    color: AppTheme.primary.withValues(alpha: 0.6),
+          backgroundColor: Colors.transparent,
+          body: Column(
+            children: [
+              _buildChatHeader(context),
+              Expanded(
+                child: ClipRRect(
+                  borderRadius: const BorderRadius.vertical(
+                    top: Radius.circular(28),
                   ),
-                  SizedBox(height: Responsive.spacing(context, 20)),
-                  Text(
-                    AppStrings.t('chatSignIn', lang),
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: Responsive.fontSize(context, 18),
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  child: Container(
+                    color: RastUi.screenSurface(context),
+                    child: Column(
+                      children: [
+                        Expanded(
+                          child: ListView(
+                            controller: _scrollController,
+                            padding: EdgeInsets.fromLTRB(
+                              Responsive.spacing(context, 24),
+                              Responsive.spacing(context, 14),
+                              Responsive.spacing(context, 24),
+                              Responsive.spacing(context, 14),
+                            ),
+                            children: [
+                              _dayLabel(context),
+                              for (final msg in _messages)
+                                _messageTile(context, msg),
+                              if (_sending) _typingTile(context),
+                            ],
+                          ),
+                        ),
+                        _composer(context, isDark),
+                      ],
                     ),
                   ),
-                  SizedBox(height: Responsive.spacing(context, 24)),
-                  GradientFilledButtonIcon(
-                    onPressed: () async {
-                      final ok = await Navigator.push(
-                        context,
-                        MaterialPageRoute(builder: (_) => const LoginScreen()),
-                      );
-                      if (ok == true && mounted) Navigator.pop(context, true);
-                    },
-                    icon: const Icon(Icons.login_rounded, size: 20),
-                    label: Text(AppStrings.t('signIn', lang)),
-                    style: FilledButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 24,
-                        vertical: 14,
-                      ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(AppTheme.radiusButton),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildChatHeader(BuildContext context) {
+    return SafeArea(
+      bottom: false,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 220),
+        padding: EdgeInsets.fromLTRB(
+          Responsive.spacing(context, 20),
+          Responsive.spacing(context, _compactHeader ? 8 : 16),
+          Responsive.spacing(context, 20),
+          Responsive.spacing(context, _compactHeader ? 8 : 18),
+        ),
+        child: Row(
+          children: [
+            _roundHeaderButton(
+              icon: Icons.more_vert_rounded,
+              onTap: () => _showChatMenu(),
+            ),
+            const Spacer(),
+            Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  'المساعد الذكي',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: Responsive.fontSize(
+                      context,
+                      _compactHeader ? 14 : 16,
+                    ),
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                if (!_compactHeader) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    AuthService.isLoggedIn ? 'اونلاين' : 'زائر',
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.78),
+                      fontSize: Responsive.fontSize(context, 12),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+            const SizedBox(width: 10),
+            if (!_compactHeader)
+              Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  const CircleAvatar(
+                    radius: 21,
+                    backgroundColor: Colors.white,
+                    child: Icon(
+                      Icons.support_agent_rounded,
+                      color: RastUi.purple,
+                    ),
+                  ),
+                  PositionedDirectional(
+                    bottom: 0,
+                    end: -1,
+                    child: Container(
+                      width: 10,
+                      height: 10,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF3ADB76),
+                        shape: BoxShape.circle,
+                        border: Border.all(color: Colors.white, width: 1.5),
                       ),
                     ),
                   ),
                 ],
               ),
-            ),
-          ),
-        ),
-      );
-    }
-
-    return Directionality(
-      textDirection: settings.textDirection,
-      child: Scaffold(
-        backgroundColor: Theme.of(context).colorScheme.surface,
-        appBar: AppBar(
-          title: Text(AppStrings.t('chat', lang)),
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-          leading: IconButton(
-            icon: const Icon(Icons.arrow_back_ios_new_rounded),
-            onPressed: () => Navigator.pop(context),
-          ),
-        ),
-        body: Column(
-          children: [
-            Expanded(
-              child: _messages.isEmpty && !_sending
-                  ? Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            Icons.smart_toy_rounded,
-                            size: 64,
-                            color: AppTheme.primary.withValues(alpha: 0.5),
-                          ),
-                          SizedBox(height: Responsive.spacing(context, 12)),
-                          Text(
-                            'اسأل عن التحاليل، الباقات، أو الحجوزات',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              fontSize: Responsive.fontSize(context, 15),
-                              color: Theme.of(context).colorScheme.onSurfaceVariant,
-                            ),
-                          ),
-                        ],
-                      ),
-                    )
-                  : ListView.builder(
-                      controller: _scrollController,
-                      padding: EdgeInsets.symmetric(
-                        horizontal: Responsive.spacing(context, 16),
-                        vertical: Responsive.spacing(context, 12),
-                      ),
-                      itemCount: _messages.length + (_sending ? 1 : 0),
-                      itemBuilder: (context, index) {
-                        if (index == _messages.length) {
-                          return Padding(
-                            padding: EdgeInsets.only(
-                              right: Responsive.spacing(context, 12),
-                              left: 48,
-                              top: 8,
-                              bottom: 8,
-                            ),
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 14,
-                                    vertical: 10,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: AppTheme.primary.withValues(alpha: 0.1),
-                                    borderRadius: BorderRadius.circular(18),
-                                  ),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      SizedBox(
-                                        width: 16,
-                                        height: 16,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                          color: AppTheme.primary,
-                                        ),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Text(
-                                        'جاري الرد...',
-                                        style: TextStyle(
-                                          fontSize: 14,
-                                          color: AppTheme.primary,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ),
-                          );
-                        }
-                        final msg = _messages[index];
-                        final isUser = msg.role == 'user';
-                        return Padding(
-                          padding: const EdgeInsets.only(bottom: 12),
-                          child: Row(
-                            mainAxisAlignment:
-                                isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
-                            crossAxisAlignment: CrossAxisAlignment.end,
-                            children: [
-                              if (!isUser)
-                                Container(
-                                  width: 32,
-                                  height: 32,
-                                  decoration: BoxDecoration(
-                                    color: AppTheme.primary.withValues(alpha: 0.15),
-                                    shape: BoxShape.circle,
-                                  ),
-                                  child: Icon(
-                                    Icons.smart_toy_rounded,
-                                    size: 18,
-                                    color: AppTheme.primary,
-                                  ),
-                                ),
-                              if (!isUser) const SizedBox(width: 8),
-                              Flexible(
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 14,
-                                    vertical: 10,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: isUser
-                                        ? AppTheme.primary
-                                        : (isDark
-                                            ? AppTheme.primary.withValues(alpha: 0.2)
-                                            : AppTheme.surfaceVariant),
-                                    borderRadius: BorderRadius.only(
-                                      topLeft: const Radius.circular(18),
-                                      topRight: const Radius.circular(18),
-                                      bottomLeft: Radius.circular(isUser ? 18 : 4),
-                                      bottomRight: Radius.circular(isUser ? 4 : 18),
-                                    ),
-                                  ),
-                                  child: Text(
-                                    msg.text.isEmpty ? '—' : msg.text,
-                                    style: TextStyle(
-                                      fontSize: Responsive.fontSize(context, 15),
-                                      color: isUser
-                                          ? Colors.white
-                                          : Theme.of(context).colorScheme.onSurface,
-                                      height: 1.4,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                              if (isUser) const SizedBox(width: 8),
-                              if (isUser)
-                                Container(
-                                  width: 32,
-                                  height: 32,
-                                  decoration: BoxDecoration(
-                                    color: AppTheme.primary.withValues(alpha: 0.2),
-                                    shape: BoxShape.circle,
-                                  ),
-                                  child: Icon(
-                                    Icons.person_rounded,
-                                    size: 18,
-                                    color: AppTheme.primary,
-                                  ),
-                                ),
-                            ],
-                          ),
-                        );
-                      },
-                    ),
-            ),
-            Container(
-              padding: EdgeInsets.fromLTRB(
-                Responsive.spacing(context, 16),
-                8,
-                Responsive.spacing(context, 16),
-                Responsive.spacing(context, 16) + MediaQuery.of(context).padding.bottom,
-              ),
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.surface,
-              ),
-              child: SafeArea(
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: _controller,
-                        textDirection: TextDirection.rtl,
-                        maxLines: 3,
-                        minLines: 1,
-                        decoration: InputDecoration(
-                          hintText: AppStrings.t('chatHint', lang),
-                          filled: true,
-                          fillColor: isDark
-                              ? AppTheme.surfaceVariant.withValues(alpha: 0.3)
-                              : AppTheme.surfaceVariant.withValues(alpha: 0.6),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(24),
-                            borderSide: BorderSide.none,
-                          ),
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 18,
-                            vertical: 12,
-                          ),
-                        ),
-                        onSubmitted: (_) => _sendMessage(),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Material(
-                      color: AppTheme.primary,
-                      borderRadius: BorderRadius.circular(24),
-                      child: InkWell(
-                        onTap: _sending ? null : _sendMessage,
-                        borderRadius: BorderRadius.circular(24),
-                        child: Padding(
-                          padding: const EdgeInsets.all(12),
-                          child: Icon(
-                            Icons.send_rounded,
-                            color: Colors.white,
-                            size: 24,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
+            const SizedBox(width: 12),
+            IconButton(
+              onPressed: () => Navigator.pop(context),
+              icon: const Icon(
+                Icons.arrow_forward_ios_rounded,
+                color: Colors.white,
               ),
             ),
           ],
         ),
       ),
     );
+  }
+
+  void _showChatMenu() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Container(
+        padding: const EdgeInsets.fromLTRB(16, 10, 16, 20),
+        decoration: BoxDecoration(
+          color: RastUi.cardSurface(ctx),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: RastUi.softBorder(ctx),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 12),
+            ListTile(
+              leading: const Icon(Icons.delete_sweep_rounded),
+              title: const Text('مسح المحادثة'),
+              onTap: () {
+                Navigator.pop(ctx);
+                setState(() => _messages.clear());
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.arrow_upward_rounded),
+              title: const Text('الانتقال للأعلى'),
+              onTap: () {
+                Navigator.pop(ctx);
+                if (_scrollController.hasClients) {
+                  _scrollController.animateTo(
+                    0,
+                    duration: const Duration(milliseconds: 300),
+                    curve: Curves.easeOut,
+                  );
+                }
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _roundHeaderButton({
+    required IconData icon,
+    required VoidCallback onTap,
+  }) {
+    return Material(
+      color: Colors.white,
+      shape: const CircleBorder(),
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: onTap,
+        child: SizedBox(
+          width: 42,
+          height: 42,
+          child: Icon(icon, color: const Color(0xFF42364B), size: 24),
+        ),
+      ),
+    );
+  }
+
+  Widget _dayLabel(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Text(
+        'اليوم',
+        textAlign: TextAlign.center,
+        style: TextStyle(
+          color: RastUi.secondaryText(context),
+          fontSize: Responsive.fontSize(context, 13),
+        ),
+      ),
+    );
+  }
+
+  Widget _messageTile(BuildContext context, ChatMessage msg) {
+    final isUser = msg.role == 'user';
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 18),
+      child: Column(
+        crossAxisAlignment: isUser
+            ? CrossAxisAlignment.end
+            : CrossAxisAlignment.start,
+        children: [
+          Container(
+            constraints: BoxConstraints(
+              maxWidth:
+                  MediaQuery.of(context).size.width * (isUser ? 0.76 : 0.82),
+            ),
+            padding: EdgeInsets.symmetric(
+              horizontal: Responsive.spacing(context, 14),
+              vertical: Responsive.spacing(context, 12),
+            ),
+            decoration: BoxDecoration(
+              color: isUser ? null : RastUi.subtleFill(context),
+              gradient: isUser ? RastUi.headerGradient : null,
+              borderRadius: BorderRadius.circular(8),
+              border: isUser
+                  ? null
+                  : Border.all(color: RastUi.softBorder(context)),
+            ),
+            child: Text(
+              msg.text.isEmpty ? '—' : msg.text,
+              textAlign: TextAlign.right,
+              style: TextStyle(
+                color: isUser ? Colors.white : RastUi.primaryText(context),
+                fontSize: Responsive.fontSize(context, 13),
+                height: 1.55,
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            textDirection: TextDirection.ltr,
+            children: [
+              Text(
+                _timeLabel(msg.at),
+                style: TextStyle(
+                  color: RastUi.secondaryText(context),
+                  fontSize: Responsive.fontSize(context, 11),
+                ),
+              ),
+              const SizedBox(width: 12),
+              if (isUser) ...[
+                Text(
+                  AuthService.currentUser?.name ?? 'زائر',
+                  style: TextStyle(
+                    color: RastUi.primaryText(context),
+                    fontSize: Responsive.fontSize(context, 11),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                const CircleAvatar(
+                  radius: 11,
+                  backgroundColor: Colors.white,
+                  child: Icon(Icons.person_rounded, size: 14),
+                ),
+              ] else ...[
+                Container(
+                  width: 23,
+                  height: 23,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: RastUi.blue.withValues(alpha: 0.5),
+                    ),
+                  ),
+                  child: const Icon(
+                    Icons.support_agent_rounded,
+                    color: RastUi.blue,
+                    size: 15,
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  'الدعم الصحي',
+                  style: TextStyle(
+                    color: RastUi.primaryText(context),
+                    fontSize: Responsive.fontSize(context, 11),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _typingTile(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 18),
+      child: Align(
+        alignment: AlignmentDirectional.centerStart,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          decoration: BoxDecoration(
+            color: RastUi.subtleFill(context),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: RastUi.softBorder(context)),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: RastUi.purple,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                'جاري الرد...',
+                style: TextStyle(
+                  fontSize: Responsive.fontSize(context, 13),
+                  color: RastUi.purple,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _composer(BuildContext context, bool isDark) {
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(
+          Responsive.spacing(context, 20),
+          8,
+          Responsive.spacing(context, 20),
+          Responsive.spacing(context, 16),
+        ),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
+          decoration: BoxDecoration(
+            color: isDark ? RastUi.darkPanel : const Color(0xFFF0F0F1),
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: Row(
+            children: [
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: RastUi.headerGradient,
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: IconButton(
+                  onPressed: () {},
+                  icon: const Icon(Icons.mic_rounded, color: Colors.white),
+                ),
+              ),
+              Expanded(
+                child: TextField(
+                  controller: _controller,
+                  textDirection: TextDirection.rtl,
+                  maxLines: 3,
+                  minLines: 1,
+                  decoration: InputDecoration(
+                    hintText: 'أكتب الرسالة هنا ...',
+                    border: InputBorder.none,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 14),
+                    hintStyle: TextStyle(color: RastUi.secondaryText(context)),
+                  ),
+                  onSubmitted: (_) => _sendMessage(),
+                ),
+              ),
+              Material(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(6),
+                child: InkWell(
+                  onTap: _sending ? null : _sendMessage,
+                  borderRadius: BorderRadius.circular(6),
+                  child: const SizedBox(
+                    width: 34,
+                    height: 34,
+                    child: Icon(Icons.add_rounded, color: RastUi.blue),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  String _timeLabel(DateTime time) {
+    final hour = time.hour % 12 == 0 ? 12 : time.hour % 12;
+    final minute = time.minute.toString().padLeft(2, '0');
+    final period = time.hour >= 12 ? 'PM' : 'AM';
+    return '$hour:$minute $period';
   }
 }

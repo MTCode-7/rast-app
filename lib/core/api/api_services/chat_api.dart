@@ -4,7 +4,7 @@ class ChatApi {
   final _client = ApiClient();
 
   /// إرسال رسالة للشات بوت
-  /// POST /api/chat/message
+  /// POST /api/chat/message — endpoint عام (لا يشترط Bearer token)
   /// Body: { message, history?: [{ role: "user"|"model", text: "..." }] }
   /// Response: { success, data: { reply, agents_results? } }
   Future<Map<String, dynamic>> sendMessage(

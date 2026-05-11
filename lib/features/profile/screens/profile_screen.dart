@@ -2,15 +2,18 @@ import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:provider/provider.dart';
 import 'package:rast/core/api/api_services.dart';
+import 'package:rast/core/api/api_client.dart';
 import 'package:rast/core/constants/app_strings.dart';
 import 'package:rast/core/providers/app_settings_provider.dart';
-import 'package:rast/core/theme/app_theme.dart';
 import 'package:rast/core/utils/responsive.dart';
+import 'package:rast/core/widgets/rast_ui.dart';
 import 'package:rast/features/auth/screens/login_screen.dart';
 import 'package:rast/features/auth/screens/register_screen.dart';
 import 'package:rast/features/auth/services/auth_service.dart'
     show AuthService, UserModel;
 import 'package:rast/features/bookings/screens/bookings_screen.dart';
+import 'package:rast/features/favorites/screens/favorites_screen.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -96,11 +99,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Widget build(BuildContext context) {
     final settings = context.watch<AppSettingsProvider>();
     final theme = Theme.of(context);
-
     return Directionality(
       textDirection: settings.textDirection,
       child: AuthService.isLoggedIn
-          ? _buildProfileView(theme, settings)
+          ? _buildProfileView(settings)
           : _buildGuestView(theme, settings),
     );
   }
@@ -108,28 +110,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Widget _buildGuestView(ThemeData theme, AppSettingsProvider settings) {
     final lang = settings.language;
     return Container(
-      decoration: BoxDecoration(gradient: settings.primaryGradient),
+      decoration: BoxDecoration(color: RastUi.screenSurface(context)),
       child: SafeArea(
         child: Center(
           child: SingleChildScrollView(
             padding: EdgeInsets.all(Responsive.spacing(context, 24)),
             child: Column(
               children: [
-                Container(
-                      padding: const EdgeInsets.all(24),
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: Colors.white.withValues(alpha: 0.14),
-                        border: Border.all(
-                          color: Colors.white.withValues(alpha: 0.35),
-                        ),
-                      ),
-                      child: const Icon(
-                        Icons.person_outline_rounded,
-                        size: 56,
-                        color: Colors.white,
-                      ),
-                    )
+                const RastLogo(size: 160)
                     .animate()
                     .fadeIn(duration: 450.ms)
                     .scale(begin: const Offset(0.88, 0.88)),
@@ -138,7 +126,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   AppStrings.t('signInToContinue', lang),
                   textAlign: TextAlign.center,
                   style: TextStyle(
-                    color: Colors.white,
+                    color: RastUi.textPurple,
                     fontSize: Responsive.fontSize(context, 23),
                     fontWeight: FontWeight.w700,
                   ),
@@ -148,7 +136,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   AppStrings.t('manageDataSubtitle', lang),
                   textAlign: TextAlign.center,
                   style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.88),
+                    color: RastUi.mutedText,
                     fontSize: Responsive.fontSize(context, 14),
                     height: 1.5,
                   ),
@@ -160,7 +148,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   decoration: BoxDecoration(
                     color: theme.brightness == Brightness.dark
                         ? const Color(0xFF101928)
-                        : Colors.white,
+                        : RastUi.cardSurface(context),
                     borderRadius: BorderRadius.circular(24),
                     boxShadow: [
                       BoxShadow(
@@ -212,221 +200,196 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  Widget _buildProfileView(ThemeData theme, AppSettingsProvider settings) {
+  Widget _buildProfileView(AppSettingsProvider settings) {
     final user = AuthService.currentUser!;
     final lang = settings.language;
 
-    return CustomScrollView(
-      physics: const BouncingScrollPhysics(),
-      slivers: [
-        SliverAppBar(
-          expandedHeight: 220,
-          pinned: true,
-          stretch: true,
-          backgroundColor: Colors.transparent,
-          flexibleSpace: FlexibleSpaceBar(
-            background: Container(
-              decoration: BoxDecoration(
-                gradient: settings.primaryGradient,
-              ),
-            ),
-            centerTitle: true,
-            title: Text(
-              AppStrings.t('profile', lang),
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: Responsive.fontSize(context, 17),
-                fontWeight: FontWeight.w700,
-              ),
-            ),
+    return Container(
+      color: RastUi.screenSurface(context),
+      child: SafeArea(
+        bottom: false,
+        child: SingleChildScrollView(
+          physics: const BouncingScrollPhysics(),
+          padding: EdgeInsets.fromLTRB(
+            Responsive.spacing(context, 38),
+            Responsive.spacing(context, 18),
+            Responsive.spacing(context, 38),
+            Responsive.spacing(context, 42),
           ),
-        ),
-        SliverToBoxAdapter(
-          child: Transform.translate(
-            offset: const Offset(0, -24),
-            child: Padding(
-              padding: EdgeInsets.symmetric(
-                horizontal: Responsive.spacing(context, 16),
-              ),
-              child: Column(
+          child: Column(
+            children: [
+              Stack(
+                alignment: Alignment.center,
                 children: [
-                  _buildProfileHero(user)
-                      .animate()
-                      .fadeIn(duration: 350.ms)
-                      .slideY(begin: 0.09, end: 0),
-                  SizedBox(height: Responsive.spacing(context, 12)),
-                  _buildStatsRow(lang),
-                  SizedBox(height: Responsive.spacing(context, 14)),
-                  _buildPreferencesCard(settings, lang),
-                  SizedBox(height: Responsive.spacing(context, 14)),
-                  _buildActionTile(
-                    icon: Icons.event_note_rounded,
-                    title: AppStrings.t('myBookings', lang),
-                    onTap: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (_) => const BookingsScreen()),
+                  Align(
+                    alignment: AlignmentDirectional.centerStart,
+                    child: IconButton(
+                      onPressed: () {
+                        if (Navigator.of(context).canPop()) {
+                          Navigator.pop(context);
+                        }
+                      },
+                      icon: const Icon(
+                        Icons.arrow_back_rounded,
+                        color: RastUi.blue,
+                      ),
                     ),
                   ),
-                  SizedBox(height: Responsive.spacing(context, 10)),
-                  _buildActionTile(
-                    icon: Icons.delete_forever_rounded,
-                    title: AppStrings.t('deleteAccount', lang),
-                    onTap: _deleteAccount,
-                    iconColor: Colors.red.shade600,
-                    textColor: Colors.red.shade600,
+                  Text(
+                    AppStrings.t('profile', lang),
+                    style: TextStyle(
+                      color: RastUi.textPurple,
+                      fontSize: Responsive.fontSize(context, 20),
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
-                  SizedBox(height: Responsive.spacing(context, 10)),
-                  _buildActionTile(
-                    icon: Icons.logout_rounded,
-                    title: AppStrings.t('logout', lang),
-                    onTap: _logout,
-                    iconColor: Colors.red.shade500,
-                    textColor: Colors.red.shade500,
-                  ),
-                  SizedBox(height: Responsive.spacing(context, 44)),
                 ],
               ),
-            ),
+              SizedBox(height: Responsive.spacing(context, 34)),
+              _buildProfileHero(user)
+                  .animate()
+                  .fadeIn(duration: 350.ms)
+                  .scale(begin: const Offset(0.92, 0.92)),
+              SizedBox(height: Responsive.spacing(context, 42)),
+              _buildActionTile(
+                icon: Icons.person_outline_rounded,
+                title: 'تعديل الملف الشخصي',
+                onTap: () => _showUserDetails(user),
+              ),
+              _buildActionTile(
+                icon: Icons.event_note_rounded,
+                title: AppStrings.t('myBookings', lang),
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const BookingsScreen()),
+                ),
+              ),
+              _buildActionTile(
+                icon: Icons.favorite_rounded,
+                title: AppStrings.t('favorites', lang),
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const FavoritesScreen()),
+                ),
+                iconColor: RastUi.purple,
+              ),
+              _buildActionTile(
+                icon: Icons.info_outline_rounded,
+                title: 'مركز المساعدة',
+                onTap: _showHelpCenter,
+              ),
+              _buildActionTile(
+                icon: Icons.privacy_tip_outlined,
+                title: 'سياسة الخصوصية',
+                onTap: _openPrivacyPolicy,
+              ),
+              _buildActionTile(
+                icon: Icons.verified_outlined,
+                title: 'حول التطبيق',
+                onTap: _showAboutApp,
+              ),
+              _buildActionTile(
+                icon: Icons.manage_accounts_outlined,
+                title: AppStrings.t('settings', lang),
+                onTap: () => _showSettingsSheet(settings),
+              ),
+              _buildActionTile(
+                icon: Icons.credit_card_rounded,
+                title: 'طرق الدفع',
+                onTap: _showPaymentMethods,
+              ),
+              _buildActionTile(
+                icon: Icons.password_rounded,
+                title: 'تغيير كلمة المرور',
+                onTap: _showChangePasswordInfo,
+              ),
+              _buildActionTile(
+                icon: Icons.delete_forever_rounded,
+                title: AppStrings.t('deleteAccount', lang),
+                onTap: _deleteAccount,
+                iconColor: Colors.red.shade600,
+                textColor: Colors.red.shade600,
+              ),
+              _buildActionTile(
+                icon: Icons.logout_rounded,
+                title: AppStrings.t('logout', lang),
+                onTap: _logout,
+                iconColor: RastUi.purple,
+                showDivider: false,
+              ),
+            ],
           ),
         ),
-      ],
+      ),
     );
   }
 
   Widget _buildProfileHero(UserModel user) {
-    final theme = Theme.of(context);
-    return Container(
-      width: double.infinity,
-      padding: EdgeInsets.all(Responsive.spacing(context, 18)),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(
-          color: theme.colorScheme.outline.withValues(alpha: 0.13),
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(
-              alpha: theme.brightness == Brightness.dark ? 0.20 : 0.05,
-            ),
-            blurRadius: 18,
-            offset: const Offset(0, 8),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          CircleAvatar(
-            radius: 32,
-            backgroundColor: theme.colorScheme.primary.withValues(alpha: 0.15),
-            child: Text(
-              user.name.isNotEmpty ? user.name[0].toUpperCase() : '?',
-              style: TextStyle(
-                color: theme.colorScheme.primary,
-                fontSize: 24,
-                fontWeight: FontWeight.w700,
+    return Column(
+      children: [
+        Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Container(
+              width: 132,
+              height: 132,
+              decoration: BoxDecoration(
+                color: RastUi.subtleFill(context),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                Icons.person_rounded,
+                color: const Color(0xFFC9D0D8),
+                size: Responsive.fontSize(context, 78),
               ),
             ),
-          ),
-          SizedBox(width: Responsive.spacing(context, 12)),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  user.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: Responsive.fontSize(context, 18),
-                    fontWeight: FontWeight.w700,
-                    color: theme.colorScheme.onSurface,
-                  ),
+            PositionedDirectional(
+              end: 8,
+              bottom: 8,
+              child: Container(
+                width: 28,
+                height: 28,
+                decoration: const BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: RastUi.brandGradient,
                 ),
-                SizedBox(height: Responsive.spacing(context, 3)),
-                Text(
-                  user.email,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: Responsive.fontSize(context, 13),
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
+                child: const Icon(
+                  Icons.edit_outlined,
+                  size: 15,
+                  color: Colors.white,
                 ),
-                if (user.phone != null)
-                  Text(
-                    user.phone!,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: Responsive.fontSize(context, 13),
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-              ],
+              ),
             ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildStatsRow(String lang) {
-    return Row(
-      children: [
-        Expanded(
-          child: _statCard(
-            Icons.event_available_rounded,
-            AppStrings.t('myBookings', lang),
-            '24',
-          ),
+          ],
         ),
-        SizedBox(width: Responsive.spacing(context, 10)),
-        Expanded(
-          child: _statCard(
-            Icons.favorite_rounded,
-            AppStrings.t('favorites', lang),
-            '8',
-          ),
-        ),
-        SizedBox(width: Responsive.spacing(context, 10)),
-        Expanded(
-          child: _statCard(Icons.verified_user_rounded, AppStrings.t('trusted', lang), "100%"),
-        ),
-      ],
-    );
-  }
-
-  Widget _statCard(IconData icon, String title, String value) {
-    final theme = Theme.of(context);
-    return Container(
-      padding: EdgeInsets.all(Responsive.spacing(context, 12)),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: theme.colorScheme.outline.withValues(alpha: 0.13),
-        ),
-      ),
-      child: Column(
-        children: [
-          Icon(icon, size: 18, color: theme.colorScheme.primary),
-          const SizedBox(height: 6),
+        if (user.name.trim().isNotEmpty) ...[
+          SizedBox(height: Responsive.spacing(context, 14)),
           Text(
-            value,
-            style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
-          ),
-          Text(
-            title,
+            user.name.trim(),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
-              fontSize: 11,
-              color: theme.colorScheme.onSurfaceVariant,
+              color: RastUi.textPurple,
+              fontSize: Responsive.fontSize(context, 16),
+              fontWeight: FontWeight.w700,
             ),
           ),
         ],
-      ),
+        if (user.email.trim().isNotEmpty ||
+            (user.phone?.trim().isNotEmpty ?? false))
+          Text(
+            user.email.trim().isNotEmpty
+                ? user.email.trim()
+                : user.phone!.trim(),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: RastUi.mutedText,
+              fontSize: Responsive.fontSize(context, 12),
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+      ],
     );
   }
 
@@ -525,56 +488,376 @@ class _ProfileScreenState extends State<ProfileScreen> {
     required VoidCallback onTap,
     Color? textColor,
     Color? iconColor,
+    bool showDivider = true,
   }) {
-    final theme = Theme.of(context);
-    final fgText = textColor ?? theme.colorScheme.onSurface;
-    final fgIcon = iconColor ?? theme.colorScheme.primary;
+    final fgText = textColor ?? RastUi.secondaryText(context);
+    final fgIcon = iconColor ?? RastUi.purple;
 
     return Material(
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(18),
-        child: Container(
-          padding: EdgeInsets.symmetric(
-            horizontal: Responsive.spacing(context, 14),
-            vertical: Responsive.spacing(context, 14),
-          ),
-          decoration: BoxDecoration(
-            color: theme.colorScheme.surface,
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(
-              color: theme.colorScheme.outline.withValues(alpha: 0.13),
-            ),
-          ),
-          child: Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(9),
-                decoration: BoxDecoration(
-                  color: fgIcon.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Icon(icon, color: fgIcon, size: 20),
+        child: Column(
+          children: [
+            Padding(
+              padding: EdgeInsets.symmetric(
+                vertical: Responsive.spacing(context, 13),
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  title,
-                  style: TextStyle(
-                    color: fgText,
-                    fontWeight: FontWeight.w700,
-                    fontSize: Responsive.fontSize(context, 14),
+              child: Row(
+                children: [
+                  Icon(icon, color: fgIcon, size: 23),
+                  SizedBox(width: Responsive.spacing(context, 12)),
+                  Expanded(
+                    child: Text(
+                      title,
+                      style: TextStyle(
+                        color: fgText,
+                        fontWeight: FontWeight.w500,
+                        fontSize: Responsive.fontSize(context, 17),
+                      ),
+                    ),
+                  ),
+                  const Icon(
+                    Icons.chevron_left_rounded,
+                    size: 24,
+                    color: Color(0xFFD4D7DE),
+                  ),
+                ],
+              ),
+            ),
+            if (showDivider)
+              const Divider(height: 1, thickness: 1, color: Color(0xFFF1F1F3)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showHelpCenter() {
+    final lang = context.read<AppSettingsProvider>().language;
+    showDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        title: Text(lang == 'ar' ? 'مركز المساعدة' : 'Help Center'),
+        content: SingleChildScrollView(
+          child: Text(
+            lang == 'ar'
+                ? 'إذا واجهتك أي مشكلة في الحجز أو الدفع أو استخدام التطبيق، يمكنك التواصل معنا عبر الدعم أو من خلال سياسة الخصوصية للتفاصيل.'
+                : 'If you face any issue with booking, payment, or using the app, contact support or check the privacy policy for more details.',
+            style: TextStyle(color: RastUi.secondaryText(ctx)),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('تم'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _openPrivacyPolicy() async {
+    const url = 'https://rast-labs.com/privacy-policy';
+    final uri = Uri.parse(url);
+    if (!await canLaunchUrl(uri)) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('تعذر فتح سياسة الخصوصية')));
+      return;
+    }
+    await launchUrl(uri, mode: LaunchMode.externalApplication);
+  }
+
+  void _showAboutApp() {
+    showDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        title: const Text('حول التطبيق'),
+        content: SingleChildScrollView(
+          child: Text(
+            'RAST هو تطبيق يتيح للمستخدمين العثور على المختبرات الطبية وحجز التحاليل بسهولة.\n\nيمكنك الاطلاع على سياسة الخصوصية عبر: https://rast-labs.com/privacy-policy',
+            style: TextStyle(color: RastUi.secondaryText(ctx)),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('حسناً'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _openPrivacyPolicy();
+            },
+            child: const Text('سياسة الخصوصية'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showPaymentMethods() {
+    showDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        title: const Text('طرق الدفع'),
+        content: SingleChildScrollView(
+          child: Text(
+            'قد تختلف طرق الدفع حسب المختبر. عند تأكيد الحجز ستظهر الرسوم وطرق الدفع ضمن ملخص الطلب قبل التنفيذ.',
+            style: TextStyle(color: RastUi.secondaryText(ctx)),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('تم'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showChangePasswordInfo() {
+    final current = TextEditingController();
+    final newPwd = TextEditingController();
+    final confirm = TextEditingController();
+    bool obscure1 = true;
+    bool obscure2 = true;
+    bool obscure3 = true;
+    bool loading = false;
+
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          return Directionality(
+            textDirection:
+                context.read<AppSettingsProvider>().textDirection,
+            child: AlertDialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(24),
+              ),
+              title: const Text('تغيير كلمة المرور'),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(
+                      controller: current,
+                      obscureText: obscure1,
+                      decoration: InputDecoration(
+                        labelText: 'كلمة المرور الحالية',
+                        suffixIcon: IconButton(
+                          icon: Icon(
+                            obscure1
+                                ? Icons.visibility_off_outlined
+                                : Icons.visibility_outlined,
+                          ),
+                          onPressed: () => setDialogState(
+                            () => obscure1 = !obscure1,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: newPwd,
+                      obscureText: obscure2,
+                      decoration: InputDecoration(
+                        labelText: 'كلمة المرور الجديدة',
+                        suffixIcon: IconButton(
+                          icon: Icon(
+                            obscure2
+                                ? Icons.visibility_off_outlined
+                                : Icons.visibility_outlined,
+                          ),
+                          onPressed: () => setDialogState(
+                            () => obscure2 = !obscure2,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: confirm,
+                      obscureText: obscure3,
+                      decoration: InputDecoration(
+                        labelText: 'تأكيد الجديدة',
+                        suffixIcon: IconButton(
+                          icon: Icon(
+                            obscure3
+                                ? Icons.visibility_off_outlined
+                                : Icons.visibility_outlined,
+                          ),
+                          onPressed: () => setDialogState(
+                            () => obscure3 = !obscure3,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: loading ? null : () => Navigator.pop(ctx),
+                  child: const Text('إلغاء'),
+                ),
+                FilledButton(
+                  onPressed: loading
+                      ? null
+                      : () async {
+                          final c = current.text;
+                          final n = newPwd.text;
+                          final cf = confirm.text;
+                          if (c.isEmpty || n.isEmpty || cf.isEmpty) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('املأ جميع الحقول'),
+                              ),
+                            );
+                            return;
+                          }
+                          if (n.length < 8) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  'كلمة المرور الجديدة 8 أحرف على الأقل',
+                                ),
+                              ),
+                            );
+                            return;
+                          }
+                          if (n != cf) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('التأكيد لا يطابق الجديدة'),
+                              ),
+                            );
+                            return;
+                          }
+                          setDialogState(() => loading = true);
+                          try {
+                            await Api.auth.updatePassword(
+                              currentPassword: c,
+                              newPassword: n,
+                              newPasswordConfirmation: cf,
+                            );
+                            if (ctx.mounted) Navigator.pop(ctx);
+                            if (!mounted) return;
+                            ScaffoldMessenger.of(this.context).showSnackBar(
+                              const SnackBar(
+                                content: Text('تم تحديث كلمة المرور'),
+                              ),
+                            );
+                          } on ApiException catch (e) {
+                            setDialogState(() => loading = false);
+                            if (ctx.mounted) {
+                              ScaffoldMessenger.of(ctx).showSnackBar(
+                                SnackBar(content: Text(e.message)),
+                              );
+                            }
+                          } catch (e) {
+                            setDialogState(() => loading = false);
+                            if (ctx.mounted) {
+                              ScaffoldMessenger.of(ctx).showSnackBar(
+                                SnackBar(
+                                  content: Text(
+                                    e.toString().split('\n').first,
+                                  ),
+                                ),
+                              );
+                            }
+                          }
+                        },
+                  child: loading
+                      ? const SizedBox(
+                          width: 22,
+                          height: 22,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Text('حفظ'),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    ).then((_) {
+      current.dispose();
+      newPwd.dispose();
+      confirm.dispose();
+    });
+  }
+
+  void _showUserDetails(UserModel user) {
+    final details = [
+      if (user.name.trim().isNotEmpty) user.name.trim(),
+      if (user.email.trim().isNotEmpty) user.email.trim(),
+      if (user.phone?.trim().isNotEmpty ?? false) user.phone!.trim(),
+    ];
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Directionality(
+        textDirection: context.read<AppSettingsProvider>().textDirection,
+        child: Container(
+          padding: EdgeInsets.all(Responsive.spacing(context, 22)),
+          decoration: BoxDecoration(
+            color: RastUi.cardSurface(context),
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'بيانات الحساب',
+                style: TextStyle(
+                  color: RastUi.textPurple,
+                  fontSize: Responsive.fontSize(context, 18),
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              SizedBox(height: Responsive.spacing(context, 14)),
+              for (final item in details)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Text(
+                    item,
+                    style: TextStyle(color: RastUi.secondaryText(context)),
                   ),
                 ),
-              ),
-              Icon(
-                Icons.arrow_forward_ios_rounded,
-                size: 12,
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+
+  void _showSettingsSheet(AppSettingsProvider settings) {
+    final lang = settings.language;
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Directionality(
+        textDirection: settings.textDirection,
+        child: Container(
+          padding: EdgeInsets.all(Responsive.spacing(context, 18)),
+          decoration: BoxDecoration(
+            color: RastUi.cardSurface(context),
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          child: _buildPreferencesCard(settings, lang),
         ),
       ),
     );

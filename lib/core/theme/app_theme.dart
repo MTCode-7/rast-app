@@ -4,13 +4,13 @@ import 'package:google_fonts/google_fonts.dart';
 
 /// ثيم عصري مميز — بنفسجي وكحلي مع لمسة ذهبية
 class AppTheme {
-  // لوحة ألوان جديدة — بنفسجي عميق وكحلي
-  static const Color primary = Color(0xFF0F766E);
-  static const Color primaryDark = Color(0xFF115E59);
-  static const Color primaryLight = Color(0xFF14B8A6);
-  static const Color secondary = Color(0xFF0EA5E9);
-  static const Color accent = Color(0xFFF59E0B);
-  static const Color goldAccent = Color(0xFFB45309);
+  // هوية RAST من التصميم المرجعي: بنفسجي عميق مع أزرق ناعم.
+  static const Color primary = Color(0xFF6A1B68);
+  static const Color primaryDark = Color(0xFF4E124F);
+  static const Color primaryLight = Color(0xFF7F5FD0);
+  static const Color secondary = Color(0xFF6686D9);
+  static const Color accent = Color(0xFFFFD400);
+  static const Color goldAccent = Color(0xFFFFC400);
   static const Color warmGold = Color(0xFFFBBF24);
   static const Color surface = Color(0xFFF8FAFC);
   static const Color surfaceVariant = Color(0xFFE2E8F0);
@@ -26,21 +26,21 @@ class AppTheme {
   static const LinearGradient primaryGradient = LinearGradient(
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
-    colors: [Color(0xFF14B8A6), Color(0xFF0F766E), Color(0xFF155E75)],
-    stops: [0.0, 0.5, 1.0],
+    colors: [Color(0xFF6A1B68), Color(0xFF5A3C98), Color(0xFF6686D9)],
+    stops: [0.0, 0.48, 1.0],
   );
 
   static const LinearGradient auroraGradient = LinearGradient(
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
-    colors: [Color(0xFF0284C7), Color(0xFF0EA5E9), Color(0xFF0F766E)],
-    stops: [0.0, 0.5, 1.0],
+    colors: [Color(0xFF6A1B68), Color(0xFF6D4FB3), Color(0xFF6686D9)],
+    stops: [0.0, 0.52, 1.0],
   );
 
   static const LinearGradient accentGradient = LinearGradient(
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
-    colors: [Color(0xFFF59E0B), Color(0xFFD97706)],
+    colors: [Color(0xFFFFD400), Color(0xFFFFB800)],
   );
 
   static const LinearGradient goldGradient = LinearGradient(
@@ -54,10 +54,10 @@ class AppTheme {
     begin: Alignment.topCenter,
     end: Alignment.bottomCenter,
     colors: [
-      Color(0xFFF8FAFC),
-      Color(0xFFF0F9FF),
-      Color(0xFFF0FDFA),
-      Color(0xFFEFF6FF),
+      Color(0xFFFFFFFF),
+      Color(0xFFFCFBFF),
+      Color(0xFFF8F7FF),
+      Color(0xFFFFFFFF),
     ],
     stops: [0.0, 0.3, 0.7, 1.0],
   );
@@ -112,8 +112,8 @@ class AppTheme {
   ];
 
   /// زوايا أنعم (20 بدل 24) لمظهر أحدث
-  static double get radiusCard => 20;
-  static double get radiusButton => 18;
+  static double get radiusCard => 18;
+  static double get radiusButton => 28;
   static double get radiusInput => 18;
 
   static BoxDecoration cardDecoration({Color? color}) => BoxDecoration(

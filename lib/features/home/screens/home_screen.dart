@@ -7,9 +7,9 @@ import 'package:rast/core/providers/app_settings_provider.dart';
 import 'package:rast/core/utils/locale_utils.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_animate/flutter_animate.dart';
-import 'package:geolocator/geolocator.dart';
 import 'package:rast/core/api/api_services.dart';
 import 'package:rast/core/constants/dummy_data.dart';
+import 'package:rast/core/services/favorites_service.dart';
 import 'package:rast/core/services/location_service.dart';
 import 'package:rast/core/theme/app_theme.dart';
 import 'package:rast/core/utils/responsive.dart';
@@ -18,12 +18,12 @@ import 'package:rast/features/packages/screens/packages_screen.dart';
 import 'package:rast/features/packages/screens/package_detail_screen.dart';
 import 'package:rast/features/lab_details/screens/lab_details_screen.dart';
 import 'package:rast/features/labs/screens/labs_screen.dart';
-import 'package:rast/features/settings/screens/default_location_screen.dart';
 import 'package:rast/core/api/api_client.dart';
 import 'package:rast/features/auth/services/auth_service.dart';
+import 'package:rast/features/favorites/screens/favorites_screen.dart';
 import 'package:rast/core/widgets/gradient_button.dart';
-import 'package:rast/core/widgets/rating_badge.dart';
 import 'package:rast/core/widgets/search_box.dart';
+import 'package:rast/core/widgets/rast_ui.dart';
 import 'package:shimmer/shimmer.dart';
 import 'package:smooth_page_indicator/smooth_page_indicator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -94,8 +94,9 @@ class _HomeScreenState extends State<HomeScreen> {
   static List<dynamic> _extractProviderList(Map<String, dynamic> res) {
     final data = res['data'];
     if (data is List) return List.from(data);
-    if (data is Map && data['data'] is List)
+    if (data is Map && data['data'] is List) {
       return List.from(data['data'] as List);
+    }
     return [];
   }
 
@@ -129,6 +130,15 @@ class _HomeScreenState extends State<HomeScreen> {
       final bId = bm['id'] is num ? (bm['id'] as num).toInt() : 0;
       return bId.compareTo(aId);
     });
+  }
+
+  Future<({double lat, double lng, String? label})?>
+  _resolveUserLocation() async {
+    try {
+      final current = await LocationService.getCurrentLocation();
+      if (current != null) return current;
+    } catch (_) {}
+    return LocationService.getDefaultLocation();
   }
 
   Future<void> _loadData() async {
@@ -170,7 +180,8 @@ class _HomeScreenState extends State<HomeScreen> {
         } catch (_) {}
       } else {
         totalPackagesFromApi =
-            _totalFromResponse(homeData) ?? _intFromMap(homeData, 'packages_count');
+            _totalFromResponse(homeData) ??
+            _intFromMap(homeData, 'packages_count');
       }
       // العروض من API
       int? totalOffersFromApi;
@@ -185,57 +196,42 @@ class _HomeScreenState extends State<HomeScreen> {
           offersList = List.from(data['data'] as List);
         }
       } catch (_) {}
-      // المختبرات المميزة: من الصفحة الرئيسية، أو الأعلى تقييماً، أو الأحدث، أو حسب المسافة
+      // المختبرات: الأقرب للمستخدم أولاً عند توفر الموقع، ثم المميزة أو الأعلى تقييماً.
       int? totalLabsFromApi;
       List<dynamic> labsList =
           (homeData['featured_providers'] as List?)
               ?.where((e) => e != null)
               .toList() ??
           [];
-      if (labsList.isEmpty) {
-        double? lat;
-        double? lng;
+      final userLocation = await _resolveUserLocation();
+      if (userLocation != null) {
         try {
-          final permission = await Geolocator.checkPermission();
-          if (permission == LocationPermission.denied)
-            await Geolocator.requestPermission();
-          if (await Geolocator.isLocationServiceEnabled()) {
-            final pos = await Geolocator.getCurrentPosition();
-            lat = pos.latitude;
-            lng = pos.longitude;
+          final res = await Api.providers.getProviders(
+            perPage: 10,
+            latitude: userLocation.lat,
+            longitude: userLocation.lng,
+            radiusKm: 50,
+          );
+          totalLabsFromApi = _totalFromResponse(res);
+          final nearbyLabs = _extractProviderList(res);
+          if (nearbyLabs.isNotEmpty) {
+            labsList = nearbyLabs.length > 6
+                ? nearbyLabs.take(6).toList()
+                : nearbyLabs;
           }
         } catch (_) {}
-        if (lat == null || lng == null) {
-          final saved = await LocationService.getDefaultLocation();
-          if (saved != null) {
-            lat = saved.lat;
-            lng = saved.lng;
-          }
-        }
-        if (lat != null && lng != null) {
-          try {
-            final res = await Api.providers.getProviders(
-              perPage: 10,
-              latitude: lat,
-              longitude: lng,
-            );
-            totalLabsFromApi = _totalFromResponse(res);
-            labsList = _extractProviderList(res);
-            if (labsList.length > 6) labsList = labsList.take(6).toList();
-          } catch (_) {}
-        }
-        if (labsList.isEmpty) {
-          try {
-            final providersRes = await Api.providers.getProviders(
-              sort: 'rating',
-              perPage: 15,
-            );
-            totalLabsFromApi ??= _totalFromResponse(providersRes);
-            labsList = _extractProviderList(providersRes);
-            _sortLabsByRatingThenNewest(labsList);
-            if (labsList.length > 6) labsList = labsList.take(6).toList();
-          } catch (_) {}
-        }
+      }
+      if (labsList.isEmpty) {
+        try {
+          final providersRes = await Api.providers.getProviders(
+            sort: 'rating',
+            perPage: 15,
+          );
+          totalLabsFromApi ??= _totalFromResponse(providersRes);
+          labsList = _extractProviderList(providersRes);
+          _sortLabsByRatingThenNewest(labsList);
+          if (labsList.length > 6) labsList = labsList.take(6).toList();
+        } catch (_) {}
         if (labsList.isEmpty) {
           try {
             final providersRes = await Api.providers.getProviders(perPage: 15);
@@ -300,8 +296,7 @@ class _HomeScreenState extends State<HomeScreen> {
       : (_homeData?['carousel_slides'] as List?) ?? DummyData.carouselSlides;
   List<dynamic> get _categories =>
       (_homeData?['categories'] as List?) ?? DummyData.categories;
-  List<dynamic> get _labs =>
-      (_homeData?['featured_providers'] as List?) ?? [];
+  List<dynamic> get _labs => (_homeData?['featured_providers'] as List?) ?? [];
 
   Map<String, dynamic>? get _banner {
     final b = _homeData?['banner'];
@@ -457,11 +452,6 @@ class _HomeScreenState extends State<HomeScreen> {
                   .animate()
                   .fadeIn(duration: 600.ms)
                   .slideY(begin: 0.05, end: 0, curve: Curves.easeOutCubic),
-              SizedBox(height: Responsive.spacing(context, 14)),
-              _buildShowcaseHero()
-                  .animate()
-                  .fadeIn(duration: 600.ms, delay: 100.ms)
-                  .slideY(begin: 0.05, end: 0, curve: Curves.easeOutCubic),
               if (_offers.isNotEmpty) ...[
                 SizedBox(height: Responsive.spacing(context, 18)),
                 _buildSectionShell(
@@ -524,6 +514,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  // ignore: unused_element
   Widget _buildShowcaseHero() {
     final theme = Theme.of(context);
     return Padding(
@@ -696,30 +687,16 @@ class _HomeScreenState extends State<HomeScreen> {
     required Widget child,
     VoidCallback? onActionTap,
   }) {
-    final theme = Theme.of(context);
     return Padding(
       padding: EdgeInsets.symmetric(
         horizontal: Responsive.spacing(context, 16),
       ),
       child: Container(
         padding: EdgeInsets.only(
-          top: Responsive.spacing(context, 12),
-          bottom: Responsive.spacing(context, 8),
+          top: Responsive.spacing(context, 4),
+          bottom: Responsive.spacing(context, 4),
         ),
-        decoration: BoxDecoration(
-          color: theme.colorScheme.surface.withValues(alpha: 0.90),
-          borderRadius: BorderRadius.circular(24),
-          border: Border.all(
-            color: theme.colorScheme.outline.withValues(alpha: 0.12),
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.04),
-              blurRadius: 16,
-              offset: const Offset(0, 8),
-            ),
-          ],
-        ),
+        decoration: const BoxDecoration(color: Colors.transparent),
         child: Column(
           children: [
             _buildSectionTitle(title, action, onActionTap: onActionTap),
@@ -869,8 +846,9 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildBannerBar() {
     final banner = _banner!;
     final message = banner['message']?.toString();
-    if (message == null || message.isEmpty)
+    if (message == null || message.isEmpty) {
       return const SliverToBoxAdapter(child: SizedBox.shrink());
+    }
     Color bgColor;
     try {
       final hex = (banner['bg_color'] ?? '#ffc107').toString().replaceFirst(
@@ -913,112 +891,71 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   SliverAppBar _buildAppBar(double topPadding) {
-    final settings = context.watch<AppSettingsProvider>();
-    final lang = settings.language;
-    final theme = Theme.of(context);
-    final parts = (AuthService.currentUser?.name ?? '').trim().split(
-      RegExp(r'\s+'),
-    );
-    final firstName = parts.isNotEmpty ? parts.first : '';
-    final greeting = firstName.isNotEmpty
-        ? AppStrings.tParam('greetingWithName', lang, firstName)
-        : AppStrings.t('greeting', lang);
-    final subtitle = AppStrings.t('homeSubtitle', lang);
+    final userName = (AuthService.currentUser?.name ?? '').trim();
+    final parts = userName.split(RegExp(r'\s+'));
+    final firstName = userName.isNotEmpty && parts.isNotEmpty
+        ? parts.first
+        : '';
 
     return SliverAppBar(
       toolbarHeight: 0,
       pinned: false,
       floating: true,
       snap: true,
-      expandedHeight: topPadding + 146,
+      expandedHeight: topPadding + 86,
       backgroundColor: Colors.transparent,
       flexibleSpace: FlexibleSpaceBar(
         background: Padding(
-          padding: EdgeInsets.fromLTRB(
-            Responsive.spacing(context, 16),
-            topPadding + 10,
-            Responsive.spacing(context, 16),
-            8,
-          ),
-          child: Container(
-            padding: EdgeInsets.symmetric(
-              horizontal: Responsive.spacing(context, 16),
-              vertical: Responsive.spacing(context, 14),
-            ),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topRight,
-                end: Alignment.bottomLeft,
-                colors: [
-                  theme.colorScheme.primary.withValues(alpha: 0.16),
-                  theme.colorScheme.secondary.withValues(alpha: 0.12),
-                ],
-              ),
-              borderRadius: BorderRadius.circular(26),
-              border: Border.all(
-                color: theme.colorScheme.outline.withValues(alpha: 0.15),
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: theme.colorScheme.primary.withValues(alpha: 0.12),
-                  blurRadius: 20,
-                  offset: const Offset(0, 10),
+          padding: EdgeInsets.fromLTRB(20, topPadding + 8, 20, 4),
+          child: Row(
+            children: [
+              _buildHeaderAction(
+                icon: Icons.favorite_border_rounded,
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const FavoritesScreen()),
                 ),
-              ],
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        greeting,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: Responsive.fontSize(context, 20),
-                          fontWeight: FontWeight.w700,
-                          color: theme.colorScheme.onSurface,
-                          letterSpacing: -0.2,
-                        ),
+              ),
+              const Spacer(),
+              Expanded(
+                flex: 4,
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      AuthService.isLoggedIn ? 'أهلاً بعودتك' : 'أهلاً بك',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: Responsive.fontSize(context, 20),
+                        fontWeight: FontWeight.w700,
+                        color: const Color(0xFFDDD7E4),
+                        letterSpacing: -0.2,
                       ),
-                      SizedBox(height: Responsive.spacing(context, 4)),
+                    ),
+                    SizedBox(height: Responsive.spacing(context, 4)),
+                    if (firstName.isNotEmpty)
                       Text(
-                        subtitle,
+                        firstName,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           fontSize: Responsive.fontSize(context, 12),
-                          color: theme.colorScheme.onSurfaceVariant,
+                          color: RastUi.textPurple,
                           fontWeight: FontWeight.w500,
                         ),
                       ),
-                    ],
-                  ),
-                ),
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    _buildHeaderAction(
-                      icon: Icons.notifications_outlined,
-                      onTap: () {},
-                    ),
-                    SizedBox(width: Responsive.spacing(context, 8)),
-                    _buildHeaderAction(
-                      icon: Icons.location_on_outlined,
-                      onTap: () => Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => const DefaultLocationScreen(),
-                        ),
-                      ).then((_) => _loadData()),
-                    ),
                   ],
                 ),
-              ],
-            ),
+              ),
+              const SizedBox(width: 10),
+              const CircleAvatar(
+                radius: 24,
+                backgroundColor: Color(0xFFECECF3),
+                child: Icon(Icons.person, color: RastUi.purple),
+              ),
+            ],
           ),
         ),
       ),
@@ -1029,7 +966,6 @@ class _HomeScreenState extends State<HomeScreen> {
     required IconData icon,
     required VoidCallback onTap,
   }) {
-    final theme = Theme.of(context);
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -1037,14 +973,8 @@ class _HomeScreenState extends State<HomeScreen> {
         borderRadius: BorderRadius.circular(16),
         child: Container(
           padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(
-            color: theme.colorScheme.surface.withValues(alpha: 0.6),
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: theme.colorScheme.outline.withValues(alpha: 0.18),
-            ),
-          ),
-          child: Icon(icon, size: 22, color: theme.colorScheme.primary),
+          decoration: BoxDecoration(color: Colors.transparent),
+          child: Icon(icon, size: 28, color: RastUi.purple),
         ),
       ),
     );
@@ -1198,7 +1128,21 @@ class _HomeScreenState extends State<HomeScreen> {
           'searchHint',
           context.watch<AppSettingsProvider>().language,
         ),
+        onSearchTap: _submitHomeSearch,
+        onSubmitted: (_) => _submitHomeSearch(),
         onFilterTap: _showFilterBottomSheet,
+      ),
+    );
+  }
+
+  void _submitHomeSearch() {
+    final query = _searchController.text.trim();
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => AnalysesScreen(
+          initialSearchQuery: query.isEmpty ? null : query,
+        ),
       ),
     );
   }
@@ -1499,8 +1443,9 @@ class _HomeScreenState extends State<HomeScreen> {
                         crossAxisAlignment: CrossAxisAlignment.center,
                         children: List.generate(2, (row) {
                           final index = start + col + row * 3;
-                          if (index >= categories.length)
+                          if (index >= categories.length) {
                             return SizedBox(height: rowHeight);
+                          }
                           final cat = categories[index] is Map
                               ? categories[index] as Map<String, dynamic>
                               : <String, dynamic>{};
@@ -1567,7 +1512,8 @@ class _HomeScreenState extends State<HomeScreen> {
                                       width: iconSize,
                                       height: iconSize,
                                       decoration: BoxDecoration(
-                                        shape: BoxShape.circle,
+                                        borderRadius: BorderRadius.circular(14),
+                                        color: const Color(0xFFE8E9FB),
                                         border: Border.all(
                                           color: isSelected
                                               ? AppTheme.primary
@@ -1585,7 +1531,8 @@ class _HomeScreenState extends State<HomeScreen> {
                                           ),
                                         ],
                                       ),
-                                      child: ClipOval(
+                                      child: ClipRRect(
+                                        borderRadius: BorderRadius.circular(14),
                                         child: (url != null && url.isNotEmpty)
                                             ? CachedNetworkImage(
                                                 imageUrl: url,
@@ -1695,7 +1642,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildPackages() {
     final packages = _packages.isEmpty ? DummyData.packages : _packages;
     final cardWidth = Responsive.packageCardWidth(context);
-    final cardHeight = (cardWidth * 1.25).clamp(200.0, 280.0);
+    final cardHeight = (cardWidth * 0.68).clamp(104.0, 132.0);
     return SizedBox(
       height: cardHeight,
       child: ListView.builder(
@@ -1717,8 +1664,9 @@ class _HomeScreenState extends State<HomeScreen> {
             final psList = pkg['provider_services'] ?? pkg['providerServices'];
             if (psList is List && psList.isNotEmpty) {
               final first = psList.first;
-              if (first is Map<String, dynamic>)
+              if (first is Map<String, dynamic>) {
                 price = ApiConfig.priceFromMap(first);
+              }
             }
           }
           final orig = pkg['original_price'];
@@ -1736,7 +1684,21 @@ class _HomeScreenState extends State<HomeScreen> {
             child: Padding(
               padding: EdgeInsets.only(left: Responsive.spacing(context, 12)),
               child: Container(
-                decoration: AppTheme.cardDecorationFor(context),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(13),
+                  gradient: const LinearGradient(
+                    begin: Alignment.topRight,
+                    end: Alignment.bottomLeft,
+                    colors: [RastUi.blue, RastUi.purple],
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: RastUi.purple.withValues(alpha: 0.22),
+                      blurRadius: 10,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
                 clipBehavior: Clip.antiAlias,
                 child: Material(
                   color: Colors.transparent,
@@ -1748,120 +1710,109 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                     ),
                     borderRadius: BorderRadius.circular(24),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                    child: Stack(
                       children: [
-                        Expanded(
-                          flex: 5,
-                          child: imageUrl != null && imageUrl.isNotEmpty
-                              ? CachedNetworkImage(
-                                  imageUrl: imageUrl,
-                                  fit: BoxFit.cover,
-                                  width: double.infinity,
-                                  placeholder: (_, __) =>
-                                      Container(color: AppTheme.surfaceVariant),
-                                  errorWidget: (_, __, ___) => Container(
-                                    color: AppTheme.primary.withValues(
-                                      alpha: 0.12,
-                                    ),
-                                    child: Icon(
-                                      Icons.medical_services,
-                                      size: 40,
-                                      color: AppTheme.primary,
-                                    ),
-                                  ),
-                                )
-                              : Container(
-                                  color: AppTheme.primary.withValues(
-                                    alpha: 0.12,
-                                  ),
-                                  child: Icon(
-                                    Icons.medical_services,
-                                    size: 40,
-                                    color: AppTheme.primary,
-                                  ),
-                                ),
+                        PositionedDirectional(
+                          start: 10,
+                          top: 10,
+                          child: _buildPackageImage(imageUrl, cardHeight),
                         ),
-                        Expanded(
-                          flex: 4,
-                          child: Padding(
-                            padding: EdgeInsets.all(
-                              Responsive.spacing(context, 8),
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Text(
-                                  displayName,
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
+                        PositionedDirectional(
+                          start: cardHeight * 0.78,
+                          top: 10,
+                          bottom: 8,
+                          end: 10,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                displayName,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: Responsive.fontSize(context, 10),
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 3,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(18),
+                                ),
+                                child: Text(
+                                  price > 0
+                                      ? '${price.toStringAsFixed(0)} ${AppStrings.t('sar', context.watch<AppSettingsProvider>().language)}'
+                                      : AppStrings.t(
+                                          'contactForPrice',
+                                          context
+                                              .watch<AppSettingsProvider>()
+                                              .language,
+                                        ),
                                   style: TextStyle(
-                                    fontSize: Responsive.fontSize(context, 11),
-                                    fontWeight: FontWeight.w500,
+                                    color: RastUi.purple,
+                                    fontSize: Responsive.fontSize(context, 9),
+                                    fontWeight: FontWeight.w600,
                                   ),
                                 ),
-                                Row(
-                                  children: [
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 8,
-                                        vertical: 4,
+                              ),
+                              Row(
+                                children: [
+                                  Text(
+                                    '$testsCount ${AppStrings.t('testsCount', context.watch<AppSettingsProvider>().language)}',
+                                    style: TextStyle(
+                                      color: Colors.white.withValues(
+                                        alpha: 0.9,
                                       ),
-                                      decoration: BoxDecoration(
-                                        gradient: AppTheme.auroraGradient,
-                                        borderRadius: BorderRadius.circular(12),
-                                        boxShadow: AppTheme.softGlow,
-                                      ),
-                                      child: Text(
-                                        price > 0
-                                            ? '${price.toStringAsFixed(2)} ${AppStrings.t('sar', context.watch<AppSettingsProvider>().language)}'
-                                            : AppStrings.t(
-                                                'contactForPrice',
-                                                context
-                                                    .watch<
-                                                      AppSettingsProvider
-                                                    >()
-                                                    .language,
-                                              ),
-                                        style: TextStyle(
-                                          fontSize: Responsive.fontSize(
-                                            context,
-                                            11,
-                                          ),
-                                          color: Colors.white,
-                                          fontWeight: FontWeight.w600,
+                                      fontSize: Responsive.fontSize(context, 9),
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                  if (originalPrice != null) ...[
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      originalPrice.toStringAsFixed(0),
+                                      style: TextStyle(
+                                        decoration: TextDecoration.lineThrough,
+                                        decorationColor: Colors.white70,
+                                        color: Colors.white70,
+                                        fontSize: Responsive.fontSize(
+                                          context,
+                                          8,
                                         ),
                                       ),
                                     ),
-                                    if (originalPrice != null) ...[
-                                      SizedBox(
-                                        width: Responsive.spacing(context, 6),
-                                      ),
-                                      Text(
-                                        '${originalPrice.toStringAsFixed(2)} ${AppStrings.t('sar', context.watch<AppSettingsProvider>().language)}',
-                                        style: TextStyle(
-                                          decoration:
-                                              TextDecoration.lineThrough,
-                                          fontSize: Responsive.fontSize(
-                                            context,
-                                            10,
-                                          ),
-                                          color: AppTheme.onSurfaceVariant,
-                                        ),
-                                      ),
-                                    ],
                                   ],
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                        PositionedDirectional(
+                          end: 10,
+                          bottom: 7,
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                '4.8',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: Responsive.fontSize(context, 9),
                                 ),
-                                Text(
-                                  '$testsCount ${AppStrings.t('testsCount', context.watch<AppSettingsProvider>().language)}',
-                                  style: TextStyle(
-                                    fontSize: Responsive.fontSize(context, 10),
-                                    color: AppTheme.onSurfaceVariant,
-                                  ),
-                                ),
-                              ],
-                            ),
+                              ),
+                              const SizedBox(width: 3),
+                              const Icon(
+                                Icons.star_rounded,
+                                color: AppTheme.accent,
+                                size: 14,
+                              ),
+                            ],
                           ),
                         ),
                       ],
@@ -1873,6 +1824,37 @@ class _HomeScreenState extends State<HomeScreen> {
           );
         },
       ),
+    );
+  }
+
+  Widget _buildPackageImage(String? imageUrl, double cardHeight) {
+    final size = (cardHeight * 0.66).clamp(68.0, 82.0);
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        border: Border.all(
+          color: Colors.white.withValues(alpha: 0.72),
+          width: 2,
+        ),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: imageUrl != null && imageUrl.isNotEmpty
+          ? CachedNetworkImage(
+              imageUrl: imageUrl,
+              fit: BoxFit.cover,
+              placeholder: (_, __) => _packageImageFallback(),
+              errorWidget: (_, __, ___) => _packageImageFallback(),
+            )
+          : _packageImageFallback(),
+    );
+  }
+
+  Widget _packageImageFallback() {
+    return Container(
+      color: Colors.white.withValues(alpha: 0.18),
+      child: const Icon(Icons.science_rounded, color: Colors.white, size: 28),
     );
   }
 
@@ -2044,92 +2026,146 @@ class _HomeScreenState extends State<HomeScreen> {
         final avgRating =
             (lab['avg_rating'] is num ? lab['avg_rating'] as num : 0)
                 .toDouble();
-        final totalReviews = lab['total_reviews'] is num
-            ? (lab['total_reviews'] as num).toInt()
-            : 0;
         final homeService = lab['home_service_available'] == true;
         return Container(
-          decoration: AppTheme.cardDecorationFor(context),
+          decoration: BoxDecoration(
+            color: RastUi.cardSurface(context),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: RastUi.softBorder(context)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.10),
+                blurRadius: 7,
+                offset: const Offset(0, 3),
+              ),
+            ],
+          ),
           child: Material(
             color: Colors.transparent,
             child: InkWell(
               onTap: () => _navigateToLabDetails(lab),
-              borderRadius: BorderRadius.circular(24),
+              borderRadius: BorderRadius.circular(12),
               child: Padding(
                 padding: EdgeInsets.all(Responsive.spacing(context, 12)),
-                child: Row(
+                child: Stack(
                   children: [
-                    _buildLabAvatar(logoUrl, avatarSize),
-                    SizedBox(width: Responsive.spacing(context, 14)),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            businessName,
-                            style: TextStyle(
-                              fontSize: Responsive.fontSize(context, 12),
-                              fontWeight: FontWeight.w400,
+                    PositionedDirectional(
+                      end: 0,
+                      top: 0,
+                      child: FutureBuilder<bool>(
+                        future: FavoritesService.isLabFavorite(lab),
+                        builder: (context, snapshot) {
+                          final isFavorite = snapshot.data ?? false;
+                          return IconButton(
+                            onPressed: () async {
+                              await FavoritesService.toggleLab(lab);
+                              if (mounted) setState(() {});
+                            },
+                            visualDensity: VisualDensity.compact,
+                            icon: Icon(
+                              isFavorite
+                                  ? Icons.favorite_rounded
+                                  : Icons.favorite_border_rounded,
+                              color: const Color(0xFFFF4D61),
+                              size: Responsive.fontSize(context, 22),
                             ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          SizedBox(height: Responsive.spacing(context, 4)),
-                          Text(
-                            '$city - $district',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: Responsive.fontSize(context, 9),
-                              color: AppTheme.onSurfaceVariant,
-                            ),
-                          ),
-                          SizedBox(height: Responsive.spacing(context, 6)),
-                          Row(
+                          );
+                        },
+                      ),
+                    ),
+                    Row(
+                      children: [
+                        _buildLabAvatar(logoUrl, avatarSize),
+                        SizedBox(width: Responsive.spacing(context, 14)),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              RatingBadge(
-                                rating: avgRating,
-                                reviewCount: totalReviews,
-                                size: RatingBadgeSize.small,
-                                showLabel: true,
+                              Text(
+                                businessName,
+                                style: TextStyle(
+                                  fontSize: Responsive.fontSize(context, 12),
+                                  color: RastUi.textPurple,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
                               ),
-                              if (homeService) ...[
-                                SizedBox(width: Responsive.spacing(context, 8)),
-                                Container(
+                              SizedBox(height: Responsive.spacing(context, 4)),
+                              Text(
+                                '$city ${district.isNotEmpty ? '| $district' : ''}',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: Responsive.fontSize(context, 10),
+                                  color: RastUi.blue,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                              SizedBox(height: Responsive.spacing(context, 8)),
+                              Align(
+                                alignment: AlignmentDirectional.centerStart,
+                                child: Container(
+                                  constraints: const BoxConstraints(
+                                    minWidth: 84,
+                                  ),
                                   padding: const EdgeInsets.symmetric(
-                                    horizontal: 8,
+                                    horizontal: 14,
                                     vertical: 4,
                                   ),
                                   decoration: BoxDecoration(
-                                    color: AppTheme.primary.withValues(
-                                      alpha: 0.12,
-                                    ),
-                                    borderRadius: BorderRadius.circular(10),
+                                    gradient: RastUi.brandGradient,
+                                    borderRadius: BorderRadius.circular(18),
                                   ),
                                   child: Text(
-                                    AppStrings.t(
-                                      'homeService',
-                                      context
-                                          .watch<AppSettingsProvider>()
-                                          .language,
-                                    ),
+                                    homeService
+                                        ? AppStrings.t(
+                                            'homeService',
+                                            context
+                                                .watch<AppSettingsProvider>()
+                                                .language,
+                                          )
+                                        : 'منزلي',
+                                    textAlign: TextAlign.center,
                                     style: TextStyle(
-                                      fontSize: Responsive.fontSize(context, 8),
-                                      color: AppTheme.primary,
-                                      fontWeight: FontWeight.w400,
+                                      color: Colors.white,
+                                      fontSize: Responsive.fontSize(
+                                        context,
+                                        10,
+                                      ),
+                                      fontWeight: FontWeight.w500,
                                     ),
                                   ),
                                 ),
-                              ],
+                              ),
                             ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    PositionedDirectional(
+                      end: 0,
+                      bottom: 0,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            avgRating > 0
+                                ? avgRating.toStringAsFixed(1)
+                                : '4.8',
+                            style: TextStyle(
+                              color: RastUi.textPurple,
+                              fontSize: Responsive.fontSize(context, 10),
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          const Icon(
+                            Icons.star_rounded,
+                            size: 16,
+                            color: AppTheme.accent,
                           ),
                         ],
                       ),
-                    ),
-                    Icon(
-                      Icons.arrow_forward_ios,
-                      size: 14,
-                      color: AppTheme.onSurfaceVariant,
                     ),
                   ],
                 ),

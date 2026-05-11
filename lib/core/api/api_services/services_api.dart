@@ -10,15 +10,54 @@ class ServicesApi {
     return data is List ? List.from(data) : [];
   }
 
-  /// GET /api/services - قائمة التحاليل (اختياري: category_id, search)
-  Future<Map<String, dynamic>> getServices({int? categoryId, String? search, int page = 1}) async {
+  /// GET /api/services - قائمة التحاليل (اختياري: category_id, search, per_page)
+  Future<Map<String, dynamic>> getServices({
+    int? categoryId,
+    String? search,
+    int page = 1,
+    int? perPage,
+  }) async {
     final params = <String, String>{
       'page': page.toString(),
     };
+    if (perPage != null) params['per_page'] = perPage.toString();
     if (categoryId != null) params['category_id'] = categoryId.toString();
     if (search != null && search.isNotEmpty) params['search'] = search;
     final res = await _client.get('services', queryParams: params);
     return res;
+  }
+
+  /// يجمع كل صفحات GET /api/services لأن الخادم يستخدم pagination.
+  Future<List<dynamic>> getAllServices({
+    int? categoryId,
+    String? search,
+    int perPage = 100,
+  }) async {
+    final all = <dynamic>[];
+    var page = 1;
+    while (true) {
+      final res = await getServices(
+        categoryId: categoryId,
+        search: search,
+        page: page,
+        perPage: perPage,
+      );
+      final data = res['data'];
+      if (data is Map<String, dynamic>) {
+        final items = data['data'];
+        if (items is List) all.addAll(List.from(items));
+        final lp = data['last_page'];
+        final lastPage = lp is int ? lp : int.tryParse(lp?.toString() ?? '') ?? 1;
+        if (page >= lastPage) break;
+        page++;
+      } else if (data is List) {
+        all.addAll(List.from(data));
+        break;
+      } else {
+        break;
+      }
+    }
+    return all;
   }
 
   /// GET /api/services/{id} - تفاصيل تحليل

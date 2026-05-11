@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\AppPopup;
+use App\Models\AppSetting;
 use App\Models\MobileSlide;
 use App\Models\Provider;
 use App\Models\ServiceCategory;
@@ -19,13 +20,14 @@ class AppConfigController extends Controller
     public function config()
     {
         $settings = Settings::first();
+        $appSettings = AppSetting::get();
 
         $data = [
             'site' => [
                 'name' => $settings->name ?? config('app.name'),
                 'logo_url' => $settings->logo ? asset('storage/' . $settings->logo) : null,
-                 'color1' => $settings->primary_color ?? $settings->color1 ?? null,
-                'color2' => $settings->secondary_color ?? $settings->color2 ?? null,
+                'color1' => $appSettings->primary_color ?? ($settings->color1 ?? null),
+                'color2' => $appSettings->secondary_color ?? ($settings->color2 ?? null),
                 'email' => $settings->email ?? null,
                 'phone' => $settings->phone ?? null,
                 'address' => $settings->address ?? null,
@@ -49,9 +51,10 @@ class AppConfigController extends Controller
                     'link' => $settings->ios_link ?? null,
                 ],
             ],
+            // للتحاليل والباقات: عرض الأسعار بعد الخصم والضريبة في التطبيق
             'booking' => [
-                'platform_discount_rate' => (float) ($settings->platform_discount_rate ?? $settings->user_discount ?? 7),
-                'vat_rate' => (float) ($settings->vat_rate ?? 0),
+                'platform_discount_rate' => (float) $settings->platform_discount_rate, // 0–100
+                'vat_rate' => (float) $settings->vat_rate, // 0–100، تُطبق لغير السعودي
             ],
         ];
 
@@ -91,6 +94,7 @@ class AppConfigController extends Controller
     public function home(Request $request)
     {
         $settings = Settings::first();
+        $appSettings = AppSetting::get();
         $platform = $request->query('platform', 'android');
 
         $slides = MobileSlide::active()->forPlatform($platform)->get()->map(function ($s) {
@@ -130,8 +134,8 @@ class AppConfigController extends Controller
             'site' => [
                 'name' => $settings->name ?? config('app.name'),
                 'logo_url' => $settings->logo ? asset('storage/' . $settings->logo) : null,
-                'color1' => $settings->primary_color ?? $settings->color1 ?? null,
-                'color2' => $settings->secondary_color ?? $settings->color2 ?? null,
+                'color1' => $appSettings->primary_color ?? ($settings->color1 ?? null),
+                'color2' => $appSettings->secondary_color ?? ($settings->color2 ?? null),
             ],
             'banner' => [
                 'active' => (bool) ($settings->banner_active ?? false),

@@ -17,6 +17,7 @@ class BookingController extends Controller
     {
         $bookings = Booking::with([
             'provider',
+            'branch',
             'providerService.service',
             'timeSlot'
         ])
@@ -34,6 +35,7 @@ class BookingController extends Controller
     {
         $bookings = Booking::with([
             'provider',
+            'branch',
             'providerService.service',
             'timeSlot'
         ])
@@ -52,6 +54,7 @@ class BookingController extends Controller
     {
         $bookings = Booking::with([
             'provider',
+            'branch',
             'providerService.service',
             'timeSlot',
             'review'
@@ -64,64 +67,6 @@ class BookingController extends Controller
         return response()->json([
             'success' => true,
             'data' => BookingResource::collection($bookings),
-        ]);
-    }
-
-    /**
-     * معاينة أسعار الحجز (بدون إنشاء حجز) - نفس منطق الحساب المستخدم في store.
-     * GET /api/booking-preview?provider_service_id=123&nationality=saudi|non_saudi
-     */
-    public function preview(Request $request)
-    {
-        $validated = $request->validate([
-            'provider_service_id' => 'required|exists:provider_services,id',
-            'nationality' => 'nullable|in:saudi,non_saudi',
-        ]);
-        $nationality = $validated['nationality'] ?? 'saudi';
-
-        $providerService = ProviderService::with(['provider', 'service'])
-            ->findOrFail($validated['provider_service_id']);
-
-        if (!$providerService->is_available) {
-            return response()->json(['success' => false, 'message' => 'Service not available'], 422);
-        }
-
-        $settings = Settings::first();
-        $platformDiscountRate = $settings ? ($settings->platform_discount_rate / 100) : 0.07;
-        $vatRate = $settings ? ($settings->vat_rate / 100) : 0.15;
-
-        $inClinicPrice = (float) $providerService->final_price;
-        $homeServiceFee = 0;
-        if ($providerService->provider->home_service_available ?? false) {
-            $homeServiceFee = (float) ($providerService->home_service_price ?? $providerService->provider->home_service_fee ?? 0);
-        }
-
-        $result = [];
-        foreach (['in_clinic', 'home_service'] as $serviceType) {
-            $fee = $serviceType === 'home_service' ? $homeServiceFee : 0;
-            $basePrice = $inClinicPrice + $fee;
-            $platformDiscount = round($inClinicPrice * $platformDiscountRate, 2);
-            $subTotal = round($basePrice - $platformDiscount, 2);
-            $vatAmount = 0;
-            if ($nationality === 'non_saudi') {
-                $vatAmount = round($subTotal * $vatRate, 2);
-            }
-            $totalAmount = round($subTotal + $vatAmount, 2);
-            $result[$serviceType] = [
-                'service_price' => round($inClinicPrice, 2),
-                'home_service_fee' => round($fee, 2),
-                'platform_discount' => round($platformDiscount, 2),
-                'platform_discount_rate' => round($platformDiscountRate * 100, 2),
-                'vat_rate' => round($vatRate * 100, 2),
-                'vat_amount' => round($vatAmount, 2),
-                'sub_total' => round($subTotal, 2),
-                'total_amount' => round($totalAmount, 2),
-            ];
-        }
-
-        return response()->json([
-            'success' => true,
-            'data' => $result,
         ]);
     }
 
@@ -157,6 +102,12 @@ class BookingController extends Controller
 
             // Get and check time slot
             $timeSlot = TimeSlot::findOrFail($validated['time_slot_id']);
+            if ((int) $timeSlot->provider_id !== (int) $providerService->provider_id) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'The selected time slot does not belong to this provider',
+                ], 422);
+            }
 
             if (!$timeSlot->hasAvailability()) {
                 return response()->json([
@@ -204,10 +155,36 @@ class BookingController extends Controller
                 'platform_discount_rate' => (float) round($platformDiscountRate, 4),
             ];
 
+            $provider = $providerService->provider;
+            $branchId = $timeSlot->branch && $timeSlot->branch->is_active ? $timeSlot->branch_id : null;
+            if (! $branchId && $provider->branches()->active()->exists()) {
+                $userLat = $validated['home_latitude'] ?? null;
+                $userLng = $validated['home_longitude'] ?? null;
+
+                if ($userLat !== null && $userLng !== null) {
+                    $nearest = $provider->branches()
+                        ->active()
+                        ->whereNotNull('latitude')
+                        ->whereNotNull('longitude')
+                        ->get()
+                        ->sortBy(fn ($branch) => $branch->distanceFrom($userLat, $userLng))
+                        ->first();
+
+                    if ($nearest) {
+                        $branchId = $nearest->id;
+                    }
+                }
+
+                if (! $branchId) {
+                    $branchId = $provider->branches()->active()->oldest()->value('id');
+                }
+            }
+
             // Create booking
             $booking = Booking::create([
                 'user_id' => $request->user()->id,
                 'provider_id' => $providerService->provider_id,
+                'branch_id' => $branchId,
                 'provider_service_id' => $providerService->id,
                 'time_slot_id' => $timeSlot->id,
                 'booking_date' => $timeSlot->date,
@@ -236,7 +213,7 @@ class BookingController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => 'Booking created successfully',
-                'data' => new BookingResource($booking->load(['provider', 'providerService.service', 'timeSlot'])),
+                'data' => new BookingResource($booking->load(['provider', 'branch', 'providerService.service', 'timeSlot'])),
             ], 201);
         });
     }
@@ -245,6 +222,7 @@ class BookingController extends Controller
     {
         $booking = Booking::with([
             'provider',
+            'branch',
             'providerService.service',
             'timeSlot',
             'review'
@@ -278,11 +256,9 @@ class BookingController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Booking cancelled successfully',
-            'data' => new BookingResource($booking->load(['provider', 'providerService.service', 'timeSlot'])),
+            'data' => new BookingResource($booking->load(['provider', 'branch', 'providerService.service', 'timeSlot'])),
         ]);
     }
-
-
 
     /**
      * إضافة تقييم لحجز مكتمل.

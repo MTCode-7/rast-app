@@ -60,6 +60,17 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
     return merged;
   }
 
+  String _bookingTimeLabel(Map<String, dynamic> b) {
+    final ar = b['booking_period_label_ar']?.toString().trim();
+    if (ar != null && ar.isNotEmpty) return ar;
+    final ts = b['time_slot'];
+    if (ts is Map) {
+      final tsAr = ts['period_label_ar']?.toString().trim();
+      if (tsAr != null && tsAr.isNotEmpty) return tsAr;
+    }
+    return DateFormatter.formatBookingTime(b['booking_time']?.toString());
+  }
+
   String _statusText(String status) {
     switch (status) {
       case 'confirmed':
@@ -118,7 +129,7 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
                       _buildInfoRow('التحليل', LocaleUtils.localizedName(booking, context.watch<AppSettingsProvider>().isArabic, arKey: 'service_name_ar', enKey: 'service_name_en')),
                       _buildInfoRow('المختبر', LocaleUtils.localizedName(booking, context.watch<AppSettingsProvider>().isArabic, arKey: 'provider_name_ar', enKey: 'provider_name_en')),
                       _buildInfoRow('التاريخ', DateFormatter.formatBookingDate(booking['booking_date']?.toString())),
-                      _buildInfoRow('الوقت', DateFormatter.formatBookingTime(booking['booking_time']?.toString())),
+                      _buildInfoRow('الوقت', _bookingTimeLabel(booking)),
                       _buildInfoRow('نوع الخدمة', booking['service_type'] == 'home_service' ? 'منزلي' : 'في المختبر'),
                       _buildInfoRow('الفرع', booking['branch_name']?.toString() ?? ''),
                     ]),

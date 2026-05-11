@@ -42,7 +42,7 @@ class AppStrings {
       'categories': 'تصنيفات التحاليل',
       'viewAll': 'الكل',
       'viewAllOffers': 'كل العروض',
-      'packages': 'باقات الفحص',
+      'packages': 'باقات المختبرات',
       'featuredLabs': 'مختبرات موثوقة',
       'offers': 'عروض مميزة',
       'loadError': 'لم نتمكن من تحميل البيانات',

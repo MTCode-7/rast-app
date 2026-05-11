@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:rast/core/providers/app_settings_provider.dart';
+import 'package:rast/core/widgets/rast_ui.dart';
 
 /// زر ممتلئ بتدرج لوني من لوني الإعدادات (primary → secondary) ليتوافق مع خلفيات التسجيل والدخول
 class GradientFilledButton extends StatelessWidget {
@@ -22,12 +23,12 @@ class GradientFilledButton extends StatelessWidget {
     return DecoratedBox(
       decoration: BoxDecoration(
         gradient: gradient,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(28),
         boxShadow: [
           BoxShadow(
             color: settings.primaryColor.withValues(alpha: 0.3),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
+            blurRadius: 14,
+            offset: const Offset(0, 5),
           ),
         ],
       ),
@@ -67,12 +68,12 @@ class GradientFilledButtonIcon extends StatelessWidget {
     return DecoratedBox(
       decoration: BoxDecoration(
         gradient: gradient,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(28),
         boxShadow: [
           BoxShadow(
-            color: settings.primaryColor.withValues(alpha: 0.3),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
+            color: RastUi.purple.withValues(alpha: 0.28),
+            blurRadius: 14,
+            offset: const Offset(0, 5),
           ),
         ],
       ),

@@ -307,7 +307,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> with Single
                 keyboardType: TextInputType.phone,
                 decoration: const InputDecoration(
                   labelText: 'رقم الجوال',
-                  hintText: '05xxxxxxxx أو 9665xxxxxxxx',
+                  hintText: '05xxxxxxxx',
                   prefixIcon: Icon(Icons.phone_android_outlined),
                 ),
                 validator: (v) {

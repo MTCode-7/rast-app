@@ -23,47 +23,136 @@ class PackagesScreen extends StatefulWidget {
 }
 
 class _PackagesScreenState extends State<PackagesScreen> {
+  static const int _pageSize = 20;
   final TextEditingController _searchController = TextEditingController();
+  final ScrollController _scrollController = ScrollController();
   List<dynamic> _packages = [];
   bool _isLoading = true;
+  bool _isLoadingMore = false;
+  bool _hasMore = true;
+  int _currentPage = 1;
+  int? _totalAvailable;
   String? _errorMessage;
 
   @override
   void initState() {
     super.initState();
-    _loadData();
+    _scrollController.addListener(_onScroll);
+    _loadData(reset: true);
   }
 
-  Future<void> _loadData() async {
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-    });
+  Future<void> _loadData({bool reset = false}) async {
+    if (_isLoadingMore) return;
+    if (!reset && !_hasMore) return;
+
+    if (reset) {
+      setState(() {
+        _isLoading = true;
+        _errorMessage = null;
+        _currentPage = 1;
+        _hasMore = true;
+      });
+    } else {
+      setState(() {
+        _isLoadingMore = true;
+        _errorMessage = null;
+      });
+    }
     try {
-      final res = await Api.services.getPackages(page: 1, perPage: 50);
+      final res = await Api.services.getPackages(
+        page: _currentPage,
+        perPage: _pageSize,
+      );
       final data = res['data'];
-      var list = data is List
+      final list = data is List
           ? List.from(data)
           : (data is Map && data['data'] is List
                 ? List.from(data['data'] as List)
                 : []);
-      if (list.isEmpty) list = List.from(DummyData.packages);
+      final total = _readTotal(data);
+      final canLoadMore = _hasNextPage(data) ?? list.length >= _pageSize;
+
+      if (reset && list.isEmpty) {
+        final fallback = List.from(DummyData.packages);
+        setState(() {
+          _packages = fallback;
+          _totalAvailable = fallback.length;
+          _isLoading = false;
+          _isLoadingMore = false;
+          _hasMore = false;
+        });
+        return;
+      }
+
       setState(() {
-        _packages = list;
+        if (reset) {
+          _packages = list;
+        } else {
+          _packages.addAll(list);
+        }
+        _totalAvailable = total ?? _totalAvailable ?? _packages.length;
+        _hasMore = canLoadMore;
+        _currentPage += 1;
         _isLoading = false;
+        _isLoadingMore = false;
       });
     } on ApiException catch (e) {
       setState(() {
         _errorMessage = e.message;
-        _packages = List.from(DummyData.packages);
+        if (reset) {
+          _packages = List.from(DummyData.packages);
+          _totalAvailable = _packages.length;
+          _hasMore = false;
+        }
         _isLoading = false;
+        _isLoadingMore = false;
       });
     } catch (e) {
       setState(() {
         _errorMessage = e.toString();
-        _packages = List.from(DummyData.packages);
+        if (reset) {
+          _packages = List.from(DummyData.packages);
+          _totalAvailable = _packages.length;
+          _hasMore = false;
+        }
         _isLoading = false;
+        _isLoadingMore = false;
       });
+    }
+  }
+
+  int? _readTotal(dynamic data) {
+    if (data is! Map) return null;
+    final total = data['total'] ?? (data['meta'] is Map ? (data['meta'] as Map)['total'] : null);
+    if (total is int) return total;
+    if (total is num) return total.toInt();
+    return int.tryParse(total?.toString() ?? '');
+  }
+
+  bool? _hasNextPage(dynamic data) {
+    if (data is! Map) return null;
+    final meta = data['meta'] is Map ? data['meta'] as Map : const {};
+    final currentPage = _toInt(data['current_page'] ?? meta['current_page']);
+    final lastPage = _toInt(data['last_page'] ?? meta['last_page']);
+    if (currentPage != null && lastPage != null) {
+      return currentPage < lastPage;
+    }
+    final nextPageUrl = (data['next_page_url'] ?? meta['next_page_url'])?.toString().trim();
+    if (nextPageUrl != null && nextPageUrl.isNotEmpty) return true;
+    return false;
+  }
+
+  int? _toInt(dynamic value) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    return int.tryParse(value?.toString() ?? '');
+  }
+
+  void _onScroll() {
+    if (!_scrollController.hasClients || _isLoading || _isLoadingMore) return;
+    final position = _scrollController.position;
+    if (position.pixels >= position.maxScrollExtent - 280) {
+      _loadData();
     }
   }
 
@@ -83,6 +172,7 @@ class _PackagesScreenState extends State<PackagesScreen> {
 
   @override
   void dispose() {
+    _scrollController.dispose();
     _searchController.dispose();
     super.dispose();
   }
@@ -91,6 +181,7 @@ class _PackagesScreenState extends State<PackagesScreen> {
   Widget build(BuildContext context) {
     final lang = context.watch<AppSettingsProvider>().language;
     final visible = _visiblePackages();
+    final totalLabel = (_totalAvailable ?? _packages.length).toString();
 
     return Directionality(
       textDirection: TextDirection.rtl,
@@ -171,14 +262,32 @@ class _PackagesScreenState extends State<PackagesScreen> {
                 ),
               ),
             SizedBox(height: Responsive.spacing(context, 8)),
+            Padding(
+              padding: EdgeInsets.symmetric(
+                horizontal: Responsive.spacing(context, 16),
+              ),
+              child: Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: Text(
+                  'عرض ${visible.length} من $totalLabel',
+                  style: TextStyle(
+                    fontSize: Responsive.fontSize(context, 12),
+                    color: AppTheme.onSurfaceVariant,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+            ),
+            SizedBox(height: Responsive.spacing(context, 6)),
             Expanded(
               child: _isLoading
                   ? _buildLoading()
                   : visible.isEmpty
                   ? _buildEmpty()
                   : RefreshIndicator(
-                      onRefresh: _loadData,
+                      onRefresh: () => _loadData(reset: true),
                       child: GridView.builder(
+                        controller: _scrollController,
                         padding: EdgeInsets.all(
                           Responsive.spacing(context, 16),
                         ),
@@ -188,8 +297,13 @@ class _PackagesScreenState extends State<PackagesScreen> {
                           crossAxisSpacing: Responsive.spacing(context, 12),
                           mainAxisSpacing: Responsive.spacing(context, 12),
                         ),
-                        itemCount: visible.length,
+                        itemCount: visible.length + (_isLoadingMore ? 1 : 0),
                         itemBuilder: (context, index) {
+                          if (index >= visible.length) {
+                            return const Center(
+                              child: CircularProgressIndicator(),
+                            );
+                          }
                           final pkg = visible[index] is Map
                               ? visible[index] as Map<String, dynamic>
                               : <String, dynamic>{};
@@ -278,6 +392,27 @@ class _PackageCard extends StatelessWidget {
 
   const _PackageCard({required this.package, required this.lang, required this.onTap});
 
+  String _providerName(BuildContext context) {
+    final isArabic = context.read<AppSettingsProvider>().isArabic;
+    final provider = package['provider'];
+    if (provider is Map<String, dynamic>) {
+      final name = LocaleUtils.localizedBusinessName(provider, isArabic);
+      if (name.trim().isNotEmpty) return name;
+    }
+    final providerServices = package['provider_services'] ?? package['providerServices'];
+    if (providerServices is List && providerServices.isNotEmpty) {
+      final first = providerServices.first;
+      if (first is Map) {
+        final providerMap = first['provider'];
+        if (providerMap is Map<String, dynamic>) {
+          final name = LocaleUtils.localizedBusinessName(providerMap, isArabic);
+          if (name.trim().isNotEmpty) return name;
+        }
+      }
+    }
+    return '';
+  }
+
   @override
   Widget build(BuildContext context) {
     final displayName = LocaleUtils.localizedName(
@@ -294,6 +429,7 @@ class _PackageCard extends StatelessWidget {
         (package['package_items'] is List
             ? (package['package_items'] as List).length
             : 0);
+    final providerName = _providerName(context);
 
     return Material(
       color: Colors.transparent,
@@ -342,6 +478,17 @@ class _PackageCard extends StatelessWidget {
                           fontWeight: FontWeight.w600,
                         ),
                       ),
+                      if (providerName.isNotEmpty)
+                        Text(
+                          providerName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: Responsive.fontSize(context, 11),
+                            color: AppTheme.onSurfaceVariant,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [

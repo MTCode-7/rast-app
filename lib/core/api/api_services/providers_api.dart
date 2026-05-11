@@ -3,6 +3,14 @@ import 'package:rast/core/api/api_client.dart';
 class ProvidersApi {
   final _client = ApiClient();
 
+  List<dynamic> _extractItems(dynamic data) {
+    if (data is List) return List.from(data);
+    if (data is Map && data['data'] is List) {
+      return List.from(data['data'] as List);
+    }
+    return [];
+  }
+
   /// GET /api/providers - قائمة المختبرات
   /// latitude/longitude لعرض الأقرب أولاً (nearby)
   Future<Map<String, dynamic>> getProviders({
@@ -40,15 +48,13 @@ class ProvidersApi {
   /// GET /api/providers/{id}/services - خدمات المختبر
   Future<List<dynamic>> getProviderServices(int id) async {
     final res = await _client.get('providers/$id/services');
-    final data = res['data'];
-    return data is List ? List.from(data) : [];
+    return _extractItems(res['data']);
   }
 
   /// GET /api/providers/{id}/branches - فروع المختبر
   Future<List<dynamic>> getProviderBranches(int id) async {
     final res = await _client.get('providers/$id/branches');
-    final data = res['data'];
-    return data is List ? List.from(data) : [];
+    return _extractItems(res['data']);
   }
 
   /// GET /api/providers/{id}/time-slots - المواعيد المتاحة
@@ -62,8 +68,7 @@ class ProvidersApi {
   Future<List<dynamic>> getReviews(int id) async {
     try {
       final res = await _client.get('providers/$id/reviews');
-      final data = res['data'];
-      return data is List ? List.from(data) : [];
+      return _extractItems(res['data']);
     } catch (_) {
       return [];
     }
@@ -75,7 +80,21 @@ class ProvidersApi {
     if (providerId != null) params['provider_id'] = providerId.toString();
     if (city != null) params['city'] = city;
     final res = await _client.get('branches', queryParams: params.isEmpty ? null : params);
+    return _extractItems(res['data']);
+  }
+
+  /// GET /api/providers/cities - قائمة المدن المتاحة للمختبرات
+  Future<List<String>> getCities() async {
+    final res = await _client.get('providers/cities');
     final data = res['data'];
-    return data is List ? List.from(data) : [];
+    final list = data is List
+        ? data
+        : (data is Map && data['data'] is List ? data['data'] as List : const []);
+    return list
+        .map((e) => e?.toString().trim() ?? '')
+        .where((e) => e.isNotEmpty)
+        .toSet()
+        .toList()
+      ..sort();
   }
 }

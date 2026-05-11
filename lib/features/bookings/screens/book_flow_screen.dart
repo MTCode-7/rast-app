@@ -11,6 +11,7 @@ import 'package:rast/core/api/api_client.dart';
 import 'package:rast/core/theme/app_theme.dart';
 import 'package:rast/core/utils/responsive.dart';
 import 'package:rast/core/widgets/gradient_button.dart';
+import 'package:rast/core/widgets/rast_ui.dart';
 import 'package:rast/features/auth/services/auth_service.dart';
 import 'package:rast/features/auth/screens/login_screen.dart';
 import 'package:rast/features/bookings/screens/booking_detail_screen.dart';
@@ -22,6 +23,7 @@ class BookFlowScreen extends StatefulWidget {
   final Map<String, dynamic>? lab;
   final int labId;
   final String? labName;
+
   /// خريطة provider_service: id, final_price, home_service_price, service.name_ar
   final Map<String, dynamic> providerService;
 
@@ -51,12 +53,14 @@ class _BookFlowScreenState extends State<BookFlowScreen> {
   bool _creating = false;
   String? _error;
   Map<String, dynamic>? _createdBooking;
+
   /// نسب من API: platform_discount_rate, vat_rate (بديل عن ApiConfig.globalDiscountPercent)
   Map<String, dynamic>? _bookingConfig;
   bool _isNonSaudi = false;
 
   /// معاينة الأسعار من الـ API (نفس أرقام الفاتورة) - للمرحلة 1
   Map<String, dynamic>? _previewData;
+
   /// معاينة الأسعار للمرحلة 3 (ملخص الحجز) حسب nationality
   Map<String, dynamic>? _previewConfirm;
   bool _loadingPreview = false;
@@ -68,14 +72,21 @@ class _BookFlowScreenState extends State<BookFlowScreen> {
   int get _providerServiceId => (widget.providerService['id'] is int)
       ? widget.providerService['id'] as int
       : int.parse(widget.providerService['id']?.toString() ?? '0');
-  String get _serviceNameAr => (widget.providerService['service'] is Map
-          ? (widget.providerService['service'] as Map)['name_ar']
-          : widget.providerService['name_ar'])
-      ?.toString() ??
+  String get _serviceNameAr =>
+      (widget.providerService['service'] is Map
+              ? (widget.providerService['service'] as Map)['name_ar']
+              : widget.providerService['name_ar'])
+          ?.toString() ??
       '';
   static double _extractPrice(Map<String, dynamic> map) {
-    var v = map['final_price'] ?? map['price'] ?? map['base_price'] ?? map['sale_price']
-        ?? map['finalPrice'] ?? map['basePrice'] ?? map['salePrice'];
+    var v =
+        map['final_price'] ??
+        map['price'] ??
+        map['base_price'] ??
+        map['sale_price'] ??
+        map['finalPrice'] ??
+        map['basePrice'] ??
+        map['salePrice'];
     if (v is num) return v.toDouble();
     if (v != null) {
       final parsed = double.tryParse(v.toString().trim().replaceAll(',', ''));
@@ -98,7 +109,10 @@ class _BookFlowScreenState extends State<BookFlowScreen> {
 
   /// استخراج رسوم الخدمة المنزلية من الخريطة (مطابق للباكند: home_service_price أو من المختبر).
   static double _extractHomeFee(Map<String, dynamic> map) {
-    var v = map['home_service_price'] ?? map['home_price'] ?? map['home_service_fee'];
+    var v =
+        map['home_service_price'] ??
+        map['home_price'] ??
+        map['home_service_fee'];
     if (v is num) return v.toDouble();
     if (v != null) {
       final parsed = double.tryParse(v.toString().trim().replaceAll(',', ''));
@@ -118,7 +132,11 @@ class _BookFlowScreenState extends State<BookFlowScreen> {
 
   /// إجمالي سعر الزيارة المنزلية = سعر التحليل + رسوم المنزل
   double get _homeTotal => _price + _homeServiceFeeRaw;
-  bool get _homeAvailable => _lab?['home_service_available'] == true;
+  String get _serviceMode =>
+      (_lab?['service_mode'] ?? '').toString().trim().toLowerCase();
+  bool get _isHomeOnly => _serviceMode == 'home_only';
+  bool get _isClinicOnly => _serviceMode == 'clinic_only';
+  bool get _homeAvailable => _isHomeOnly || _lab?['home_service_available'] == true;
 
   @override
   void initState() {
@@ -126,9 +144,28 @@ class _BookFlowScreenState extends State<BookFlowScreen> {
     _resolvedPrice = _extractPrice(widget.providerService);
     _resolvedHomeServiceFeeRaw = _extractHomeFee(widget.providerService);
     _lab = widget.lab;
+    _syncServiceTypeWithLabMode(silent: true);
     if (_lab == null) _loadLab();
     _loadBookingConfig();
     _loadPreview();
+  }
+
+  void _syncServiceTypeWithLabMode({bool silent = false}) {
+    String next = _serviceType;
+    if (_isHomeOnly) {
+      next = 'home_service';
+    } else if (_isClinicOnly) {
+      next = 'in_clinic';
+    } else if (next == 'home_service' && !_homeAvailable) {
+      next = 'in_clinic';
+    }
+    if (next == _serviceType) return;
+    if (silent) {
+      _serviceType = next;
+      return;
+    }
+    if (!mounted) return;
+    setState(() => _serviceType = next);
   }
 
   /// جلب معاينة الأسعار من الباكند (نفس منطق الفاتورة)
@@ -136,7 +173,10 @@ class _BookFlowScreenState extends State<BookFlowScreen> {
     if (_loadingPreview) return;
     setState(() => _loadingPreview = true);
     try {
-      final data = await Api.bookings.getBookingPreview(_providerServiceId, nationality: 'saudi');
+      final data = await Api.bookings.getBookingPreview(
+        _providerServiceId,
+        nationality: 'saudi',
+      );
       if (mounted) setState(() => _previewData = data);
     } catch (_) {
       if (mounted) setState(() => _previewData = null);
@@ -148,7 +188,10 @@ class _BookFlowScreenState extends State<BookFlowScreen> {
   Future<void> _loadConfirmPreview() async {
     try {
       final nationality = _isNonSaudi ? 'non_saudi' : 'saudi';
-      final data = await Api.bookings.getBookingPreview(_providerServiceId, nationality: nationality);
+      final data = await Api.bookings.getBookingPreview(
+        _providerServiceId,
+        nationality: nationality,
+      );
       if (mounted) setState(() => _previewConfirm = data);
     } catch (_) {
       if (mounted) setState(() => _previewConfirm = null);
@@ -177,6 +220,7 @@ class _BookFlowScreenState extends State<BookFlowScreen> {
     try {
       final lab = await Api.providers.getProvider(widget.labId);
       setState(() => _lab = lab);
+      _syncServiceTypeWithLabMode();
     } catch (_) {
       setState(() => _error = 'تعذر تحميل بيانات المختبر');
     }
@@ -184,7 +228,9 @@ class _BookFlowScreenState extends State<BookFlowScreen> {
 
   /// نسبة خصم المنصة (٪): من API أو 7% افتراضي. يدعم API يعيد 7 أو 0.07 أو نصاً
   double get _platformDiscountRate {
-    final v = _bookingConfig?['platform_discount_rate'] ?? _bookingConfig?['platformDiscountRate'];
+    final v =
+        _bookingConfig?['platform_discount_rate'] ??
+        _bookingConfig?['platformDiscountRate'];
     double d = 0;
     if (v is num) {
       d = v.toDouble();
@@ -210,7 +256,8 @@ class _BookFlowScreenState extends State<BookFlowScreen> {
       _serviceType == 'home_service' ? _homeServiceFeeRaw : 0.0;
 
   /// منطق الحساب مطابق للـ API: الخصم على سعر التحليل فقط، الضريبة على المبلغ بعد الخصم
-  double get _basePrice => _serviceType == 'home_service' ? (_price + _homeServiceFeeRaw) : _price;
+  double get _basePrice =>
+      _serviceType == 'home_service' ? (_price + _homeServiceFeeRaw) : _price;
 
   double get _discountAmount {
     final rate = _platformDiscountRate;
@@ -221,27 +268,35 @@ class _BookFlowScreenState extends State<BookFlowScreen> {
 
   double get _afterDiscount => (_basePrice - _discountAmount).roundToDouble();
 
-  double get _vatAmount =>
-      _isNonSaudi && _vatRate > 0
-          ? (_afterDiscount * (_vatRate / 100)).roundToDouble()
-          : 0.0;
+  double get _vatAmount => _isNonSaudi && _vatRate > 0
+      ? (_afterDiscount * (_vatRate / 100)).roundToDouble()
+      : 0.0;
 
-  double get _totalAmount =>
-      (_afterDiscount + _vatAmount).roundToDouble();
+  double get _totalAmount => (_afterDiscount + _vatAmount).roundToDouble();
 
   void _nextStep() {
     if (_step == 0) {
-      if (_serviceType == 'home_service' && (_addressController.text.trim().isEmpty || _cityController.text.trim().isEmpty)) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('أدخل العنوان والمدينة للخدمة المنزلية')));
+      if (_serviceType == 'home_service' &&
+          (_addressController.text.trim().isEmpty ||
+              _cityController.text.trim().isEmpty)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('أدخل العنوان والمدينة للخدمة المنزلية'),
+          ),
+        );
         return;
       }
     }
     if (_step == 1 && _selectedDate == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('اختر التاريخ')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('اختر التاريخ')));
       return;
     }
     if (_step == 2 && _selectedSlot == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('اختر وقت الزيارة')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('اختر وقت الزيارة')));
       return;
     }
     if (_step < 3) {
@@ -282,7 +337,10 @@ class _BookFlowScreenState extends State<BookFlowScreen> {
 
   Future<void> _createBooking() async {
     if (!AuthService.isLoggedIn) {
-      final ok = await Navigator.push(context, MaterialPageRoute(builder: (_) => const LoginScreen()));
+      final ok = await Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const LoginScreen()),
+      );
       if (ok == true && mounted) setState(() {});
       return;
     }
@@ -317,18 +375,24 @@ class _BookFlowScreenState extends State<BookFlowScreen> {
     } catch (e) {
       setState(() {
         _creating = false;
-        _error = e.toString().contains('SocketException') ? 'تحقق من الاتصال' : e.toString();
+        _error = e.toString().contains('SocketException')
+            ? 'تحقق من الاتصال'
+            : e.toString();
       });
     }
   }
 
   Map<String, dynamic> _toBookingMap(Map<String, dynamic> booking) {
-    final summary = booking['summary'] is Map ? booking['summary'] as Map<String, dynamic> : null;
+    final summary = booking['summary'] is Map
+        ? booking['summary'] as Map<String, dynamic>
+        : null;
     final ps = booking['provider_service'] ?? {};
     final service = ps is Map ? ps['service'] ?? ps : {};
     final provider = booking['provider'] ?? {};
     final timeSlot = booking['time_slot'] ?? {};
-    final providerMap = provider is Map ? provider as Map<String, dynamic> : <String, dynamic>{};
+    final providerMap = provider is Map
+        ? provider as Map<String, dynamic>
+        : <String, dynamic>{};
     final base = <String, dynamic>{
       'id': booking['id'],
       'booking_number': booking['booking_number'] ?? 'RST-${booking['id']}',
@@ -336,13 +400,20 @@ class _BookFlowScreenState extends State<BookFlowScreen> {
       'payment_status': booking['payment_status'] ?? 'pending',
       'booking_date': booking['booking_date'] ?? timeSlot['date'] ?? '',
       'booking_time': booking['booking_time'] ?? timeSlot['start_time'] ?? '',
+      'booking_period_key':
+          booking['booking_period_key'] ?? timeSlot['period_key'],
+      'booking_period_label_ar':
+          booking['booking_period_label_ar'] ?? timeSlot['period_label_ar'],
       'service_type': booking['service_type'] ?? 'in_clinic',
       'service_name_ar': service is Map ? service['name_ar'] : _serviceNameAr,
       'service_name_en': service is Map ? service['name_en'] : null,
-      'provider_name_ar': providerMap['business_name_ar'] ?? widget.labName ?? '',
+      'provider_name_ar':
+          providerMap['business_name_ar'] ?? widget.labName ?? '',
       'provider_name_en': providerMap['business_name_en'],
       'provider_logo_url': providerMap['logo_url'] ?? providerMap['logo'],
-      'branch_name': booking['branch_name'] ?? (_serviceType == 'home_service' ? 'منزلي' : 'الفرع'),
+      'branch_name':
+          booking['branch_name'] ??
+          (_serviceType == 'home_service' ? 'منزلي' : 'الفرع'),
       ...booking,
     };
     if (summary != null) {
@@ -363,7 +434,9 @@ class _BookFlowScreenState extends State<BookFlowScreen> {
     final bid = _createdBooking?['id'];
     if (bid == null) return;
     try {
-      final res = await Api.bookings.createPaymentSession(bid is int ? bid : int.parse(bid.toString()));
+      final res = await Api.bookings.createPaymentSession(
+        bid is int ? bid : int.parse(bid.toString()),
+      );
       final success = res['success'] == true;
       final paymentUrl = res['payment_url']?.toString();
 
@@ -377,20 +450,41 @@ class _BookFlowScreenState extends State<BookFlowScreen> {
         );
         if (mounted) {
           if (paid == true) {
-            setState(() => _createdBooking = {...?_createdBooking, 'payment_status': 'paid'});
+            setState(
+              () => _createdBooking = {
+                ...?_createdBooking,
+                'payment_status': 'paid',
+              },
+            );
           }
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('بعد إتمام الدفع يمكنك مراجعة الحجز من حجوزاتي')),
+            const SnackBar(
+              content: Text('بعد إتمام الدفع يمكنك مراجعة الحجز من حجوزاتي'),
+            ),
           );
         }
       } else {
         final msg = res['message']?.toString() ?? 'فشل إنشاء جلسة الدفع';
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+        if (mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text(msg)));
+        }
       }
     } on ApiException catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(e.message)));
+      }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('تعذر فتح الدفع: ${e.toString().split('\n').first}')));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('تعذر فتح الدفع: ${e.toString().split('\n').first}'),
+          ),
+        );
+      }
     }
   }
 
@@ -398,7 +492,9 @@ class _BookFlowScreenState extends State<BookFlowScreen> {
     if (_createdBooking == null) return;
     Navigator.pushReplacement(
       context,
-      MaterialPageRoute(builder: (_) => BookingDetailScreen(booking: _createdBooking!)),
+      MaterialPageRoute(
+        builder: (_) => BookingDetailScreen(booking: _createdBooking!),
+      ),
     );
   }
 
@@ -407,27 +503,65 @@ class _BookFlowScreenState extends State<BookFlowScreen> {
     if (!AuthService.isLoggedIn) {
       return Directionality(
         textDirection: ui.TextDirection.rtl,
-        child: Scaffold(
-          appBar: AppBar(title: const Text('حجز تحليل')),
-          body: Center(
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.login, size: 64, color: AppTheme.primary.withValues(alpha: 0.7)),
-                  const SizedBox(height: 16),
-                  const Text('سجّل الدخول لحجز التحليل', textAlign: TextAlign.center, style: TextStyle(fontSize: 18)),
-                  const SizedBox(height: 24),
-                  GradientFilledButtonIcon(
-                    onPressed: () async {
-                      final ok = await Navigator.push(context, MaterialPageRoute(builder: (_) => const LoginScreen()));
-                      if (ok == true && mounted) setState(() {});
-                    },
-                    icon: const Icon(Icons.login),
-                    label: const Text('تسجيل الدخول'),
+        child: Container(
+          decoration: const BoxDecoration(gradient: RastUi.headerGradient),
+          child: Scaffold(
+            backgroundColor: Colors.transparent,
+            appBar: const RastTopBar(title: 'حجز تحليل'),
+            body: ClipRRect(
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(28),
+              ),
+              child: Container(
+                color: RastUi.screenSurface(context),
+                child: Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Container(
+                          width: 104,
+                          height: 104,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            gradient: RastUi.brandGradient,
+                            boxShadow: RastUi.softShadow,
+                          ),
+                          child: const Icon(
+                            Icons.login_rounded,
+                            size: 54,
+                            color: Colors.white,
+                          ),
+                        ),
+                        const SizedBox(height: 20),
+                        Text(
+                          'سجّل الدخول لحجز التحليل',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: RastUi.primaryText(context),
+                            fontSize: Responsive.fontSize(context, 20),
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 24),
+                        GradientFilledButtonIcon(
+                          onPressed: () async {
+                            final ok = await Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => const LoginScreen(),
+                              ),
+                            );
+                            if (ok == true && mounted) setState(() {});
+                          },
+                          icon: const Icon(Icons.login),
+                          label: const Text('تسجيل الدخول'),
+                        ),
+                      ],
+                    ),
                   ),
-                ],
+                ),
               ),
             ),
           ),
@@ -437,34 +571,73 @@ class _BookFlowScreenState extends State<BookFlowScreen> {
 
     return Directionality(
       textDirection: ui.TextDirection.rtl,
-      child: Scaffold(
-        appBar: AppBar(
-          title: Text(_createdBooking != null ? 'تم الحجز' : 'حجز تحليل'),
-          leading: _step > 0 && _createdBooking == null
-              ? IconButton(icon: const Icon(Icons.arrow_back_ios_new), onPressed: _backStep)
-              : null,
-        ),
-        body: _error != null && _step < 4
-            ? _buildErrorBody()
-            : _createdBooking != null
-                ? _buildSuccessBody()
-                : SingleChildScrollView(
-                    padding: EdgeInsets.all(Responsive.spacing(context, 16)),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        _buildStepIndicator(),
-                        SizedBox(height: Responsive.spacing(context, 24)),
-                        if (_step == 0) _buildStepServiceType(),
-                        if (_step == 1) _buildStepDate(),
-                        if (_step == 2) _buildStepTime(),
-                        if (_step == 3) _buildStepConfirm(),
-                        SizedBox(height: Responsive.spacing(context, 24)),
-                        if (_step < 4 && _createdBooking == null) _buildNextButton(),
-                      ],
+      child: Container(
+        decoration: const BoxDecoration(gradient: RastUi.headerGradient),
+        child: Scaffold(
+          backgroundColor: Colors.transparent,
+          appBar: RastTopBar(
+            title: _createdBooking != null ? 'تم الحجز' : 'حجز تحليل',
+          ),
+          body: ClipRRect(
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+            child: Container(
+              color: RastUi.screenSurface(context),
+              child: _error != null && _step < 4
+                  ? _buildErrorBody()
+                  : _createdBooking != null
+                  ? _buildSuccessBody()
+                  : SingleChildScrollView(
+                      padding: EdgeInsets.fromLTRB(
+                        Responsive.spacing(context, 20),
+                        Responsive.spacing(context, 24),
+                        Responsive.spacing(context, 20),
+                        Responsive.spacing(context, 28),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          _buildStepIndicator(),
+                          SizedBox(height: Responsive.spacing(context, 22)),
+                          _buildStepCard(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                if (_step == 0) _buildStepServiceType(),
+                                if (_step == 1) _buildStepDate(),
+                                if (_step == 2) _buildStepTime(),
+                                if (_step == 3) _buildStepConfirm(),
+                              ],
+                            ),
+                          ),
+                          SizedBox(height: Responsive.spacing(context, 24)),
+                          if (_step < 4 && _createdBooking == null)
+                            _buildNextButton(),
+                        ],
+                      ),
                     ),
-                  ),
+            ),
+          ),
+        ),
       ),
+    );
+  }
+
+  Widget _buildStepCard({required Widget child}) {
+    return Container(
+      padding: EdgeInsets.all(Responsive.spacing(context, 18)),
+      decoration: BoxDecoration(
+        color: RastUi.cardSurface(context),
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: RastUi.softBorder(context)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.08),
+            blurRadius: 14,
+            offset: const Offset(0, 5),
+          ),
+        ],
+      ),
+      child: child,
     );
   }
 
@@ -479,7 +652,11 @@ class _BookFlowScreenState extends State<BookFlowScreen> {
             const SizedBox(height: 16),
             Text(_error!, textAlign: TextAlign.center),
             const SizedBox(height: 16),
-            FilledButton.icon(onPressed: () => setState(() => _error = null), icon: const Icon(Icons.refresh), label: const Text('إعادة المحاولة')),
+            FilledButton.icon(
+              onPressed: () => setState(() => _error = null),
+              icon: const Icon(Icons.refresh),
+              label: const Text('إعادة المحاولة'),
+            ),
           ],
         ),
       ),
@@ -494,17 +671,29 @@ class _BookFlowScreenState extends State<BookFlowScreen> {
 
   Widget _buildSuccessBody() {
     final paid = _createdBooking?['payment_status'] == 'paid';
-    final summary = _createdBooking?['summary'] is Map ? _createdBooking!['summary'] as Map<String, dynamic> : null;
-    final servicePrice = summary != null ? _parseNum(summary['service_price']) : _parseNum(_createdBooking?['service_price']);
-    final homeFee = summary != null ? _parseNum(summary['home_service_fee']) : _parseNum(_createdBooking?['home_service_fee']);
+    final summary = _createdBooking?['summary'] is Map
+        ? _createdBooking!['summary'] as Map<String, dynamic>
+        : null;
+    final servicePrice = summary != null
+        ? _parseNum(summary['service_price'])
+        : _parseNum(_createdBooking?['service_price']);
+    final homeFee = summary != null
+        ? _parseNum(summary['home_service_fee'])
+        : _parseNum(_createdBooking?['home_service_fee']);
     final discountAmount = summary != null
-        ? (_parseNum(summary['discount_amount']) > 0 ? _parseNum(summary['discount_amount']) : _parseNum(summary['platform_discount']))
+        ? (_parseNum(summary['discount_amount']) > 0
+              ? _parseNum(summary['discount_amount'])
+              : _parseNum(summary['platform_discount']))
         : _parseNum(_createdBooking?['discount_amount']);
-    final totalAmount = summary != null ? _parseNum(summary['total_amount']) : _parseNum(_createdBooking?['total_amount']);
-    final vatAmount = summary != null ? _parseNum(summary['vat_amount']) : (() {
-      final meta = _createdBooking?['metadata'];
-      return meta is Map ? _parseNum(meta['vat_amount']) : 0.0;
-    })();
+    final totalAmount = summary != null
+        ? _parseNum(summary['total_amount'])
+        : _parseNum(_createdBooking?['total_amount']);
+    final vatAmount = summary != null
+        ? _parseNum(summary['vat_amount'])
+        : (() {
+            final meta = _createdBooking?['metadata'];
+            return meta is Map ? _parseNum(meta['vat_amount']) : 0.0;
+          })();
     final isHomeService = _createdBooking?['service_type'] == 'home_service';
 
     return SingleChildScrollView(
@@ -518,9 +707,21 @@ class _BookFlowScreenState extends State<BookFlowScreen> {
               children: [
                 Icon(Icons.check_circle, size: 72, color: AppTheme.primary),
                 SizedBox(height: Responsive.spacing(context, 16)),
-                Text('تم إنشاء الحجز بنجاح', style: TextStyle(fontSize: Responsive.fontSize(context, 20), fontWeight: FontWeight.bold)),
+                Text(
+                  'تم إنشاء الحجز بنجاح',
+                  style: TextStyle(
+                    fontSize: Responsive.fontSize(context, 20),
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
                 SizedBox(height: Responsive.spacing(context, 8)),
-                Text(_createdBooking?['booking_number']?.toString() ?? '', style: TextStyle(fontSize: Responsive.fontSize(context, 16), color: AppTheme.primary)),
+                Text(
+                  _createdBooking?['booking_number']?.toString() ?? '',
+                  style: TextStyle(
+                    fontSize: Responsive.fontSize(context, 16),
+                    color: AppTheme.primary,
+                  ),
+                ),
                 SizedBox(height: Responsive.spacing(context, 20)),
                 if (!paid) ...[
                   GradientFilledButtonIcon(
@@ -528,12 +729,23 @@ class _BookFlowScreenState extends State<BookFlowScreen> {
                     icon: const Icon(Icons.payment),
                     label: const Text('ادفع الآن'),
                     style: FilledButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 32,
+                        vertical: 14,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
                     ),
                   ),
                   SizedBox(height: Responsive.spacing(context, 12)),
-                  Text('أو ادعم في المختبر', style: TextStyle(fontSize: Responsive.fontSize(context, 13), color: AppTheme.onSurfaceVariant)),
+                  Text(
+                    'أو ادعم في المختبر',
+                    style: TextStyle(
+                      fontSize: Responsive.fontSize(context, 13),
+                      color: AppTheme.onSurfaceVariant,
+                    ),
+                  ),
                 ],
               ],
             ),
@@ -545,14 +757,53 @@ class _BookFlowScreenState extends State<BookFlowScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('تفاصيل الفاتورة', style: TextStyle(fontSize: Responsive.fontSize(context, 15), fontWeight: FontWeight.w600)),
+                Text(
+                  'تفاصيل الفاتورة',
+                  style: TextStyle(
+                    fontSize: Responsive.fontSize(context, 15),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
                 SizedBox(height: Responsive.spacing(context, 12)),
-                _confirmRow('سعر التحليل', '${servicePrice.toStringAsFixed(2)} ر.س'),
-                if (isHomeService) _confirmRow('رسوم الخدمة المنزلية', '+ ${homeFee.toStringAsFixed(2)} ر.س'),
-                _confirmRow('خصم المنصة', '- ${discountAmount.toStringAsFixed(2)} ر.س', valueStyle: TextStyle(color: AppTheme.success, fontWeight: FontWeight.w600)),
-                _confirmRow('ضريبة القيمة المضافة', '+ ${vatAmount.toStringAsFixed(2)} ر.س', valueStyle: TextStyle(color: AppTheme.onSurfaceVariant)),
-                Padding(padding: const EdgeInsets.symmetric(vertical: 6), child: Divider(height: 1, color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.5))),
-                _confirmRow('المبلغ الإجمالي', '${totalAmount.toStringAsFixed(2)} ر.س', valueStyle: TextStyle(color: AppTheme.primary, fontWeight: FontWeight.bold)),
+                _confirmRow(
+                  'سعر التحليل',
+                  '${servicePrice.toStringAsFixed(2)} ر.س',
+                ),
+                if (isHomeService)
+                  _confirmRow(
+                    'رسوم الخدمة المنزلية',
+                    '+ ${homeFee.toStringAsFixed(2)} ر.س',
+                  ),
+                _confirmRow(
+                  'خصم المنصة',
+                  '- ${discountAmount.toStringAsFixed(2)} ر.س',
+                  valueStyle: TextStyle(
+                    color: AppTheme.success,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                _confirmRow(
+                  'ضريبة القيمة المضافة',
+                  '+ ${vatAmount.toStringAsFixed(2)} ر.س',
+                  valueStyle: TextStyle(color: AppTheme.onSurfaceVariant),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 6),
+                  child: Divider(
+                    height: 1,
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.outline.withValues(alpha: 0.5),
+                  ),
+                ),
+                _confirmRow(
+                  'المبلغ الإجمالي',
+                  '${totalAmount.toStringAsFixed(2)} ر.س',
+                  valueStyle: TextStyle(
+                    color: AppTheme.primary,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
               ],
             ),
           ),
@@ -564,7 +815,9 @@ class _BookFlowScreenState extends State<BookFlowScreen> {
             style: OutlinedButton.styleFrom(
               foregroundColor: AppTheme.primary,
               padding: const EdgeInsets.symmetric(vertical: 14),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+              ),
             ),
           ),
         ],
@@ -573,61 +826,109 @@ class _BookFlowScreenState extends State<BookFlowScreen> {
   }
 
   Widget _buildStepIndicator() {
-    return Row(
-      children: List.generate(4, (i) {
-        final active = i == _step;
-        final done = i < _step;
-        return Expanded(
-          child: Row(
-            children: [
-              if (i > 0) Expanded(child: Container(height: 2, color: done ? AppTheme.primary : AppTheme.surfaceVariant)),
-              Container(
-                width: 28,
-                height: 28,
-                decoration: BoxDecoration(
-                  color: active ? AppTheme.primary : (done ? AppTheme.primary : AppTheme.surfaceVariant),
-                  shape: BoxShape.circle,
+    const labels = ['الخدمة', 'التاريخ', 'الوقت', 'التأكيد'];
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+      decoration: BoxDecoration(
+        color: RastUi.subtleFill(context),
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Row(
+        children: List.generate(4, (i) {
+          final active = i == _step;
+          final done = i < _step;
+          return Expanded(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 180),
+                  width: active ? 34 : 28,
+                  height: active ? 34 : 28,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: active || done ? RastUi.brandGradient : null,
+                    color: active || done ? null : const Color(0xFFE5E7F2),
+                    boxShadow: active ? RastUi.softShadow : null,
+                  ),
+                  child: Center(
+                    child: done
+                        ? const Icon(Icons.check, size: 16, color: Colors.white)
+                        : Text(
+                            '${i + 1}',
+                            style: TextStyle(
+                              color: active
+                                  ? Colors.white
+                                  : RastUi.primaryText(context),
+                              fontSize: Responsive.fontSize(context, 12),
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                  ),
                 ),
-                child: Center(
-                  child: done ? const Icon(Icons.check, size: 16, color: Colors.white) : Text('${i + 1}', style: TextStyle(color: active ? Colors.white : AppTheme.onSurfaceVariant, fontSize: 12)),
+                const SizedBox(height: 6),
+                Text(
+                  labels[i],
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: active ? RastUi.purple : RastUi.mutedText,
+                    fontSize: Responsive.fontSize(context, 10),
+                    fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+                  ),
                 ),
-              ),
-              if (i < 3) Expanded(child: Container(height: 2, color: done ? AppTheme.primary : AppTheme.surfaceVariant)),
-            ],
-          ),
-        );
-      }),
+              ],
+            ),
+          );
+        }),
+      ),
     );
   }
 
   Widget _buildStepServiceType() {
-    final inClinicTotal = _previewData != null && _previewData!['in_clinic'] is Map
+    final inClinicTotal =
+        _previewData != null && _previewData!['in_clinic'] is Map
         ? _parseNum((_previewData!['in_clinic'] as Map)['total_amount'])
         : _price;
-    final homeTotal = _previewData != null && _previewData!['home_service'] is Map
+    final homeTotal =
+        _previewData != null && _previewData!['home_service'] is Map
         ? _parseNum((_previewData!['home_service'] as Map)['total_amount'])
         : _homeTotal;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('نوع الزيارة', style: TextStyle(fontSize: Responsive.fontSize(context, 18), fontWeight: FontWeight.bold)),
+        _buildSectionTitle('نوع الزيارة', Icons.medical_services_outlined),
         SizedBox(height: Responsive.spacing(context, 12)),
-        _serviceTypeChip('in_clinic', 'في المختبر', Icons.business_rounded, '${inClinicTotal.toStringAsFixed(2)} ر.س'),
-        if (_homeAvailable) ...[
+        if (!_isHomeOnly)
+          _serviceTypeChip(
+            'in_clinic',
+            'في المختبر',
+            Icons.business_rounded,
+            '${inClinicTotal.toStringAsFixed(2)} ر.س',
+          ),
+        if (_homeAvailable && !_isClinicOnly) ...[
           SizedBox(height: Responsive.spacing(context, 10)),
-          _serviceTypeChip('home_service', 'زيارة منزلية', Icons.home_rounded, '${homeTotal.toStringAsFixed(2)} ر.س'),
+          _serviceTypeChip(
+            'home_service',
+            'زيارة منزلية',
+            Icons.home_rounded,
+            '${homeTotal.toStringAsFixed(2)} ر.س',
+          ),
         ],
         if (_serviceType == 'home_service') ...[
           SizedBox(height: Responsive.spacing(context, 20)),
-          Text('عنوان الزيارة', style: TextStyle(fontSize: Responsive.fontSize(context, 16), fontWeight: FontWeight.w600)),
+          _buildSectionTitle('عنوان الزيارة', Icons.location_on_outlined),
           SizedBox(height: Responsive.spacing(context, 8)),
           TextField(
             controller: _addressController,
             decoration: InputDecoration(
               labelText: 'العنوان',
               hintText: 'الشارع والحي',
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(18),
+              ),
               filled: true,
+              fillColor: RastUi.subtleFill(context),
             ),
           ),
           SizedBox(height: Responsive.spacing(context, 10)),
@@ -636,8 +937,11 @@ class _BookFlowScreenState extends State<BookFlowScreen> {
             decoration: InputDecoration(
               labelText: 'المدينة',
               hintText: 'مثال: الرياض',
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(18),
+              ),
               filled: true,
+              fillColor: RastUi.subtleFill(context),
             ),
           ),
           SizedBox(height: Responsive.spacing(context, 10)),
@@ -645,8 +949,11 @@ class _BookFlowScreenState extends State<BookFlowScreen> {
             controller: _districtController,
             decoration: InputDecoration(
               labelText: 'الحي (اختياري)',
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(18),
+              ),
               filled: true,
+              fillColor: RastUi.subtleFill(context),
             ),
           ),
         ],
@@ -654,7 +961,37 @@ class _BookFlowScreenState extends State<BookFlowScreen> {
     );
   }
 
-  Widget _serviceTypeChip(String value, String label, IconData icon, String price) {
+  Widget _buildSectionTitle(String title, IconData icon) {
+    return Row(
+      children: [
+        Container(
+          width: 36,
+          height: 36,
+          decoration: BoxDecoration(
+            gradient: RastUi.brandGradient,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Icon(icon, color: Colors.white, size: 20),
+        ),
+        SizedBox(width: Responsive.spacing(context, 10)),
+        Text(
+          title,
+          style: TextStyle(
+            color: RastUi.primaryText(context),
+            fontSize: Responsive.fontSize(context, 18),
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _serviceTypeChip(
+    String value,
+    String label,
+    IconData icon,
+    String price,
+  ) {
     final selected = _serviceType == value;
     return Material(
       color: Colors.transparent,
@@ -664,16 +1001,41 @@ class _BookFlowScreenState extends State<BookFlowScreen> {
         child: Container(
           padding: EdgeInsets.all(Responsive.spacing(context, 16)),
           decoration: BoxDecoration(
-            color: selected ? AppTheme.primary.withValues(alpha: 0.1) : AppTheme.surfaceVariant.withValues(alpha: 0.5),
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: selected ? AppTheme.primary : Colors.transparent, width: 2),
+            color: selected ? null : RastUi.subtleFill(context),
+            gradient: selected ? RastUi.brandGradient : null,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(
+              color: selected ? Colors.transparent : RastUi.softBorder(context),
+              width: 1,
+            ),
+            boxShadow: selected ? RastUi.softShadow : null,
           ),
           child: Row(
             children: [
-              Icon(icon, color: selected ? AppTheme.primary : AppTheme.onSurfaceVariant, size: 28),
+              Icon(
+                icon,
+                color: selected ? Colors.white : RastUi.purple,
+                size: 28,
+              ),
               SizedBox(width: Responsive.spacing(context, 12)),
-              Expanded(child: Text(label, style: TextStyle(fontWeight: selected ? FontWeight.bold : FontWeight.w500))),
-              Text(price, style: TextStyle(color: AppTheme.primary, fontWeight: FontWeight.bold)),
+              Expanded(
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    color: selected
+                        ? Colors.white
+                        : RastUi.primaryText(context),
+                    fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                  ),
+                ),
+              ),
+              Text(
+                price,
+                style: TextStyle(
+                  color: selected ? Colors.white : RastUi.purple,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
             ],
           ),
         ),
@@ -683,11 +1045,76 @@ class _BookFlowScreenState extends State<BookFlowScreen> {
 
   Widget _buildStepDate() {
     final today = DateTime.now();
+    final days = List.generate(10, (i) => today.add(Duration(days: i)));
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('اختر التاريخ', style: TextStyle(fontSize: Responsive.fontSize(context, 18), fontWeight: FontWeight.bold)),
-        SizedBox(height: Responsive.spacing(context, 12)),
+        _buildSectionTitle('اختر التاريخ', Icons.calendar_month_outlined),
+        SizedBox(height: Responsive.spacing(context, 16)),
+        SizedBox(
+          height: 92,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            itemCount: days.length,
+            separatorBuilder: (_, __) => const SizedBox(width: 10),
+            itemBuilder: (context, index) {
+              final day = days[index];
+              final selected =
+                  _selectedDate != null &&
+                  DateUtils.isSameDay(_selectedDate, day);
+              return InkWell(
+                onTap: () => setState(() => _selectedDate = day),
+                borderRadius: BorderRadius.circular(18),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 180),
+                  width: 68,
+                  decoration: BoxDecoration(
+                    gradient: selected ? RastUi.brandGradient : null,
+                    color: selected ? null : RastUi.subtleFill(context),
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(
+                      color: selected
+                          ? Colors.transparent
+                          : RastUi.softBorder(context),
+                    ),
+                    boxShadow: selected ? RastUi.softShadow : null,
+                  ),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        _weekdayLabel(day),
+                        style: TextStyle(
+                          color: selected ? Colors.white : RastUi.mutedText,
+                          fontSize: Responsive.fontSize(context, 11),
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        DateFormat('d').format(day),
+                        style: TextStyle(
+                          color: selected
+                              ? Colors.white
+                              : RastUi.primaryText(context),
+                          fontSize: Responsive.fontSize(context, 22),
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      Text(
+                        _monthLabel(day),
+                        style: TextStyle(
+                          color: selected ? Colors.white : RastUi.mutedText,
+                          fontSize: Responsive.fontSize(context, 10),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+        SizedBox(height: Responsive.spacing(context, 14)),
         OutlinedButton.icon(
           onPressed: () async {
             final d = await showDatePicker(
@@ -698,46 +1125,121 @@ class _BookFlowScreenState extends State<BookFlowScreen> {
             );
             if (d != null) setState(() => _selectedDate = d);
           },
-          icon: const Icon(Icons.calendar_today),
-          label: Text(_selectedDate != null ? DateFormat('yyyy-MM-dd').format(_selectedDate!) : 'اختر اليوم'),
+          icon: const Icon(Icons.event_available_rounded),
+          label: Text(
+            _selectedDate != null
+                ? DateFormat('yyyy-MM-dd').format(_selectedDate!)
+                : 'اختيار من التقويم',
+          ),
           style: OutlinedButton.styleFrom(
-            padding: const EdgeInsets.symmetric(vertical: 16),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+            foregroundColor: RastUi.purple,
+            side: const BorderSide(color: Color(0xFFE2E0EA)),
+            padding: const EdgeInsets.symmetric(vertical: 15),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(18),
+            ),
           ),
         ),
       ],
     );
   }
 
+  String _weekdayLabel(DateTime day) {
+    const labels = [
+      'الاثنين',
+      'الثلاثاء',
+      'الأربعاء',
+      'الخميس',
+      'الجمعة',
+      'السبت',
+      'الأحد',
+    ];
+    return labels[day.weekday - 1];
+  }
+
+  String _monthLabel(DateTime day) {
+    const labels = [
+      'يناير',
+      'فبراير',
+      'مارس',
+      'أبريل',
+      'مايو',
+      'يونيو',
+      'يوليو',
+      'أغسطس',
+      'سبتمبر',
+      'أكتوبر',
+      'نوفمبر',
+      'ديسمبر',
+    ];
+    return labels[day.month - 1];
+  }
+
+  String _timeSlotPrimaryLabel(Map<String, dynamic> slot) {
+    final ar = slot['period_label_ar']?.toString().trim();
+    if (ar != null && ar.isNotEmpty) return ar;
+    return DateFormatter.formatBookingTime(slot['start_time']?.toString());
+  }
+
   Widget _buildStepTime() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('اختر الوقت', style: TextStyle(fontSize: Responsive.fontSize(context, 18), fontWeight: FontWeight.bold)),
+        _buildSectionTitle('اختر الوقت', Icons.schedule_rounded),
         SizedBox(height: Responsive.spacing(context, 12)),
         if (_loadingSlots)
-          const Center(child: Padding(padding: EdgeInsets.all(24), child: CircularProgressIndicator()))
+          const Center(
+            child: Padding(
+              padding: EdgeInsets.all(24),
+              child: CircularProgressIndicator(),
+            ),
+          )
         else if (_timeSlots.isEmpty)
           Container(
             padding: const EdgeInsets.all(20),
             decoration: AppTheme.cardDecorationFor(context),
-            child: const Text('لا توجد مواعيد متاحة لهذا اليوم. اختر تاريخاً آخر.', textAlign: TextAlign.center),
+            child: const Text(
+              'لا توجد مواعيد متاحة لهذا اليوم. اختر تاريخاً آخر.',
+              textAlign: TextAlign.center,
+            ),
           )
         else
           Wrap(
             spacing: 10,
             runSpacing: 10,
             children: _timeSlots.map<Widget>((s) {
-              final slot = s is Map ? s as Map<String, dynamic> : <String, dynamic>{};
+              final slot = s is Map
+                  ? s as Map<String, dynamic>
+                  : <String, dynamic>{};
               final slotId = slot['id'];
-              final start = slot['start_time']?.toString() ?? '';
               final selected = _selectedSlot?['id'] == slotId;
-              return FilterChip(
-                label: Text(start),
+              return ChoiceChip(
+                label: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 5,
+                  ),
+                  child: Text(
+                    _timeSlotPrimaryLabel(slot),
+                    style: TextStyle(
+                      color: selected ? Colors.white : RastUi.primaryText(context),
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
                 selected: selected,
+                showCheckmark: false,
                 onSelected: (_) => setState(() => _selectedSlot = slot),
-                selectedColor: AppTheme.primary.withValues(alpha: 0.2),
-                checkmarkColor: AppTheme.primary,
+                selectedColor: RastUi.purple,
+                backgroundColor: RastUi.subtleFill(context),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(18),
+                  side: BorderSide(
+                    color: selected
+                        ? Colors.transparent
+                        : RastUi.softBorder(context),
+                  ),
+                ),
               );
             }).toList(),
           ),
@@ -746,25 +1248,48 @@ class _BookFlowScreenState extends State<BookFlowScreen> {
   }
 
   Widget _buildStepConfirm() {
-    final labDisplay = LocaleUtils.localizedBusinessName(_lab, context.watch<AppSettingsProvider>().isArabic);
-    final labNameDisplay = labDisplay.isNotEmpty ? labDisplay : (widget.labName ?? '');
+    final labDisplay = LocaleUtils.localizedBusinessName(
+      _lab,
+      context.watch<AppSettingsProvider>().isArabic,
+    );
+    final labNameDisplay = labDisplay.isNotEmpty
+        ? labDisplay
+        : (widget.labName ?? '');
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('ملخص الحجز', style: TextStyle(fontSize: Responsive.fontSize(context, 18), fontWeight: FontWeight.bold)),
+        _buildSectionTitle('ملخص الحجز', Icons.receipt_long_outlined),
         SizedBox(height: Responsive.spacing(context, 12)),
         Container(
           padding: EdgeInsets.all(Responsive.spacing(context, 20)),
-          decoration: AppTheme.cardDecorationFor(context),
+          decoration: BoxDecoration(
+            color: RastUi.panelSurface(context),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: RastUi.softBorder(context)),
+          ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               _confirmRow('التحليل', _serviceNameAr),
               _confirmRow('المختبر', labNameDisplay),
-              _confirmRow('نوع الخدمة', _serviceType == 'home_service' ? 'منزلي' : 'في المختبر'),
-              _confirmRow('التاريخ', _selectedDate != null ? DateFormatter.formatDate(_selectedDate!) : ''),
-              _confirmRow('الوقت', DateFormatter.formatBookingTime(_selectedSlot?['start_time']?.toString())),
-              if (_serviceType == 'home_service') _confirmRow('العنوان', _addressController.text),
+              _confirmRow(
+                'نوع الخدمة',
+                _serviceType == 'home_service' ? 'منزلي' : 'في المختبر',
+              ),
+              _confirmRow(
+                'التاريخ',
+                _selectedDate != null
+                    ? DateFormatter.formatDate(_selectedDate!)
+                    : '',
+              ),
+              _confirmRow(
+                'الوقت',
+                _selectedSlot != null
+                    ? _timeSlotPrimaryLabel(_selectedSlot!)
+                    : '',
+              ),
+              if (_serviceType == 'home_service')
+                _confirmRow('العنوان', _addressController.text),
               SizedBox(height: Responsive.spacing(context, 12)),
               CheckboxListTile(
                 value: _isNonSaudi,
@@ -772,14 +1297,24 @@ class _BookFlowScreenState extends State<BookFlowScreen> {
                   setState(() => _isNonSaudi = v ?? false);
                   _loadConfirmPreview();
                 },
-                title: Text('أنا غير سعودي (تُطبّق الضريبة)', style: TextStyle(fontSize: Responsive.fontSize(context, 13))),
+                title: Text(
+                  'أنا غير سعودي (تُطبّق الضريبة)',
+                  style: TextStyle(fontSize: Responsive.fontSize(context, 13)),
+                ),
                 controlAffinity: ListTileControlAffinity.leading,
                 contentPadding: EdgeInsets.zero,
                 dense: true,
                 activeColor: AppTheme.primary,
               ),
               const Divider(height: 24),
-              Text('تفاصيل المبلغ', style: TextStyle(fontSize: Responsive.fontSize(context, 14), fontWeight: FontWeight.w600, color: AppTheme.onSurface)),
+              Text(
+                'تفاصيل المبلغ',
+                style: TextStyle(
+                  fontSize: Responsive.fontSize(context, 14),
+                  fontWeight: FontWeight.w600,
+                  color: AppTheme.onSurface,
+                ),
+              ),
               SizedBox(height: Responsive.spacing(context, 10)),
               _buildConfirmAmounts(),
             ],
@@ -796,7 +1331,14 @@ class _BookFlowScreenState extends State<BookFlowScreen> {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Text(label, style: const TextStyle(color: AppTheme.onSurfaceVariant)),
-          Flexible(child: Text(value, style: valueStyle ?? const TextStyle(fontWeight: FontWeight.w600), textAlign: TextAlign.left, overflow: TextOverflow.ellipsis)),
+          Flexible(
+            child: Text(
+              value,
+              style: valueStyle ?? const TextStyle(fontWeight: FontWeight.w600),
+              textAlign: TextAlign.left,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
         ],
       ),
     );
@@ -820,15 +1362,44 @@ class _BookFlowScreenState extends State<BookFlowScreen> {
         children: [
           _confirmRow('سعر التحليل', '${servicePrice.toStringAsFixed(2)} ر.س'),
           if (_serviceType == 'home_service')
-            _confirmRow('الخدمة المنزلية', '+ ${homeFee.toStringAsFixed(2)} ر.س'),
-          _confirmRow('خصم المنصة ${discountRate.toStringAsFixed(0)}%', '- ${discount.toStringAsFixed(2)} ر.س', valueStyle: TextStyle(color: AppTheme.success, fontWeight: FontWeight.w600)),
+            _confirmRow(
+              'الخدمة المنزلية',
+              '+ ${homeFee.toStringAsFixed(2)} ر.س',
+            ),
+          _confirmRow(
+            'خصم المنصة ${discountRate.toStringAsFixed(0)}%',
+            '- ${discount.toStringAsFixed(2)} ر.س',
+            valueStyle: TextStyle(
+              color: AppTheme.success,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
           if (_isNonSaudi && vatAmount > 0)
-            _confirmRow('الضريبة ${vatRate.toStringAsFixed(0)}%', '+ ${vatAmount.toStringAsFixed(2)} ر.س', valueStyle: TextStyle(color: const Color.fromARGB(255, 255, 0, 0))),
+            _confirmRow(
+              'الضريبة ${vatRate.toStringAsFixed(0)}%',
+              '+ ${vatAmount.toStringAsFixed(2)} ر.س',
+              valueStyle: TextStyle(
+                color: const Color.fromARGB(255, 255, 0, 0),
+              ),
+            ),
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 4),
-            child: Divider(height: 1, color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.5)),
+            child: Divider(
+              height: 1,
+              color: Theme.of(
+                context,
+              ).colorScheme.outline.withValues(alpha: 0.5),
+            ),
           ),
-          _confirmRow('المبلغ الإجمالي', '${total.toStringAsFixed(2)} ر.س', valueStyle: TextStyle(color: AppTheme.primary, fontWeight: FontWeight.bold, fontSize: Responsive.fontSize(context, 16))),
+          _confirmRow(
+            'المبلغ الإجمالي',
+            '${total.toStringAsFixed(2)} ر.س',
+            valueStyle: TextStyle(
+              color: AppTheme.primary,
+              fontWeight: FontWeight.bold,
+              fontSize: Responsive.fontSize(context, 16),
+            ),
+          ),
         ],
       );
     }
@@ -837,28 +1408,91 @@ class _BookFlowScreenState extends State<BookFlowScreen> {
       children: [
         _confirmRow('سعر التحليل', '${_price.toStringAsFixed(2)} ر.س'),
         if (_serviceType == 'home_service')
-          _confirmRow('الخدمة المنزلية', '+ ${_homeServiceFee.toStringAsFixed(2)} ر.س'),
-        _confirmRow('خصم المنصة ${_platformDiscountRate.toStringAsFixed(0)}%', '- ${_discountAmount.toStringAsFixed(2)} ر.س', valueStyle: TextStyle(color: AppTheme.success, fontWeight: FontWeight.w600)),
+          _confirmRow(
+            'الخدمة المنزلية',
+            '+ ${_homeServiceFee.toStringAsFixed(2)} ر.س',
+          ),
+        _confirmRow(
+          'خصم المنصة ${_platformDiscountRate.toStringAsFixed(0)}%',
+          '- ${_discountAmount.toStringAsFixed(2)} ر.س',
+          valueStyle: TextStyle(
+            color: AppTheme.success,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
         if (_isNonSaudi)
-          _confirmRow('الضريبة ${_vatRate.toStringAsFixed(0)}%', '+ ${_vatAmount.toStringAsFixed(2)} ر.س', valueStyle: TextStyle(color: const Color.fromARGB(255, 255, 0, 0))),
+          _confirmRow(
+            'الضريبة ${_vatRate.toStringAsFixed(0)}%',
+            '+ ${_vatAmount.toStringAsFixed(2)} ر.س',
+            valueStyle: TextStyle(color: const Color.fromARGB(255, 255, 0, 0)),
+          ),
         Padding(
           padding: const EdgeInsets.symmetric(vertical: 4),
-          child: Divider(height: 1, color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.5)),
+          child: Divider(
+            height: 1,
+            color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.5),
+          ),
         ),
-        _confirmRow('المبلغ الإجمالي', '${_totalAmount.toStringAsFixed(2)} ر.س', valueStyle: TextStyle(color: AppTheme.primary, fontWeight: FontWeight.bold, fontSize: Responsive.fontSize(context, 16))),
+        _confirmRow(
+          'المبلغ الإجمالي',
+          '${_totalAmount.toStringAsFixed(2)} ر.س',
+          valueStyle: TextStyle(
+            color: AppTheme.primary,
+            fontWeight: FontWeight.bold,
+            fontSize: Responsive.fontSize(context, 16),
+          ),
+        ),
       ],
     );
   }
 
   Widget _buildNextButton() {
     final isConfirm = _step == 3;
-    return GradientFilledButton(
-      onPressed: isConfirm ? (_creating ? null : _createBooking) : _nextStep,
-      style: FilledButton.styleFrom(
-        padding: const EdgeInsets.symmetric(vertical: 16),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-      ),
-      child: _creating ? const SizedBox(height: 24, width: 24, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) : Text(isConfirm ? 'إنشاء الحجز والمتابعة للدفع' : 'التالي'),
+    return Row(
+      children: [
+        if (_step > 0) ...[
+          SizedBox(
+            width: 56,
+            height: 56,
+            child: OutlinedButton(
+              onPressed: _backStep,
+              style: OutlinedButton.styleFrom(
+                foregroundColor: RastUi.purple,
+                side: const BorderSide(color: Color(0xFFE2E0EA)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(18),
+                ),
+                padding: EdgeInsets.zero,
+              ),
+              child: const Icon(Icons.arrow_back_ios_new_rounded, size: 18),
+            ),
+          ),
+          const SizedBox(width: 12),
+        ],
+        Expanded(
+          child: GradientFilledButton(
+            onPressed: isConfirm
+                ? (_creating ? null : _createBooking)
+                : _nextStep,
+            style: FilledButton.styleFrom(
+              padding: const EdgeInsets.symmetric(vertical: 17),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(22),
+              ),
+            ),
+            child: _creating
+                ? const SizedBox(
+                    height: 24,
+                    width: 24,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  )
+                : Text(isConfirm ? 'إنشاء الحجز والمتابعة للدفع' : 'التالي'),
+          ),
+        ),
+      ],
     );
   }
 }
