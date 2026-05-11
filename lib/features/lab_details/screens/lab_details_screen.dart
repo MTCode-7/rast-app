@@ -15,6 +15,7 @@ import 'package:rast/core/widgets/rast_ui.dart';
 import 'package:rast/core/widgets/search_box.dart';
 import 'package:rast/features/analyses/screens/analyses_screen.dart';
 import 'package:rast/features/analyses/screens/service_detail_screen.dart';
+import 'package:rast/features/packages/screens/package_detail_screen.dart';
 import 'package:shimmer/shimmer.dart';
 
 class LabDetailsScreen extends StatefulWidget {
@@ -611,42 +612,58 @@ class _LabDetailsScreenState extends State<LabDetailsScreen> {
     ),
   );
 
-  Widget _buildServiceThumb(String? imageUrl) {
-    const double size = 56;
-    return Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        color: AppTheme.primary.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(14),
+  /// صورة بعرض البطاقة للشبكة (بدل المصغّر الثابت الذي يظهر صغيراً على جانب RTL).
+  Widget _buildGridCoverImage(
+    BuildContext context,
+    String? imageUrl, {
+    IconData placeholderIcon = Icons.medical_services_rounded,
+    double height = 112,
+  }) {
+    final bg = AppTheme.primary.withValues(alpha: 0.08);
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(12),
+      child: SizedBox(
+        height: height,
+        width: double.infinity,
+        child: (imageUrl != null && imageUrl.isNotEmpty)
+            ? CachedNetworkImage(
+                imageUrl: imageUrl,
+                fit: BoxFit.cover,
+                alignment: Alignment.center,
+                width: double.infinity,
+                height: double.infinity,
+                placeholder: (_, __) => ColoredBox(
+                  color: bg,
+                  child: Center(
+                    child: Icon(
+                      placeholderIcon,
+                      color: AppTheme.primary,
+                      size: 36,
+                    ),
+                  ),
+                ),
+                errorWidget: (_, __, ___) => ColoredBox(
+                  color: bg,
+                  child: Center(
+                    child: Icon(
+                      placeholderIcon,
+                      color: AppTheme.primary,
+                      size: 36,
+                    ),
+                  ),
+                ),
+              )
+            : ColoredBox(
+                color: bg,
+                child: Center(
+                  child: Icon(
+                    placeholderIcon,
+                    color: AppTheme.primary,
+                    size: 36,
+                  ),
+                ),
+              ),
       ),
-      clipBehavior: Clip.antiAlias,
-      child: (imageUrl != null && imageUrl.isNotEmpty)
-          ? CachedNetworkImage(
-              imageUrl: imageUrl,
-              fit: BoxFit.cover,
-              placeholder: (_, __) => Center(
-                child: Icon(
-                  Icons.medical_services_rounded,
-                  color: AppTheme.primary,
-                  size: 24,
-                ),
-              ),
-              errorWidget: (_, __, ___) => Center(
-                child: Icon(
-                  Icons.medical_services_rounded,
-                  color: AppTheme.primary,
-                  size: 24,
-                ),
-              ),
-            )
-          : Center(
-              child: Icon(
-                Icons.medical_services_rounded,
-                color: AppTheme.primary,
-                size: 24,
-              ),
-            ),
     );
   }
 
@@ -789,7 +806,7 @@ class _LabDetailsScreenState extends State<LabDetailsScreen> {
             itemCount: visible.length,
             gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
               crossAxisCount: 2,
-              childAspectRatio: 0.90,
+              childAspectRatio: 0.70,
               crossAxisSpacing: Responsive.spacing(context, 10),
               mainAxisSpacing: Responsive.spacing(context, 10),
             ),
@@ -855,7 +872,7 @@ class _LabDetailsScreenState extends State<LabDetailsScreen> {
       itemCount: visible.length,
       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: 2,
-        childAspectRatio: 0.92,
+        childAspectRatio: 0.70,
         crossAxisSpacing: Responsive.spacing(context, 10),
         mainAxisSpacing: Responsive.spacing(context, 10),
       ),
@@ -874,42 +891,58 @@ class _LabDetailsScreenState extends State<LabDetailsScreen> {
         (pkg['package_items'] is List ? (pkg['package_items'] as List).length : 0);
     final imageUrl = ApiConfig.packageImageUrl(pkg);
 
-    return Container(
-      decoration: AppTheme.cardDecorationFor(context),
-      padding: EdgeInsets.all(Responsive.spacing(context, 10)),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(child: _buildServiceThumb(imageUrl)),
-          SizedBox(height: Responsive.spacing(context, 8)),
-          Text(
-            displayName,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              fontSize: Responsive.fontSize(context, 12),
-              fontWeight: FontWeight.w700,
-              color: RastUi.primaryText(context),
-            ),
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () => Navigator.push(
+          context,
+          MaterialPageRoute<void>(
+            builder: (_) => PackageDetailScreen(package: pkg),
           ),
-          SizedBox(height: Responsive.spacing(context, 4)),
-          Text(
-            '$testsCount تحليل',
-            style: TextStyle(
-              fontSize: Responsive.fontSize(context, 10),
-              color: AppTheme.onSurfaceVariant,
-            ),
+        ),
+        borderRadius: BorderRadius.circular(18),
+        child: Container(
+          decoration: AppTheme.cardDecorationFor(context),
+          padding: EdgeInsets.all(Responsive.spacing(context, 10)),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _buildGridCoverImage(
+                context,
+                imageUrl,
+                placeholderIcon: Icons.inventory_2_rounded,
+              ),
+              SizedBox(height: Responsive.spacing(context, 8)),
+              Text(
+                displayName,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: Responsive.fontSize(context, 12),
+                  fontWeight: FontWeight.w700,
+                  color: RastUi.primaryText(context),
+                ),
+              ),
+              SizedBox(height: Responsive.spacing(context, 4)),
+              Text(
+                '$testsCount تحليل',
+                style: TextStyle(
+                  fontSize: Responsive.fontSize(context, 10),
+                  color: AppTheme.onSurfaceVariant,
+                ),
+              ),
+              const Spacer(),
+              Text(
+                price > 0 ? '${price.toStringAsFixed(2)} ر.س' : 'اتصل لمعرفة السعر',
+                style: TextStyle(
+                  fontSize: Responsive.fontSize(context, 11),
+                  color: RastUi.purple,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
           ),
-          SizedBox(height: Responsive.spacing(context, 2)),
-          Text(
-            price > 0 ? '${price.toStringAsFixed(2)} ر.س' : 'اتصل لمعرفة السعر',
-            style: TextStyle(
-              fontSize: Responsive.fontSize(context, 11),
-              color: RastUi.purple,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -1243,13 +1276,13 @@ class _LabDetailsScreenState extends State<LabDetailsScreen> {
           child: Padding(
             padding: EdgeInsets.all(Responsive.spacing(context, 10)),
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Expanded(child: _buildServiceThumb(imageUrl)),
+                _buildGridCoverImage(context, imageUrl),
                 SizedBox(height: Responsive.spacing(context, 8)),
                 Text(
                   displayName,
-                  maxLines: 1,
+                  maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     fontSize: Responsive.fontSize(context, 12),
@@ -1257,7 +1290,7 @@ class _LabDetailsScreenState extends State<LabDetailsScreen> {
                     color: RastUi.primaryText(context),
                   ),
                 ),
-                SizedBox(height: Responsive.spacing(context, 4)),
+                const Spacer(),
                 Text(
                   '${price is num ? price.toStringAsFixed(2) : price} ر.س',
                   maxLines: 1,

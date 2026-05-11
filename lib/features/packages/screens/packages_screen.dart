@@ -392,22 +392,38 @@ class _PackageCard extends StatelessWidget {
 
   const _PackageCard({required this.package, required this.lang, required this.onTap});
 
+  static Map<String, dynamic>? _asStringKeyedMap(dynamic value) {
+    if (value is Map<String, dynamic>) return value;
+    if (value is Map) return Map<String, dynamic>.from(value);
+    return null;
+  }
+
+  /// اسم المختبر من حقول متعددة (يدعم أشكال API المختلفة).
   String _providerName(BuildContext context) {
     final isArabic = context.read<AppSettingsProvider>().isArabic;
-    final provider = package['provider'];
-    if (provider is Map<String, dynamic>) {
-      final name = LocaleUtils.localizedBusinessName(provider, isArabic);
-      if (name.trim().isNotEmpty) return name;
+
+    String fromProviderMap(Map<String, dynamic>? p) {
+      if (p == null) return '';
+      var n = LocaleUtils.localizedBusinessName(p, isArabic).trim();
+      if (n.isNotEmpty) return n;
+      n = LocaleUtils.localizedName(p, isArabic).trim();
+      if (n.isNotEmpty) return n;
+      n = (p['provider_name'] ?? p['lab_name'] ?? p['name'] ?? '')
+          .toString()
+          .trim();
+      return n;
     }
+
+    final direct = fromProviderMap(_asStringKeyedMap(package['provider']));
+    if (direct.isNotEmpty) return direct;
+
     final providerServices = package['provider_services'] ?? package['providerServices'];
-    if (providerServices is List && providerServices.isNotEmpty) {
-      final first = providerServices.first;
-      if (first is Map) {
-        final providerMap = first['provider'];
-        if (providerMap is Map<String, dynamic>) {
-          final name = LocaleUtils.localizedBusinessName(providerMap, isArabic);
-          if (name.trim().isNotEmpty) return name;
-        }
+    if (providerServices is List) {
+      for (final item in providerServices) {
+        final ps = _asStringKeyedMap(item);
+        if (ps == null) continue;
+        final nested = fromProviderMap(_asStringKeyedMap(ps['provider']));
+        if (nested.isNotEmpty) return nested;
       }
     }
     return '';
@@ -478,17 +494,31 @@ class _PackageCard extends StatelessWidget {
                           fontWeight: FontWeight.w600,
                         ),
                       ),
-                      if (providerName.isNotEmpty)
-                        Text(
-                          providerName,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: Responsive.fontSize(context, 11),
-                            color: AppTheme.onSurfaceVariant,
-                            fontWeight: FontWeight.w500,
-                          ),
+                      if (providerName.isNotEmpty) ...[
+                        SizedBox(height: Responsive.spacing(context, 6)),
+                        Row(
+                          children: [
+                            Icon(
+                              Icons.business_rounded,
+                              size: 15,
+                              color: AppTheme.primary.withValues(alpha: 0.75),
+                            ),
+                            SizedBox(width: Responsive.spacing(context, 4)),
+                            Expanded(
+                              child: Text(
+                                providerName,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: Responsive.fontSize(context, 11),
+                                  color: AppTheme.onSurfaceVariant,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
+                      ],
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
