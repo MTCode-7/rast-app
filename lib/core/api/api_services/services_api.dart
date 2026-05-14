@@ -89,6 +89,34 @@ class ServicesApi {
     return res;
   }
 
+  /// يجمع كل صفحات GET /api/packages.
+  Future<List<dynamic>> getAllPackages({int? categoryId, int perPage = 100}) async {
+    final all = <dynamic>[];
+    var page = 1;
+    while (true) {
+      final res = await getPackages(categoryId: categoryId, page: page, perPage: perPage);
+      final data = res['data'];
+      if (data is Map<String, dynamic>) {
+        final items = data['data'];
+        if (items is! List) break;
+        if (items.isEmpty) break;
+        all.addAll(List.from(items));
+        final lp = data['last_page'];
+        final lastPage = lp is int ? lp : int.tryParse(lp?.toString() ?? '') ?? 1;
+        final cur = data['current_page'];
+        final curPage = cur is int ? cur : int.tryParse(cur?.toString() ?? '') ?? page;
+        if (curPage >= lastPage) break;
+        page++;
+      } else if (data is List) {
+        all.addAll(List.from(data));
+        break;
+      } else {
+        break;
+      }
+    }
+    return all;
+  }
+
   /// GET /api/offers - العروض
   Future<Map<String, dynamic>> getOffers({int? providerId, int page = 1}) async {
     final params = <String, String>{

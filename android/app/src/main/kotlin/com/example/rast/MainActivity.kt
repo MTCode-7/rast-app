@@ -1,4 +1,4 @@
-package com.ashraf.rastlabs
+package com.rast.labs
 
 import io.flutter.embedding.android.FlutterActivity
 

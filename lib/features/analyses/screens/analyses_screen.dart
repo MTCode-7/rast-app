@@ -96,12 +96,17 @@ class _AnalysesScreenState extends State<AnalysesScreen> {
       int? totalFromApi;
 
       if (widget.labId != null) {
-        if (!reset) {
-          setState(() => _isLoadingMore = false);
-          return;
-        }
-        servicesPage = await Api.providers.getProviderServices(widget.labId!);
-        canLoadMore = false;
+        final pageRes = await Api.providers.getProviderServicesPage(
+          widget.labId!,
+          page: reset ? 1 : _currentPage,
+          perPage: _pageSize,
+          q: _searchController.text.trim().isEmpty
+              ? null
+              : _searchController.text.trim(),
+        );
+        servicesPage = pageRes.items;
+        canLoadMore = pageRes.hasMore;
+        totalFromApi = pageRes.total;
       } else {
         final res = await Api.services.getServices(
           categoryId: widget.categoryId,
@@ -190,7 +195,6 @@ class _AnalysesScreenState extends State<AnalysesScreen> {
 
   void _onScroll() {
     if (!_scrollController.hasClients || _isLoading || _isLoadingMore) return;
-    if (widget.labId != null) return;
     final p = _scrollController.position;
     if (p.pixels >= p.maxScrollExtent - 320) {
       _loadData();

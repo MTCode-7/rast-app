@@ -408,11 +408,33 @@ class _PackageCard extends StatelessWidget {
       if (n.isNotEmpty) return n;
       n = LocaleUtils.localizedName(p, isArabic).trim();
       if (n.isNotEmpty) return n;
-      n = (p['provider_name'] ?? p['lab_name'] ?? p['name'] ?? '')
+      n = (p['provider_name'] ??
+              p['lab_name'] ??
+              p['business_name'] ??
+              p['name'] ??
+              '')
           .toString()
           .trim();
       return n;
     }
+
+    final rootHints = [
+      package['provider_name'],
+      package['lab_name'],
+      package['business_name_ar'],
+      package['business_name_en'],
+      package['business_name'],
+      package['facility_name'],
+    ];
+    for (final h in rootHints) {
+      final s = h?.toString().trim() ?? '';
+      if (s.isNotEmpty) return s;
+    }
+
+    final labMap = _asStringKeyedMap(package['laboratory']) ??
+        _asStringKeyedMap(package['lab']);
+    final fromLab = fromProviderMap(labMap);
+    if (fromLab.isNotEmpty) return fromLab;
 
     final direct = fromProviderMap(_asStringKeyedMap(package['provider']));
     if (direct.isNotEmpty) return direct;
@@ -446,6 +468,7 @@ class _PackageCard extends StatelessWidget {
             ? (package['package_items'] as List).length
             : 0);
     final providerName = _providerName(context);
+    final labLine = providerName.isNotEmpty ? providerName : 'مختبر';
 
     return Material(
       color: Colors.transparent,
@@ -494,31 +517,29 @@ class _PackageCard extends StatelessWidget {
                           fontWeight: FontWeight.w600,
                         ),
                       ),
-                      if (providerName.isNotEmpty) ...[
-                        SizedBox(height: Responsive.spacing(context, 6)),
-                        Row(
-                          children: [
-                            Icon(
-                              Icons.business_rounded,
-                              size: 15,
-                              color: AppTheme.primary.withValues(alpha: 0.75),
-                            ),
-                            SizedBox(width: Responsive.spacing(context, 4)),
-                            Expanded(
-                              child: Text(
-                                providerName,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  fontSize: Responsive.fontSize(context, 11),
-                                  color: AppTheme.onSurfaceVariant,
-                                  fontWeight: FontWeight.w600,
-                                ),
+                      SizedBox(height: Responsive.spacing(context, 6)),
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.business_rounded,
+                            size: 15,
+                            color: AppTheme.primary.withValues(alpha: 0.75),
+                          ),
+                          SizedBox(width: Responsive.spacing(context, 4)),
+                          Expanded(
+                            child: Text(
+                              labLine,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: Responsive.fontSize(context, 11),
+                                color: AppTheme.onSurfaceVariant,
+                                fontWeight: FontWeight.w600,
                               ),
                             ),
-                          ],
-                        ),
-                      ],
+                          ),
+                        ],
+                      ),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:rast/core/constants/api_config.dart';
@@ -9,6 +11,7 @@ import 'package:rast/core/theme/app_theme.dart';
 import 'package:rast/core/api/api_services.dart';
 import 'package:rast/core/widgets/gradient_button.dart';
 import 'package:rast/core/api/api_client.dart';
+import 'package:rast/core/api/api_services/providers_api.dart' show PaginatedResponse;
 import 'package:rast/core/utils/responsive.dart';
 import 'package:rast/core/widgets/rating_badge.dart';
 import 'package:rast/core/widgets/rast_ui.dart';
@@ -27,19 +30,38 @@ class LabDetailsScreen extends StatefulWidget {
   State<LabDetailsScreen> createState() => _LabDetailsScreenState();
 }
 
-class _LabDetailsScreenState extends State<LabDetailsScreen> {
+class _LabDetailsScreenState extends State<LabDetailsScreen>
+    with SingleTickerProviderStateMixin {
   final TextEditingController _servicesSearchController =
       TextEditingController();
+  final ScrollController _scrollController = ScrollController();
+  Timer? _searchDebounce;
+
+  Map<String, dynamic> _labMap = {};
+  bool _providerLoading = true;
+
   List<dynamic> _services = [];
+  int _servicesPage = 0;
+  bool _hasMoreServices = true;
+  bool _loadingMoreServices = false;
+
   List<dynamic> _packages = [];
+  int _packagesPage = 0;
+  bool _hasMorePackages = true;
+  bool _loadingMorePackages = false;
+
   List<dynamic> _reviews = [];
-  bool _isLoading = true;
+  int _reviewsPage = 0;
+  bool _hasMoreReviews = true;
+  bool _loadingMoreReviews = false;
+
   String? _error;
   bool _isFavorite = false;
   String _servicesSort = 'default';
   bool _servicesHomeOnly = false;
   double? _servicesMinPrice;
   double? _servicesMaxPrice;
+  late TabController _tabController;
 
   int get _labId => widget.lab['id'] is int
       ? widget.lab['id'] as int
@@ -48,14 +70,192 @@ class _LabDetailsScreenState extends State<LabDetailsScreen> {
   @override
   void initState() {
     super.initState();
+    _labMap = Map<String, dynamic>.from(widget.lab);
+    _tabController = TabController(length: 2, vsync: this);
+    _tabController.addListener(() {
+      if (!_tabController.indexIsChanging && mounted) {
+        setState(() {});
+      }
+    });
+    _scrollController.addListener(_onScrollNearEnd);
+    _servicesSearchController.addListener(_onSearchTextChanged);
     _loadFavorite();
     _loadData();
   }
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
+    _scrollController.removeListener(_onScrollNearEnd);
+    _scrollController.dispose();
+    _tabController.dispose();
     _servicesSearchController.dispose();
     super.dispose();
+  }
+
+  void _onSearchTextChanged() {
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 420), () {
+      if (!mounted) return;
+      if (_tabController.index == 0) {
+        unawaited(_loadServicesInternal(reset: true));
+      } else {
+        setState(() {});
+      }
+    });
+  }
+
+  void _onScrollNearEnd() {
+    if (!_scrollController.hasClients) return;
+    final p = _scrollController.position;
+    if (p.pixels < p.maxScrollExtent - 480) return;
+    if (_tabController.index == 0) {
+      if (_hasMoreServices && !_loadingMoreServices) {
+        unawaited(_loadServicesInternal(reset: false));
+      }
+    } else {
+      if (_hasMorePackages && !_loadingMorePackages) {
+        unawaited(_loadPackagesInternal(reset: false));
+      }
+    }
+  }
+
+  String? _apiSortForProviderServices() {
+    switch (_servicesSort) {
+      case 'price_low':
+        return 'price_asc';
+      case 'price_high':
+        return 'price_desc';
+      default:
+        return null;
+    }
+  }
+
+  Future<void> _loadServicesInternal({bool reset = false}) async {
+    if (_loadingMoreServices && !reset) return;
+    if (!reset && !_hasMoreServices) return;
+    final nextPage = reset ? 1 : _servicesPage + 1;
+    setState(() {
+      if (reset) {
+        _services = [];
+        _servicesPage = 0;
+        _hasMoreServices = true;
+      }
+      _loadingMoreServices = true;
+    });
+    try {
+      final q = _servicesSearchController.text.trim();
+      final page = await Api.providers.getProviderServicesPage(
+        _labId,
+        page: nextPage,
+        perPage: 20,
+        q: q.isEmpty ? null : q,
+        sort: _apiSortForProviderServices(),
+      );
+      if (!mounted) return;
+      setState(() {
+        if (reset) {
+          _services = List.from(page.items);
+        } else {
+          _services.addAll(page.items);
+        }
+        _servicesPage = page.currentPage;
+        _hasMoreServices = page.hasMore;
+        _loadingMoreServices = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _loadingMoreServices = false);
+    }
+  }
+
+  bool _packageBelongsToLab(dynamic item) {
+    if (item is! Map) return false;
+    final pkg = Map<String, dynamic>.from(item);
+    final provider = pkg['provider'];
+    if (provider is Map && provider['id']?.toString() == _labId.toString()) {
+      return true;
+    }
+    final providerServices =
+        pkg['provider_services'] ?? pkg['providerServices'];
+    if (providerServices is List) {
+      for (final ps in providerServices) {
+        if (ps is! Map) continue;
+        if (ps['provider_id']?.toString() == _labId.toString()) return true;
+        final psProvider = ps['provider'];
+        if (psProvider is Map &&
+            psProvider['id']?.toString() == _labId.toString()) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  Future<void> _loadPackagesInternal({bool reset = false}) async {
+    if (_loadingMorePackages && !reset) return;
+    if (!reset && !_hasMorePackages) return;
+    final nextPage = reset ? 1 : _packagesPage + 1;
+    setState(() {
+      if (reset) {
+        _packages = [];
+        _packagesPage = 0;
+        _hasMorePackages = true;
+      }
+      _loadingMorePackages = true;
+    });
+    try {
+      final res = await Api.services.getPackages(page: nextPage, perPage: 20);
+      final page = PaginatedResponse.fromPayload(res['data']);
+      final matched =
+          page.items.where((e) => _packageBelongsToLab(e)).toList();
+      if (!mounted) return;
+      setState(() {
+        if (reset) {
+          _packages = matched;
+        } else {
+          _packages.addAll(matched);
+        }
+        _packagesPage = page.currentPage;
+        _hasMorePackages = page.hasMore;
+        _loadingMorePackages = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _loadingMorePackages = false);
+    }
+  }
+
+  Future<void> _loadReviewsInternal({bool reset = false}) async {
+    if (_loadingMoreReviews && !reset) return;
+    if (!reset && !_hasMoreReviews) return;
+    final nextPage = reset ? 1 : _reviewsPage + 1;
+    setState(() {
+      if (reset) {
+        _reviews = [];
+        _reviewsPage = 0;
+        _hasMoreReviews = true;
+      }
+      _loadingMoreReviews = true;
+    });
+    try {
+      final page = await Api.providers.getReviewsPage(
+        _labId,
+        page: nextPage,
+        perPage: 15,
+      );
+      if (!mounted) return;
+      setState(() {
+        if (reset) {
+          _reviews = List.from(page.items);
+        } else {
+          _reviews.addAll(page.items);
+        }
+        _reviewsPage = page.currentPage;
+        _hasMoreReviews = page.hasMore;
+        _loadingMoreReviews = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _loadingMoreReviews = false);
+    }
   }
 
   Future<void> _loadFavorite() async {
@@ -164,19 +364,8 @@ class _LabDetailsScreenState extends State<LabDetailsScreen> {
   }
 
   List<dynamic> _visibleLabServices() {
-    final q = _servicesSearchController.text.trim().toLowerCase();
     final visible = _services.where((item) {
-      final service = _serviceMapFromProviderService(item);
-      final nameAr = (service['name_ar'] ?? '').toString().toLowerCase();
-      final nameEn = (service['name_en'] ?? '').toString().toLowerCase();
-      final name = (service['name'] ?? '').toString().toLowerCase();
-      if (q.isNotEmpty &&
-          !nameAr.contains(q) &&
-          !nameEn.contains(q) &&
-          !name.contains(q)) {
-        return false;
-      }
-
+      if (item is! Map) return false;
       final price = _servicePrice(item);
       if (_servicesMinPrice != null && price < _servicesMinPrice!) {
         return false;
@@ -190,83 +379,47 @@ class _LabDetailsScreenState extends State<LabDetailsScreen> {
       return true;
     }).toList();
 
-    visible.sort((a, b) {
-      switch (_servicesSort) {
-        case 'price_low':
-          return _servicePrice(a).compareTo(_servicePrice(b));
-        case 'price_high':
-          return _servicePrice(b).compareTo(_servicePrice(a));
-        case 'name':
-          return _serviceDisplayName(a).compareTo(_serviceDisplayName(b));
-        default:
-          return 0;
-      }
-    });
+    if (_servicesSort == 'name') {
+      visible.sort(
+        (a, b) =>
+            _serviceDisplayName(a).compareTo(_serviceDisplayName(b)),
+      );
+    }
     return visible;
   }
 
   Future<void> _loadData() async {
     setState(() {
-      _isLoading = true;
       _error = null;
+      _providerLoading = true;
     });
     try {
       final provider = await Api.providers.getProvider(_labId);
-      final services = await Api.providers.getProviderServices(_labId);
-      final packagesRes = await Api.services.getPackages(perPage: 100);
-      final packagesRaw = packagesRes['data'];
-      final allPackages = packagesRaw is List
-          ? List.from(packagesRaw)
-          : (packagesRaw is Map && packagesRaw['data'] is List
-                ? List.from(packagesRaw['data'] as List)
-                : <dynamic>[]);
-      final packages = allPackages.where((item) {
-        if (item is! Map) return false;
-        final pkg = Map<String, dynamic>.from(item);
-        final provider = pkg['provider'];
-        if (provider is Map &&
-            (provider['id']?.toString() == _labId.toString())) {
-          return true;
-        }
-        final providerServices = pkg['provider_services'] ?? pkg['providerServices'];
-        if (providerServices is List) {
-          for (final ps in providerServices) {
-            if (ps is! Map) continue;
-            if (ps['provider_id']?.toString() == _labId.toString()) return true;
-            final psProvider = ps['provider'];
-            if (psProvider is Map &&
-                psProvider['id']?.toString() == _labId.toString()) {
-              return true;
-            }
-          }
-        }
-        return false;
-      }).toList();
-      final reviews = provider['reviews'] is List
-          ? List.from(provider['reviews'] as List)
-          : [];
-      setState(() {
-        _services = services;
-        _packages = packages;
-        _reviews = reviews;
-        _isLoading = false;
-      });
+      if (!mounted) return;
+      setState(() => _labMap = {..._labMap, ...provider});
+      await Future.wait([
+        _loadServicesInternal(reset: true),
+        _loadPackagesInternal(reset: true),
+        _loadReviewsInternal(reset: true),
+      ]);
+      if (!mounted) return;
+      setState(() => _providerLoading = false);
     } on ApiException catch (e) {
       setState(() {
         _error = e.message;
-        _isLoading = false;
+        _providerLoading = false;
       });
     } catch (e) {
       setState(() {
         _error = e.toString();
-        _isLoading = false;
+        _providerLoading = false;
       });
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final lab = widget.lab;
+    final lab = _labMap;
     final logoUrl =
         ApiConfig.imageFromMap(lab) ??
         ApiConfig.resolveImageUrl(lab['logo_url'], lab['logo']);
@@ -281,11 +434,12 @@ class _LabDetailsScreenState extends State<LabDetailsScreen> {
       textDirection: TextDirection.rtl,
       child: Scaffold(
         backgroundColor: Theme.of(context).colorScheme.surface,
-        body: _isLoading
+        body: _providerLoading
             ? _buildLoading()
             : _error != null
             ? _buildError()
             : CustomScrollView(
+                controller: _scrollController,
                 slivers: [
                   SliverAppBar(
                     expandedHeight: 260,
@@ -494,12 +648,38 @@ class _LabDetailsScreenState extends State<LabDetailsScreen> {
                             _buildSection(
                               'التقييمات',
                               Icons.star_rounded,
-                              _reviews.isEmpty
+                              _reviews.isEmpty && !_loadingMoreReviews
                                   ? _buildEmptyReviews()
                                   : Column(
-                                      children: _reviews
-                                          .map((r) => _buildReviewItem(r))
-                                          .toList(),
+                                      children: [
+                                        ..._reviews.map(
+                                          (r) => _buildReviewItem(r),
+                                        ),
+                                        if (_hasMoreReviews)
+                                          Padding(
+                                            padding: EdgeInsets.only(
+                                              top: Responsive.spacing(
+                                                context,
+                                                12,
+                                              ),
+                                            ),
+                                            child: Center(
+                                              child: TextButton(
+                                                onPressed:
+                                                    _loadingMoreReviews
+                                                    ? null
+                                                    : () => _loadReviewsInternal(
+                                                        reset: false,
+                                                      ),
+                                                child: Text(
+                                                  _loadingMoreReviews
+                                                      ? 'جاري التحميل...'
+                                                      : 'تحميل المزيد من التقييمات',
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                      ],
                                     ),
                             ),
                             SizedBox(height: 100),
@@ -773,8 +953,12 @@ class _LabDetailsScreenState extends State<LabDetailsScreen> {
     ),
   );
 
-  Widget _buildLabServicesPanel(BuildContext context) {
-    final visible = _visibleLabServices();
+  Widget _buildLabServicesAndPackagesTabs(BuildContext context) {
+    final svcAll = _visibleLabServices();
+    final pkgAll = _visibleLabPackages();
+    final filteredCount =
+        _tabController.index == 0 ? svcAll.length : pkgAll.length;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -784,8 +968,20 @@ class _LabDetailsScreenState extends State<LabDetailsScreen> {
               child: SearchBox(
                 controller: _servicesSearchController,
                 hintText: 'ابحث داخل تحاليل أو باقات المختبر',
-                onSearchTap: () => setState(() {}),
-                onSubmitted: (_) => setState(() {}),
+                onSearchTap: () {
+                  if (_tabController.index == 0) {
+                    unawaited(_loadServicesInternal(reset: true));
+                  } else {
+                    setState(() {});
+                  }
+                },
+                onSubmitted: (_) {
+                  if (_tabController.index == 0) {
+                    unawaited(_loadServicesInternal(reset: true));
+                  } else {
+                    setState(() {});
+                  }
+                },
               ),
             ),
             const SizedBox(width: 12),
@@ -793,90 +989,133 @@ class _LabDetailsScreenState extends State<LabDetailsScreen> {
           ],
         ),
         SizedBox(height: Responsive.spacing(context, 10)),
-        _activeServicesFilters(visible.length),
+        _activeServicesFilters(filteredCount),
         SizedBox(height: Responsive.spacing(context, 12)),
-        if (_services.isEmpty)
-          _buildEmptySection('لا توجد تحاليل')
-        else if (visible.isEmpty)
-          _buildEmptySection('لا توجد نتائج مطابقة للفلترة')
-        else
-          GridView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount: visible.length,
-            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 2,
-              childAspectRatio: 0.70,
-              crossAxisSpacing: Responsive.spacing(context, 10),
-              mainAxisSpacing: Responsive.spacing(context, 10),
+        Container(
+          decoration: BoxDecoration(
+            color: AppTheme.primary.withValues(alpha: 0.08),
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: TabBar(
+            controller: _tabController,
+            indicator: BoxDecoration(
+              color: RastUi.purple,
+              borderRadius: BorderRadius.circular(12),
             ),
-            itemBuilder: (context, index) =>
-                _buildServiceGridItem(context, visible[index]),
+            indicatorSize: TabBarIndicatorSize.tab,
+            dividerColor: Colors.transparent,
+            labelColor: Colors.white,
+            unselectedLabelColor: RastUi.textPurple,
+            tabs: const [
+              Tab(text: 'التحاليل'),
+              Tab(text: 'الباقات'),
+            ],
+          ),
+        ),
+        SizedBox(height: Responsive.spacing(context, 14)),
+        IndexedStack(
+          index: _tabController.index,
+          alignment: Alignment.topCenter,
+          children: [
+            _buildLabServicesGridBody(context, svcAll),
+            _buildLabPackagesGridBody(context, pkgAll),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildLabServicesGridBody(
+    BuildContext context,
+    List<dynamic> allVisible,
+  ) {
+    if (_services.isEmpty && _loadingMoreServices) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 24),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+    if (_services.isEmpty) {
+      return _buildEmptySection('لا توجد تحاليل');
+    }
+    if (allVisible.isEmpty) {
+      return _buildEmptySection('لا توجد نتائج مطابقة للفلترة');
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        GridView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          itemCount: allVisible.length,
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 2,
+            childAspectRatio: 0.70,
+            crossAxisSpacing: Responsive.spacing(context, 10),
+            mainAxisSpacing: Responsive.spacing(context, 10),
+          ),
+          itemBuilder: (context, index) =>
+              _buildServiceGridItem(context, allVisible[index]),
+        ),
+        if (_loadingMoreServices && _hasMoreServices)
+          Padding(
+            padding: EdgeInsets.only(top: Responsive.spacing(context, 16)),
+            child: const Center(
+              child: SizedBox(
+                width: 28,
+                height: 28,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            ),
           ),
       ],
     );
   }
 
-  Widget _buildLabServicesAndPackagesTabs(BuildContext context) {
-    return DefaultTabController(
-      length: 2,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            decoration: BoxDecoration(
-              color: AppTheme.primary.withValues(alpha: 0.08),
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: TabBar(
-              indicator: BoxDecoration(
-                color: RastUi.purple,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              indicatorSize: TabBarIndicatorSize.tab,
-              dividerColor: Colors.transparent,
-              labelColor: Colors.white,
-              unselectedLabelColor: RastUi.textPurple,
-              tabs: const [
-                Tab(text: 'التحاليل'),
-                Tab(text: 'الباقات'),
-              ],
-            ),
-          ),
-          SizedBox(height: Responsive.spacing(context, 14)),
-          SizedBox(
-            height: 620,
-            child: TabBarView(
-              children: [
-                SingleChildScrollView(child: _buildLabServicesPanel(context)),
-                SingleChildScrollView(child: _buildLabPackagesPanel(context)),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildLabPackagesPanel(BuildContext context) {
-    final visible = _visibleLabPackages();
+  Widget _buildLabPackagesGridBody(
+    BuildContext context,
+    List<dynamic> allVisible,
+  ) {
+    if (_packages.isEmpty && _loadingMorePackages) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 24),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
     if (_packages.isEmpty) {
       return _buildEmptySection('لا توجد باقات');
     }
-    if (visible.isEmpty) {
+    if (allVisible.isEmpty) {
       return _buildEmptySection('لا توجد نتائج مطابقة للبحث');
     }
-    return GridView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      itemCount: visible.length,
-      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2,
-        childAspectRatio: 0.70,
-        crossAxisSpacing: Responsive.spacing(context, 10),
-        mainAxisSpacing: Responsive.spacing(context, 10),
-      ),
-      itemBuilder: (context, index) => _buildPackageGridItem(context, visible[index]),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        GridView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          itemCount: allVisible.length,
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 2,
+            childAspectRatio: 0.70,
+            crossAxisSpacing: Responsive.spacing(context, 10),
+            mainAxisSpacing: Responsive.spacing(context, 10),
+          ),
+          itemBuilder: (context, index) =>
+              _buildPackageGridItem(context, allVisible[index]),
+        ),
+        if (_loadingMorePackages && _hasMorePackages)
+          Padding(
+            padding: EdgeInsets.only(top: Responsive.spacing(context, 16)),
+            child: const Center(
+              child: SizedBox(
+                width: 28,
+                height: 28,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            ),
+          ),
+      ],
     );
   }
 
@@ -890,6 +1129,10 @@ class _LabDetailsScreenState extends State<LabDetailsScreen> {
     final testsCount = pkg['tests_count'] ??
         (pkg['package_items'] is List ? (pkg['package_items'] as List).length : 0);
     final imageUrl = ApiConfig.packageImageUrl(pkg);
+    final labLine = LocaleUtils.localizedBusinessName(
+      _labMap,
+      context.watch<AppSettingsProvider>().isArabic,
+    );
 
     return Material(
       color: Colors.transparent,
@@ -923,6 +1166,19 @@ class _LabDetailsScreenState extends State<LabDetailsScreen> {
                   color: RastUi.primaryText(context),
                 ),
               ),
+              if (labLine.trim().isNotEmpty) ...[
+                SizedBox(height: Responsive.spacing(context, 4)),
+                Text(
+                  labLine,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: Responsive.fontSize(context, 10),
+                    color: AppTheme.primary.withValues(alpha: 0.85),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
               SizedBox(height: Responsive.spacing(context, 4)),
               Text(
                 '$testsCount تحليل',
@@ -1090,6 +1346,7 @@ class _LabDetailsScreenState extends State<LabDetailsScreen> {
                             _servicesMaxPrice = null;
                           });
                           Navigator.pop(ctx);
+                          unawaited(_loadServicesInternal(reset: true));
                         },
                         child: const Text('مسح'),
                       ),
@@ -1109,6 +1366,7 @@ class _LabDetailsScreenState extends State<LabDetailsScreen> {
                             );
                           });
                           Navigator.pop(ctx);
+                          unawaited(_loadServicesInternal(reset: true));
                         },
                         child: const Text('تطبيق'),
                       ),
@@ -1267,7 +1525,7 @@ class _LabDetailsScreenState extends State<LabDetailsScreen> {
                 service: serviceMap,
                 labId: _labId,
                 labName: LocaleUtils.localizedBusinessName(
-                  widget.lab,
+                  _labMap,
                   context.watch<AppSettingsProvider>().isArabic,
                 ),
               ),

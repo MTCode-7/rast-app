@@ -22,6 +22,41 @@ class SearchBox extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // أيقونة واحدة فقط: إن وُجد فلتر يُعرض كزر لاحق؛ وإلا أيقونة بحث واحدة (بادئة) بدون تكرار مع لاحق.
+    final Widget? prefixIcon;
+    final Widget? suffixIcon;
+    if (onFilterTap != null) {
+      prefixIcon = null;
+      suffixIcon = IconButton(
+        onPressed: onFilterTap,
+        icon: Icon(
+          Icons.tune_rounded,
+          color: RastUi.purple,
+          size: 20,
+        ),
+      );
+    } else if (onSearchTap != null) {
+      prefixIcon = Padding(
+        padding: const EdgeInsets.only(right: 4),
+        child: Icon(
+          Icons.search_rounded,
+          color: AppTheme.primary,
+          size: 20,
+        ),
+      );
+      suffixIcon = null;
+    } else {
+      prefixIcon = Padding(
+        padding: const EdgeInsets.only(right: 4),
+        child: Icon(
+          Icons.search_rounded,
+          color: AppTheme.primary,
+          size: 20,
+        ),
+      );
+      suffixIcon = null;
+    }
+
     return Container(
       height: 48,
       decoration: BoxDecoration(
@@ -50,33 +85,8 @@ class SearchBox extends StatelessWidget {
             fontSize: Responsive.fontSize(context, 13),
             fontWeight: FontWeight.w400,
           ),
-          prefixIcon: Padding(
-            padding: const EdgeInsets.only(right: 4),
-            child: Icon(
-              Icons.search_rounded,
-              color: AppTheme.primary,
-              size: 20,
-            ),
-          ),
-          suffixIcon: onFilterTap != null
-              ? IconButton(
-                  onPressed: onFilterTap,
-                  icon: Icon(
-                    Icons.tune_rounded,
-                    color: RastUi.purple,
-                    size: 18,
-                  ),
-                )
-              : (onSearchTap != null
-                    ? IconButton(
-                        onPressed: onSearchTap,
-                        icon: Icon(
-                          Icons.search_rounded,
-                          color: AppTheme.primary,
-                          size: 22,
-                        ),
-                      )
-                    : null),
+          prefixIcon: prefixIcon,
+          suffixIcon: suffixIcon,
           border: InputBorder.none,
           enabledBorder: InputBorder.none,
           focusedBorder: InputBorder.none,

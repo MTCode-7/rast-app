@@ -1,5 +1,53 @@
 import 'package:rast/core/api/api_client.dart';
 
+/// استجابة صفحة واحدة من الـ API (Paginator داخل `data`).
+class PaginatedResponse {
+  PaginatedResponse({
+    required this.items,
+    required this.currentPage,
+    required this.lastPage,
+    this.total,
+  });
+
+  final List<dynamic> items;
+  final int currentPage;
+  final int lastPage;
+  final int? total;
+
+  bool get hasMore => currentPage < lastPage;
+
+  factory PaginatedResponse.fromPayload(dynamic data) {
+    if (data is List) {
+      return PaginatedResponse(
+        items: List<dynamic>.from(data),
+        currentPage: 1,
+        lastPage: 1,
+        total: data.length,
+      );
+    }
+    if (data is Map) {
+      final inner = data['data'];
+      final items = inner is List ? List<dynamic>.from(inner) : <dynamic>[];
+      final cp = _parseIntStatic(data['current_page']) ?? 1;
+      final lp = _parseIntStatic(data['last_page']) ?? 1;
+      final tot = _parseIntStatic(data['total']);
+      return PaginatedResponse(
+        items: items,
+        currentPage: cp,
+        lastPage: lp,
+        total: tot,
+      );
+    }
+    return PaginatedResponse(items: [], currentPage: 1, lastPage: 1);
+  }
+}
+
+int? _parseIntStatic(dynamic value) {
+  if (value is int) return value;
+  if (value is num) return value.toInt();
+  return int.tryParse(value?.toString() ?? '');
+}
+
 class ProvidersApi {
   final _client = ApiClient();
 
@@ -45,10 +93,29 @@ class ProvidersApi {
     return res['data'] as Map<String, dynamic>;
   }
 
-  /// GET /api/providers/{id}/services - خدمات المختبر
+  /// GET /api/providers/{id}/services — صفحة واحدة (`q` بحث، `sort`: price_asc | price_desc).
+  Future<PaginatedResponse> getProviderServicesPage(
+    int id, {
+    int page = 1,
+    int perPage = 20,
+    String? q,
+    String? sort,
+  }) async {
+    final params = <String, String>{
+      'page': page.toString(),
+      'per_page': perPage.toString(),
+    };
+    final t = q?.trim();
+    if (t != null && t.isNotEmpty) params['q'] = t;
+    if (sort != null && sort.isNotEmpty) params['sort'] = sort;
+    final res = await _client.get('providers/$id/services', queryParams: params);
+    return PaginatedResponse.fromPayload(res['data']);
+  }
+
+  /// GET /api/providers/{id}/services — الصفحة الأولى فقط (توافق خلفي).
   Future<List<dynamic>> getProviderServices(int id) async {
-    final res = await _client.get('providers/$id/services');
-    return _extractItems(res['data']);
+    final page = await getProviderServicesPage(id, page: 1, perPage: 50);
+    return page.items;
   }
 
   /// GET /api/providers/{id}/branches - فروع المختبر
@@ -64,14 +131,30 @@ class ProvidersApi {
     return data is List ? List.from(data) : [];
   }
 
-  /// GET /api/providers/{id}/reviews - التقييمات
-  Future<List<dynamic>> getReviews(int id) async {
+  /// GET /api/providers/{id}/reviews — صفحات.
+  Future<PaginatedResponse> getReviewsPage(
+    int id, {
+    int page = 1,
+    int perPage = 15,
+  }) async {
     try {
-      final res = await _client.get('providers/$id/reviews');
-      return _extractItems(res['data']);
+      final res = await _client.get(
+        'providers/$id/reviews',
+        queryParams: {
+          'page': page.toString(),
+          'per_page': perPage.toString(),
+        },
+      );
+      return PaginatedResponse.fromPayload(res['data']);
     } catch (_) {
-      return [];
+      return PaginatedResponse(items: [], currentPage: 1, lastPage: 1);
     }
+  }
+
+  /// GET /api/providers/{id}/reviews — الصفحة الأولى فقط (توافق خلفي).
+  Future<List<dynamic>> getReviews(int id) async {
+    final r = await getReviewsPage(id, page: 1, perPage: 50);
+    return r.items;
   }
 
   /// GET /api/branches - كل الفروع (اختياري: provider_id, city)

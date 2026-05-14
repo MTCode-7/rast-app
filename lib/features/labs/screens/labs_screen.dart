@@ -15,6 +15,7 @@ import 'package:rast/core/api/api_services.dart';
 import 'package:rast/core/api/api_client.dart';
 import 'package:rast/core/widgets/search_box.dart';
 import 'package:rast/core/widgets/rast_ui.dart';
+import 'package:rast/core/constants/saudi_major_cities.dart';
 import 'package:rast/features/lab_details/screens/lab_details_screen.dart';
 import 'package:rast/features/settings/screens/default_location_screen.dart';
 import 'package:shimmer/shimmer.dart';
@@ -31,8 +32,8 @@ class _LabsScreenState extends State<LabsScreen> {
   String _sortBy = 'all';
   final ScrollController _scrollController = ScrollController();
   final TextEditingController _searchController = TextEditingController();
-  String? _selectedRegion;
-  List<String> _regions = [];
+  /// مدينة من شيت الفلترة (وليس من شريط فرز «المنطقة» المحذوف).
+  String? _selectedFilterCity;
   List<dynamic> _labs = [];
   bool _isLoading = true;
   bool _isLoadingMore = false;
@@ -43,29 +44,12 @@ class _LabsScreenState extends State<LabsScreen> {
   double? _userLat;
   double? _userLng;
   bool _filterHomeOnly = false;
-  bool _isRegionsLoading = false;
 
   @override
   void initState() {
     super.initState();
     _scrollController.addListener(_onScroll);
-    _loadRegions();
     _loadUserLocation();
-  }
-
-  Future<void> _loadRegions() async {
-    setState(() => _isRegionsLoading = true);
-    try {
-      final cities = await Api.providers.getCities();
-      if (!mounted) return;
-      setState(() {
-        _regions = cities;
-        _isRegionsLoading = false;
-      });
-    } catch (_) {
-      if (!mounted) return;
-      setState(() => _isRegionsLoading = false);
-    }
   }
 
   Future<void> _loadUserLocation() async {
@@ -146,15 +130,18 @@ class _LabsScreenState extends State<LabsScreen> {
         case 'featured':
           sort = 'featured';
           break;
-        case 'region':
-          break;
         default:
           break;
       }
 
       final nearbyRequested = _sortBy == 'nearby' && lat != null && lng != null;
+      final cityParam = (_selectedFilterCity != null &&
+              _selectedFilterCity!.trim().isNotEmpty)
+          ? _selectedFilterCity!.trim()
+          : null;
+
       final res = await Api.providers.getProviders(
-        city: _sortBy == 'region' ? _selectedRegion : null,
+        city: cityParam,
         sort: sort,
         homeService: homeService,
         page: _currentPage,
@@ -174,8 +161,15 @@ class _LabsScreenState extends State<LabsScreen> {
       }
       if (nearbyRequested && reset) {
         _sortLabsByDistance(list, lat, lng);
-      } else if (_sortBy == 'region' && reset && _selectedRegion == null) {
-        _sortLabsByRegion(list);
+      }
+      List<dynamic> nextLabs;
+      if (reset) {
+        nextLabs = list;
+        if (cityParam != null && cityParam.isNotEmpty) {
+          nextLabs = await _mergeBranchProvidersForCity(nextLabs, cityParam);
+        }
+      } else {
+        nextLabs = list;
       }
       final hasMoreFromMeta = _hasNextPage(res['data']);
       final hasMoreFromSize = list.length >= _pageSize;
@@ -185,7 +179,7 @@ class _LabsScreenState extends State<LabsScreen> {
       );
       setState(() {
         if (reset) {
-          _labs = list;
+          _labs = nextLabs;
         } else {
           _labs.addAll(list);
         }
@@ -250,22 +244,6 @@ class _LabsScreenState extends State<LabsScreen> {
       final bDistance = _distanceFromLab(bMap, userLat, userLng);
       return aDistance.compareTo(bDistance);
     });
-  }
-
-  void _sortLabsByRegion(List<dynamic> labs) {
-    labs.sort((a, b) {
-      final aMap = a is Map ? a : const {};
-      final bMap = b is Map ? b : const {};
-      final aRegion = _labRegion(aMap);
-      final bRegion = _labRegion(bMap);
-      return aRegion.compareTo(bRegion);
-    });
-  }
-
-  String _labRegion(Map<dynamic, dynamic> lab) {
-    final city = lab['city']?.toString().trim() ?? '';
-    final district = lab['district']?.toString().trim() ?? '';
-    return '$city $district'.trim();
   }
 
   double _distanceFromLab(
@@ -347,6 +325,60 @@ class _LabsScreenState extends State<LabsScreen> {
 
   double _degToRad(double degree) => degree * math.pi / 180;
 
+  bool _textMatchesCity(String haystack, String needle) {
+    final h = haystack.trim().toLowerCase();
+    final n = needle.trim().toLowerCase();
+    if (n.isEmpty) return true;
+    return h.contains(n) || n.contains(h);
+  }
+
+  bool _labOrBranchMatchesCity(Map lab, String cityNeedle) {
+    final c0 = (lab['city'] ?? '').toString();
+    final d0 = (lab['district'] ?? '').toString();
+    if (_textMatchesCity('$c0 $d0', cityNeedle)) return true;
+    final branches = lab['branches'];
+    if (branches is List) {
+      for (final b in branches) {
+        if (b is! Map) continue;
+        final c = (b['city'] ?? b['branch_city'] ?? '').toString();
+        final d = (b['district'] ?? '').toString();
+        if (_textMatchesCity('$c $d', cityNeedle)) return true;
+      }
+    }
+    return false;
+  }
+
+  Future<List<dynamic>> _mergeBranchProvidersForCity(
+    List<dynamic> current,
+    String city,
+  ) async {
+    try {
+      final branches = await Api.providers.getBranches(city: city);
+      final existing = <String>{};
+      for (final it in current) {
+        if (it is Map && it['id'] != null) existing.add(it['id'].toString());
+      }
+      final additions = <dynamic>[];
+      for (final b in branches) {
+        if (b is! Map) continue;
+        final pid = b['provider_id'] ??
+            (b['provider'] is Map ? (b['provider'] as Map)['id'] : null);
+        final sid = pid?.toString() ?? '';
+        if (sid.isEmpty || existing.contains(sid)) continue;
+        final id = int.tryParse(sid) ?? 0;
+        if (id <= 0) continue;
+        existing.add(sid);
+        try {
+          additions.add(await Api.providers.getProvider(id));
+        } catch (_) {}
+        if (additions.length >= 48) break;
+      }
+      return [...current, ...additions];
+    } catch (_) {
+      return current;
+    }
+  }
+
   @override
   void dispose() {
     _scrollController.dispose();
@@ -356,7 +388,7 @@ class _LabsScreenState extends State<LabsScreen> {
 
   List<dynamic> _visibleLabs() {
     final q = _searchController.text.trim().toLowerCase();
-    final region = _selectedRegion?.trim().toLowerCase() ?? '';
+    final cityFilter = _selectedFilterCity?.trim() ?? '';
     return _labs.where((item) {
       if (item is! Map) return false;
       final lab = item;
@@ -380,9 +412,7 @@ class _LabsScreenState extends State<LabsScreen> {
           !district.contains(q)) {
         return false;
       }
-      if (region.isNotEmpty &&
-          !city.contains(region) &&
-          !district.contains(region)) {
+      if (cityFilter.isNotEmpty && !_labOrBranchMatchesCity(lab, cityFilter)) {
         return false;
       }
       if (_filterHomeOnly && lab['home_service_available'] != true) {
@@ -390,20 +420,6 @@ class _LabsScreenState extends State<LabsScreen> {
       }
       return true;
     }).toList();
-  }
-
-  List<String> _availableRegions() {
-    if (_regions.isNotEmpty) return List<String>.from(_regions);
-    final regions = <String>{};
-    for (final item in _labs) {
-      if (item is! Map) continue;
-      final city = (item['city'] ?? '').toString().trim();
-      if (city.isNotEmpty) {
-        regions.add(city);
-      }
-    }
-    final result = regions.toList()..sort();
-    return result;
   }
 
   @override
@@ -466,10 +482,6 @@ class _LabsScreenState extends State<LabsScreen> {
                               ),
                               SizedBox(height: Responsive.spacing(context, 10)),
                               _buildSortRow(),
-                              if (_sortBy == 'region') ...[
-                                SizedBox(height: Responsive.spacing(context, 10)),
-                                _buildRegionTabs(),
-                              ],
                               if (_sortBy == 'nearby' &&
                                   _userLat == null &&
                                   _userLng == null) ...[
@@ -522,11 +534,7 @@ class _LabsScreenState extends State<LabsScreen> {
                               ? _buildEmpty()
                               : RefreshIndicator(
                                   onRefresh: () => _loadData(reset: true),
-                                  child: _sortBy == 'region' &&
-                                          (_selectedRegion == null ||
-                                              _selectedRegion!.isEmpty)
-                                      ? _buildLabsByRegionList(visibleLabs)
-                                      : _buildLabsList(visibleLabs),
+                                  child: _buildLabsList(visibleLabs),
                                 ),
                         ),
                       ],
@@ -557,78 +565,11 @@ class _LabsScreenState extends State<LabsScreen> {
         children: [
           _sortChip('الكل', 'all'),
           SizedBox(width: 8),
-          _sortChip('المنطقة', 'region'),
-          SizedBox(width: 8),
           _sortChip('القريب', 'nearby'),
           SizedBox(width: 8),
           _sortChip('الخدمة المنزلية', 'home_service'),
           SizedBox(width: 8),
           _sortChip('المميزة', 'featured'),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildRegionTabs() {
-    final regions = _availableRegions();
-    if (_isRegionsLoading && regions.isEmpty) {
-      return const SizedBox(
-        height: 34,
-        child: Align(
-          alignment: AlignmentDirectional.centerStart,
-          child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
-        ),
-      );
-    }
-    if (regions.isEmpty) {
-      return Text(
-        'لا توجد مناطق متاحة',
-        style: TextStyle(
-          fontSize: Responsive.fontSize(context, 12),
-          color: AppTheme.onSurfaceVariant,
-        ),
-      );
-    }
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: Row(
-        children: [
-          ChoiceChip(
-            label: const Text('كل المناطق'),
-            selected: _selectedRegion == null,
-            showCheckmark: false,
-            selectedColor: RastUi.purple,
-            labelStyle: TextStyle(
-              color: _selectedRegion == null ? Colors.white : RastUi.textPurple,
-              fontWeight: FontWeight.w600,
-            ),
-            onSelected: (_) {
-              setState(() => _selectedRegion = null);
-              _loadData(reset: true);
-            },
-          ),
-          const SizedBox(width: 8),
-          ...regions.map(
-            (region) => Padding(
-              padding: const EdgeInsetsDirectional.only(end: 8),
-              child: ChoiceChip(
-                label: Text(region),
-                selected: _selectedRegion == region,
-                showCheckmark: false,
-                selectedColor: RastUi.purple,
-                labelStyle: TextStyle(
-                  color: _selectedRegion == region
-                      ? Colors.white
-                      : RastUi.textPurple,
-                  fontWeight: FontWeight.w600,
-                ),
-                onSelected: (_) {
-                  setState(() => _selectedRegion = region);
-                  _loadData(reset: true);
-                },
-              ),
-            ),
-          ),
         ],
       ),
     );
@@ -667,69 +608,6 @@ class _LabsScreenState extends State<LabsScreen> {
     );
   }
 
-  Widget _buildLabsByRegionList(List<dynamic> visibleLabs) {
-    final grouped = <String, List<Map<String, dynamic>>>{};
-    for (final item in visibleLabs) {
-      if (item is! Map) continue;
-      final lab = Map<String, dynamic>.from(item);
-      final city = (lab['city'] ?? 'غير محدد').toString().trim();
-      final key = city.isEmpty ? 'غير محدد' : city;
-      grouped.putIfAbsent(key, () => <Map<String, dynamic>>[]).add(lab);
-    }
-    final keys = grouped.keys.toList()..sort();
-    return ListView.builder(
-      controller: _scrollController,
-      padding: EdgeInsets.symmetric(horizontal: Responsive.spacing(context, 16)),
-      itemCount: keys.length + (_isLoadingMore ? 1 : 0),
-      itemBuilder: (context, index) {
-        if (index >= keys.length) {
-          return const Padding(
-            padding: EdgeInsets.symmetric(vertical: 10),
-            child: Center(child: CircularProgressIndicator()),
-          );
-        }
-        final city = keys[index];
-        final labs = grouped[city] ?? const <Map<String, dynamic>>[];
-        return Padding(
-          padding: EdgeInsets.only(bottom: Responsive.spacing(context, 14)),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                margin: const EdgeInsets.only(bottom: 8),
-                decoration: BoxDecoration(
-                  color: AppTheme.primary.withValues(alpha: 0.08),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Text(
-                  city,
-                  style: TextStyle(
-                    fontSize: Responsive.fontSize(context, 13),
-                    color: RastUi.textPurple,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-              ...labs.map(
-                (lab) => Padding(
-                  padding: EdgeInsets.only(bottom: Responsive.spacing(context, 10)),
-                  child: _LabCard(
-                    lab: lab,
-                    onTap: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (_) => LabDetailsScreen(lab: lab)),
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
   Widget _buildFilterButton() {
     return InkWell(
       onTap: _showFilterSheet,
@@ -754,10 +632,10 @@ class _LabsScreenState extends State<LabsScreen> {
   }
 
   void _showFilterSheet() {
-    var selectedSort = _sortBy;
+    var selectedSort = _sortBy == 'region' ? 'all' : _sortBy;
     var homeOnly = _filterHomeOnly;
-    String? selectedRegion = _selectedRegion;
-    final regions = _availableRegions();
+    String? selectedCity = _selectedFilterCity;
+    final cityItems = SaudiMajorCities.uniqueSorted();
 
     showModalBottomSheet(
       context: context,
@@ -811,7 +689,7 @@ class _LabsScreenState extends State<LabsScreen> {
                     ),
                     SizedBox(height: Responsive.spacing(context, 18)),
                     Text(
-                      'المنطقة',
+                      'المدينة',
                       style: TextStyle(
                         color: RastUi.textPurple,
                         fontSize: Responsive.fontSize(context, 13),
@@ -819,65 +697,47 @@ class _LabsScreenState extends State<LabsScreen> {
                       ),
                     ),
                     const SizedBox(height: 8),
-                    if (regions.isEmpty)
-                      Text(
-                        'لا توجد مناطق متاحة حالياً',
-                        style: TextStyle(
-                          color: AppTheme.onSurfaceVariant,
-                          fontSize: Responsive.fontSize(context, 12),
+                    DropdownButtonFormField<String?>(
+                      key: ValueKey<Object>(selectedCity ?? '__all__'),
+                      isExpanded: true,
+                      initialValue:
+                          selectedCity != null &&
+                              cityItems.contains(selectedCity)
+                          ? selectedCity
+                          : null,
+                      decoration: InputDecoration(
+                        filled: true,
+                        fillColor: Theme.of(context).colorScheme.surface,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
                         ),
-                      )
-                    else
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: [
-                          ChoiceChip(
-                            label: const Text('الكل'),
-                            selected: selectedRegion == null,
-                            showCheckmark: false,
-                            selectedColor: RastUi.purple,
-                            labelStyle: TextStyle(
-                              color: selectedRegion == null
-                                  ? Colors.white
-                                  : RastUi.textPurple,
-                              fontWeight: FontWeight.w600,
-                            ),
-                            onSelected: (_) =>
-                                setSheetState(() => selectedRegion = null),
-                          ),
-                          ...regions.map(
-                            (region) => ChoiceChip(
-                              label: Text(region),
-                              selected: selectedRegion == region,
-                              showCheckmark: false,
-                              selectedColor: RastUi.purple,
-                              labelStyle: TextStyle(
-                                color: selectedRegion == region
-                                    ? Colors.white
-                                    : RastUi.textPurple,
-                                fontWeight: FontWeight.w600,
-                              ),
-                              onSelected: (_) => setSheetState(
-                                () => selectedRegion = selectedRegion == region
-                                    ? null
-                                    : region,
-                              ),
-                            ),
-                          ),
-                        ],
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 8,
+                        ),
                       ),
+                      hint: const Text('كل المدن'),
+                      items: [
+                        const DropdownMenuItem<String?>(
+                          value: null,
+                          child: Text('كل المدن'),
+                        ),
+                        ...cityItems.map(
+                          (c) => DropdownMenuItem<String?>(
+                            value: c,
+                            child: Text(c),
+                          ),
+                        ),
+                      ],
+                      onChanged: (v) =>
+                          setSheetState(() => selectedCity = v),
+                    ),
                     SizedBox(height: Responsive.spacing(context, 16)),
                     Wrap(
                       spacing: 8,
                       runSpacing: 8,
                       children: [
                         _sheetSortChoice('الكل', 'all', selectedSort, (value) {
-                          setSheetState(() => selectedSort = value);
-                        }),
-                        _sheetSortChoice('المنطقة', 'region', selectedSort, (
-                          value,
-                        ) {
                           setSheetState(() => selectedSort = value);
                         }),
                         _sheetSortChoice('القريب', 'nearby', selectedSort, (
@@ -918,7 +778,7 @@ class _LabsScreenState extends State<LabsScreen> {
                               setState(() {
                                 _sortBy = 'all';
                                 _filterHomeOnly = false;
-                                _selectedRegion = null;
+                                _selectedFilterCity = null;
                               });
                               Navigator.pop(ctx);
                               _loadData(reset: true);
@@ -930,10 +790,13 @@ class _LabsScreenState extends State<LabsScreen> {
                         Expanded(
                           child: FilledButton(
                             onPressed: () {
+                              final sort = selectedSort == 'region'
+                                  ? 'all'
+                                  : selectedSort;
                               setState(() {
-                                _sortBy = selectedSort;
+                                _sortBy = sort;
                                 _filterHomeOnly = homeOnly;
-                                _selectedRegion = selectedRegion;
+                                _selectedFilterCity = selectedCity;
                               });
                               Navigator.pop(ctx);
                               _loadData(reset: true);

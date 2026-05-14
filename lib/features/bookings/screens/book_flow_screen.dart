@@ -738,14 +738,6 @@ class _BookFlowScreenState extends State<BookFlowScreen> {
                       ),
                     ),
                   ),
-                  SizedBox(height: Responsive.spacing(context, 12)),
-                  Text(
-                    'أو ادعم في المختبر',
-                    style: TextStyle(
-                      fontSize: Responsive.fontSize(context, 13),
-                      color: AppTheme.onSurfaceVariant,
-                    ),
-                  ),
                 ],
               ],
             ),
@@ -1344,6 +1336,27 @@ class _BookFlowScreenState extends State<BookFlowScreen> {
     );
   }
 
+  /// خصم المنصة ونسبته من استجابة معاينة الحجز (نفس ترتيب حقول `summary` بعد الإنشاء).
+  ({double discount, double ratePercent}) _previewPlatformDiscountAndRate(
+    Map<String, dynamic> row,
+    double servicePrice,
+  ) {
+    var discount = _parseNum(row['discount_amount']);
+    if (discount <= 0) discount = _parseNum(row['platform_discount']);
+    if (discount <= 0) discount = _parseNum(row['platformDiscount']);
+
+    var rateRaw = _parseNum(row['platform_discount_rate']);
+    if (rateRaw <= 0) rateRaw = _parseNum(row['platformDiscountRate']);
+    final ratePercent = rateRaw <= 0
+        ? _platformDiscountRate
+        : (rateRaw <= 1 ? rateRaw * 100 : rateRaw);
+
+    if (discount <= 0 && servicePrice > 0 && ratePercent > 0) {
+      discount = (servicePrice * (ratePercent / 100)).roundToDouble();
+    }
+    return (discount: discount, ratePercent: ratePercent);
+  }
+
   /// تفاصيل المبلغ في ملخص الحجز: من معاينة الـ API إن وُجدت (نفس الفاتورة)
   Widget _buildConfirmAmounts() {
     final row = _previewConfirm != null && _previewConfirm![_serviceType] is Map
@@ -1352,11 +1365,15 @@ class _BookFlowScreenState extends State<BookFlowScreen> {
     if (row != null) {
       final servicePrice = _parseNum(row['service_price']);
       final homeFee = _parseNum(row['home_service_fee']);
-      final discount = _parseNum(row['platform_discount']);
+      final disc = _previewPlatformDiscountAndRate(row, servicePrice);
+      final discount = disc.discount;
+      final discountRate = disc.ratePercent;
       final vatAmount = _parseNum(row['vat_amount']);
-      final total = _parseNum(row['total_amount']);
-      final discountRate = _parseNum(row['platform_discount_rate']);
-      final vatRate = _parseNum(row['vat_rate']);
+      final total =
+          (servicePrice + homeFee - discount + vatAmount).roundToDouble();
+      var vatRate = _parseNum(row['vat_rate']);
+      if (vatRate <= 0 && _isNonSaudi) vatRate = _vatRate;
+      if (vatRate > 0 && vatRate <= 1) vatRate *= 100;
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [

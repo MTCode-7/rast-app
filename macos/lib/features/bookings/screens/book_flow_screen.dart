@@ -436,7 +436,6 @@ class _BookFlowScreenState extends State<BookFlowScreen> {
                     ),
                   ),
                   SizedBox(height: Responsive.spacing(context, 12)),
-                  Text('أو ادعم في المختبر', style: TextStyle(fontSize: Responsive.fontSize(context, 13), color: AppTheme.onSurfaceVariant)),
                 ],
               ],
             ),
