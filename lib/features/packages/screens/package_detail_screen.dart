@@ -9,6 +9,7 @@ import 'package:rast/core/theme/app_theme.dart';
 import 'package:rast/core/utils/responsive.dart';
 import 'package:rast/core/widgets/gradient_button.dart';
 import 'package:rast/core/widgets/rast_ui.dart';
+import 'package:rast/core/widgets/zoomable_image_viewer.dart';
 import 'package:rast/features/auth/services/auth_service.dart';
 import 'package:rast/features/auth/screens/login_screen.dart';
 import 'package:rast/features/bookings/screens/book_flow_screen.dart';
@@ -264,12 +265,26 @@ class _PackageDetailScreenState extends State<PackageDetailScreen> {
                           fit: StackFit.expand,
                           children: [
                             (imageUrl != null && imageUrl.isNotEmpty)
-                                ? CachedNetworkImage(
-                                    imageUrl: imageUrl,
-                                    fit: BoxFit.cover,
-                                    placeholder: (_, __) => _buildPlaceholder(),
-                                    errorWidget: (_, __, ___) =>
-                                        _buildPlaceholder(),
+                                ? GestureDetector(
+                                    onTap: () {
+                                      Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (context) =>
+                                              ZoomableImageViewer(
+                                            imageUrl: imageUrl,
+                                          ),
+                                        ),
+                                      );
+                                    },
+                                    child: CachedNetworkImage(
+                                      imageUrl: imageUrl,
+                                      fit: BoxFit.cover,
+                                      placeholder: (_, __) =>
+                                          _buildPlaceholder(),
+                                      errorWidget: (_, __, ___) =>
+                                          _buildPlaceholder(),
+                                    ),
                                   )
                                 : _buildPlaceholder(),
                             DecoratedBox(

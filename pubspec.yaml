@@ -52,6 +52,7 @@ dependencies:
   shared_preferences: ^2.2.3
   provider: ^6.1.2
   http: ^1.2.2
+  photo_view: ^0.15.0
 
 dev_dependencies:
   flutter_launcher_icons: ^0.14.4

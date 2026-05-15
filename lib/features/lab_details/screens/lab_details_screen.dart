@@ -16,6 +16,7 @@ import 'package:rast/core/utils/responsive.dart';
 import 'package:rast/core/widgets/rating_badge.dart';
 import 'package:rast/core/widgets/rast_ui.dart';
 import 'package:rast/core/widgets/search_box.dart';
+import 'package:rast/core/widgets/zoomable_image_viewer.dart';
 import 'package:rast/features/analyses/screens/analyses_screen.dart';
 import 'package:rast/features/analyses/screens/service_detail_screen.dart';
 import 'package:rast/features/packages/screens/package_detail_screen.dart';
@@ -486,11 +487,24 @@ class _LabDetailsScreenState extends State<LabDetailsScreen>
                         fit: StackFit.expand,
                         children: [
                           if (logoUrl != null && logoUrl.isNotEmpty)
-                            CachedNetworkImage(
-                              imageUrl: logoUrl,
-                              fit: BoxFit.cover,
-                              placeholder: (_, __) => _buildPlaceholder(),
-                              errorWidget: (_, __, ___) => _buildPlaceholder(),
+                            GestureDetector(
+                              onTap: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => ZoomableImageViewer(
+                                      imageUrl: logoUrl,
+                                    ),
+                                  ),
+                                );
+                              },
+                              child: CachedNetworkImage(
+                                imageUrl: logoUrl,
+                                fit: BoxFit.cover,
+                                placeholder: (_, __) => _buildPlaceholder(),
+                                errorWidget: (_, __, ___) =>
+                                    _buildPlaceholder(),
+                              ),
                             )
                           else
                             _buildPlaceholder(),
@@ -639,11 +653,7 @@ class _LabDetailsScreenState extends State<LabDetailsScreen>
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            _buildSection(
-                              'خدمات المختبر',
-                              Icons.dashboard_customize_outlined,
-                              _buildLabServicesAndPackagesTabs(context),
-                            ),
+                            _buildLabServicesAndPackagesTabs(context),
                             SizedBox(height: Responsive.spacing(context, 24)),
                             _buildSection(
                               'التقييمات',
