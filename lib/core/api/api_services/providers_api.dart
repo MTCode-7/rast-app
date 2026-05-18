@@ -1,4 +1,5 @@
 import 'package:rast/core/api/api_client.dart';
+import 'package:rast/core/models/region.dart';
 
 /// استجابة صفحة واحدة من الـ API (Paginator داخل `data`).
 class PaginatedResponse {
@@ -63,6 +64,7 @@ class ProvidersApi {
   /// latitude/longitude لعرض الأقرب أولاً (nearby)
   Future<Map<String, dynamic>> getProviders({
     String? city,
+    int? regionId,
     bool? homeService,
     int? serviceId,
     String? sort,
@@ -76,13 +78,17 @@ class ProvidersApi {
       'page': page.toString(),
       'per_page': perPage.toString(),
     };
-    if (city != null && city.isNotEmpty) params['city'] = city;
+    if (regionId != null) {
+      params['region_id'] = regionId.toString();
+    } else {
+      if (city != null && city.isNotEmpty) params['city'] = city;
+      if (latitude != null) params['latitude'] = latitude.toString();
+      if (longitude != null) params['longitude'] = longitude.toString();
+      if (radiusKm != null) params['radius'] = radiusKm.toString();
+    }
     if (homeService == true) params['home_service'] = '1';
     if (serviceId != null) params['service_id'] = serviceId.toString();
     if (sort != null && sort.isNotEmpty) params['sort'] = sort;
-    if (latitude != null) params['latitude'] = latitude.toString();
-    if (longitude != null) params['longitude'] = longitude.toString();
-    if (radiusKm != null) params['radius'] = radiusKm.toString();
     final res = await _client.get('providers', queryParams: params);
     return res;
   }
@@ -166,18 +172,36 @@ class ProvidersApi {
     return _extractItems(res['data']);
   }
 
-  /// GET /api/providers/cities - قائمة المدن المتاحة للمختبرات
-  Future<List<String>> getCities() async {
+  /// GET /api/providers/cities — مناطق التطبيق (إحداثيات + نصف قطر).
+  Future<List<Region>> getRegions() async {
     final res = await _client.get('providers/cities');
-    final data = res['data'];
+    return _parseRegionsPayload(res['data']);
+  }
+
+  /// alias: `GET /api/regions`
+  Future<List<Region>> getRegionsAlias() async {
+    final res = await _client.get('regions');
+    return _parseRegionsPayload(res['data']);
+  }
+
+  List<Region> _parseRegionsPayload(dynamic data) {
     final list = data is List
         ? data
         : (data is Map && data['data'] is List ? data['data'] as List : const []);
-    return list
-        .map((e) => e?.toString().trim() ?? '')
-        .where((e) => e.isNotEmpty)
-        .toSet()
-        .toList()
-      ..sort();
+    final regions = <Region>[];
+    for (final e in list) {
+      if (e is Map) {
+        final region = Region.fromJson(Map<String, dynamic>.from(e));
+        if (region.id > 0) regions.add(region);
+      }
+    }
+    regions.sort((a, b) => a.nameAr.compareTo(b.nameAr));
+    return regions;
+  }
+
+  @Deprecated('Use getRegions() — returns Region objects with region_id')
+  Future<List<String>> getCities() async {
+    final regions = await getRegions();
+    return regions.map((r) => r.nameAr).where((n) => n.isNotEmpty).toList();
   }
 }

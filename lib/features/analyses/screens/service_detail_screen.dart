@@ -12,6 +12,7 @@ import 'package:rast/core/widgets/gradient_button.dart';
 import 'package:rast/core/widgets/rating_badge.dart';
 import 'package:rast/core/widgets/rast_ui.dart';
 import 'package:rast/core/widgets/search_box.dart';
+import 'package:rast/core/widgets/zoomable_image_viewer.dart';
 import 'package:rast/core/api/api_services.dart';
 import 'package:rast/core/api/api_client.dart';
 import 'package:rast/features/bookings/screens/book_flow_screen.dart';
@@ -395,33 +396,30 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
                               background: Stack(
                                 fit: StackFit.expand,
                                 children: [
-                                  if (imageUrl != null && imageUrl.isNotEmpty)
-                                    CachedNetworkImage(
-                                      imageUrl: imageUrl,
-                                      fit: BoxFit.cover,
-                                      placeholder: (_, __) => Container(
-                                        color: AppTheme.primary.withValues(
-                                          alpha: 0.3,
+                                  HeroImageBackground(
+                                    imageUrl: imageUrl,
+                                    placeholder: _buildImagePlaceholder(),
+                                  ),
+                                  IgnorePointer(
+                                    child: DecoratedBox(
+                                      decoration: BoxDecoration(
+                                        gradient: LinearGradient(
+                                          begin: Alignment.topLeft,
+                                          end: Alignment.bottomCenter,
+                                          colors: [
+                                            RastUi.purple.withValues(
+                                              alpha: 0.10,
+                                            ),
+                                            RastUi.purple.withValues(
+                                              alpha: 0.88,
+                                            ),
+                                          ],
                                         ),
-                                      ),
-                                      errorWidget: (_, __, ___) =>
-                                          _buildImagePlaceholder(),
-                                    )
-                                  else
-                                    _buildImagePlaceholder(),
-                                  DecoratedBox(
-                                    decoration: BoxDecoration(
-                                      gradient: LinearGradient(
-                                        begin: Alignment.topLeft,
-                                        end: Alignment.bottomCenter,
-                                        colors: [
-                                          RastUi.purple.withValues(alpha: 0.10),
-                                          RastUi.purple.withValues(alpha: 0.88),
-                                        ],
                                       ),
                                     ),
                                   ),
-                                  Positioned(
+                                  IgnorePointer(
+                                    child: Positioned(
                                     right: Responsive.spacing(context, 18),
                                     left: Responsive.spacing(context, 18),
                                     bottom: Responsive.spacing(context, 28),
@@ -471,6 +469,7 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
                                         ),
                                       ],
                                     ),
+                                  ),
                                   ),
                                 ],
                               ),

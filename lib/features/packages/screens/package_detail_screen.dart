@@ -1,4 +1,3 @@
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:rast/core/api/api_services.dart';
 import 'package:rast/core/constants/api_config.dart';
@@ -264,42 +263,26 @@ class _PackageDetailScreenState extends State<PackageDetailScreen> {
                         background: Stack(
                           fit: StackFit.expand,
                           children: [
-                            (imageUrl != null && imageUrl.isNotEmpty)
-                                ? GestureDetector(
-                                    onTap: () {
-                                      Navigator.push(
-                                        context,
-                                        MaterialPageRoute(
-                                          builder: (context) =>
-                                              ZoomableImageViewer(
-                                            imageUrl: imageUrl,
-                                          ),
-                                        ),
-                                      );
-                                    },
-                                    child: CachedNetworkImage(
-                                      imageUrl: imageUrl,
-                                      fit: BoxFit.cover,
-                                      placeholder: (_, __) =>
-                                          _buildPlaceholder(),
-                                      errorWidget: (_, __, ___) =>
-                                          _buildPlaceholder(),
-                                    ),
-                                  )
-                                : _buildPlaceholder(),
-                            DecoratedBox(
-                              decoration: BoxDecoration(
-                                gradient: LinearGradient(
-                                  begin: Alignment.topCenter,
-                                  end: Alignment.bottomCenter,
-                                  colors: [
-                                    RastUi.purple.withValues(alpha: 0.18),
-                                    RastUi.purple.withValues(alpha: 0.88),
-                                  ],
+                            HeroImageBackground(
+                              imageUrl: imageUrl,
+                              placeholder: _buildPlaceholder(),
+                            ),
+                            IgnorePointer(
+                              child: DecoratedBox(
+                                decoration: BoxDecoration(
+                                  gradient: LinearGradient(
+                                    begin: Alignment.topCenter,
+                                    end: Alignment.bottomCenter,
+                                    colors: [
+                                      RastUi.purple.withValues(alpha: 0.18),
+                                      RastUi.purple.withValues(alpha: 0.88),
+                                    ],
+                                  ),
                                 ),
                               ),
                             ),
-                            PositionedDirectional(
+                            IgnorePointer(
+                              child: PositionedDirectional(
                               start: 22,
                               end: 22,
                               bottom: 34,
@@ -342,6 +325,7 @@ class _PackageDetailScreenState extends State<PackageDetailScreen> {
                                   ),
                                 ],
                               ),
+                            ),
                             ),
                           ],
                         ),

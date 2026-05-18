@@ -3,6 +3,47 @@ import 'package:flutter/material.dart';
 import 'package:photo_view/photo_view.dart';
 import 'package:photo_view/photo_view_gallery.dart';
 
+/// يفتح معاينة ملء الشاشة مع تكبير/تصغير بالإصبع.
+void showZoomableImage(BuildContext context, String? imageUrl) {
+  final url = imageUrl?.trim() ?? '';
+  if (url.isEmpty) return;
+  Navigator.of(context).push(
+    MaterialPageRoute<void>(
+      builder: (_) => ZoomableImageViewer(imageUrl: url),
+    ),
+  );
+}
+
+/// صورة غلاف قابلة للنقر (ضع فوقها تدرجاً/نصاً داخل [IgnorePointer]).
+class HeroImageBackground extends StatelessWidget {
+  const HeroImageBackground({
+    super.key,
+    required this.imageUrl,
+    required this.placeholder,
+    this.fit = BoxFit.cover,
+  });
+
+  final String? imageUrl;
+  final Widget placeholder;
+  final BoxFit fit;
+
+  @override
+  Widget build(BuildContext context) {
+    final url = imageUrl?.trim() ?? '';
+    if (url.isEmpty) return placeholder;
+
+    return GestureDetector(
+      onTap: () => showZoomableImage(context, url),
+      child: CachedNetworkImage(
+        imageUrl: url,
+        fit: fit,
+        placeholder: (_, __) => placeholder,
+        errorWidget: (_, __, ___) => placeholder,
+      ),
+    );
+  }
+}
+
 class ZoomableImageViewer extends StatefulWidget {
   final String imageUrl;
   final List<String>? imageUrls;
@@ -94,10 +135,13 @@ class _ZoomableImageViewerState extends State<ZoomableImageViewer> {
             )
           : PhotoView(
               imageProvider: _getImageProvider(widget.imageUrl),
-              initialScale: PhotoViewComputedScale.contained * 0.8,
+              initialScale: PhotoViewComputedScale.contained,
+              minScale: PhotoViewComputedScale.contained * 0.5,
+              maxScale: PhotoViewComputedScale.covered * 3,
               heroAttributes: PhotoViewHeroAttributes(
                 tag: widget.heroTag ?? widget.imageUrl,
               ),
+              enableRotation: false,
               loadingBuilder: (context, event) => Center(
                 child: SizedBox(
                   width: 40,
@@ -158,17 +202,7 @@ class TappableImage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTap: () {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => ZoomableImageViewer(
-              imageUrl: imageUrl,
-              imageUrls: imageUrls,
-            ),
-          ),
-        );
-      },
+      onTap: () => showZoomableImage(context, imageUrl),
       child: CachedNetworkImage(
         imageUrl: imageUrl,
         fit: fit,
