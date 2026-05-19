@@ -5,6 +5,7 @@ import 'package:rast/app/main_shell.dart';
 import 'package:rast/core/constants/app_assets.dart';
 import 'package:rast/core/constants/app_strings.dart';
 import 'package:rast/core/providers/app_settings_provider.dart';
+import 'package:rast/core/services/catalog_cache_service.dart';
 import 'package:rast/core/widgets/rast_ui.dart';
 
 /// شاشة افتتاحية قصيرة مع الشعار ثم الانتقال للتطبيق الرئيسي.
@@ -28,7 +29,10 @@ class _SplashScreenState extends State<SplashScreen> {
     final start = DateTime.now();
     final ctx = context;
     try {
-      await precacheImage(const AssetImage(AppAssets.appIcon), ctx);
+      await Future.wait<void>([
+        precacheImage(const AssetImage(AppAssets.appIcon), ctx),
+        CatalogCacheService.warmDuringSplash(),
+      ]);
     } catch (_) {}
     final elapsed = DateTime.now().difference(start);
     final wait = _minDisplay - elapsed;

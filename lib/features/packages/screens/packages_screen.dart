@@ -2,7 +2,10 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:provider/provider.dart';
+import 'dart:async';
+
 import 'package:rast/core/api/api_client.dart';
+import 'package:rast/core/services/catalog_cache_service.dart';
 import 'package:rast/core/api/api_services.dart';
 import 'package:rast/core/constants/api_config.dart';
 import 'package:rast/core/constants/app_strings.dart';
@@ -38,16 +41,29 @@ class _PackagesScreenState extends State<PackagesScreen> {
   void initState() {
     super.initState();
     _scrollController.addListener(_onScroll);
-    _loadData(reset: true);
+    _loadFromCacheThenNetwork();
   }
 
-  Future<void> _loadData({bool reset = false}) async {
+  Future<void> _loadFromCacheThenNetwork() async {
+    await CatalogCacheService.ensureHydrated();
+    final hasCache = CatalogCacheService.packagesPage1.isNotEmpty;
+    if (hasCache && mounted) {
+      setState(() {
+        _packages = List.from(CatalogCacheService.packagesPage1);
+        _totalAvailable ??= _packages.length;
+        _isLoading = false;
+      });
+    }
+    await _loadData(reset: true, silent: hasCache);
+  }
+
+  Future<void> _loadData({bool reset = false, bool silent = false}) async {
     if (_isLoadingMore) return;
     if (!reset && !_hasMore) return;
 
     if (reset) {
       setState(() {
-        _isLoading = true;
+        if (!silent || _packages.isEmpty) _isLoading = true;
         _errorMessage = null;
         _currentPage = 1;
         _hasMore = true;
@@ -84,6 +100,9 @@ class _PackagesScreenState extends State<PackagesScreen> {
         return;
       }
 
+      if (reset && list.isNotEmpty) {
+        unawaited(CatalogCacheService.savePackagesPage1(list));
+      }
       setState(() {
         if (reset) {
           _packages = list;

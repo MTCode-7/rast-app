@@ -11,6 +11,9 @@ import 'package:rast/core/api/api_services.dart';
 import 'package:rast/core/constants/dummy_data.dart';
 import 'package:rast/core/services/favorites_service.dart';
 import 'package:rast/core/services/location_service.dart';
+import 'package:rast/core/services/branches_index_service.dart';
+import 'package:rast/core/services/catalog_cache_service.dart';
+import 'package:rast/core/utils/lab_location_utils.dart';
 import 'package:rast/core/theme/app_theme.dart';
 import 'package:rast/core/utils/responsive.dart';
 import 'package:rast/features/analyses/screens/analyses_screen.dart';
@@ -52,6 +55,8 @@ class _HomeScreenState extends State<HomeScreen> {
   int? _totalLabs;
   bool _isLoading = true;
   String? _error;
+  double? _userLat;
+  double? _userLng;
 
   /// استخراج العدد الكلي من استجابة API (meta.total أو total)
   static int? _totalFromResponse(Map<String, dynamic>? res) {
@@ -87,7 +92,29 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _categoriesPageController = PageController();
-    _loadData();
+    _loadFromCacheThenNetwork();
+    BranchesIndexService.instance.ensureLoaded();
+  }
+
+  Future<void> _loadFromCacheThenNetwork() async {
+    await CatalogCacheService.ensureHydrated();
+    final snap = CatalogCacheService.homeSnapshot;
+    if (snap != null && mounted) {
+      _applyHomeSnapshot(snap);
+      setState(() => _isLoading = false);
+    }
+    await _loadData(silent: snap != null);
+  }
+
+  void _applyHomeSnapshot(HomeSnapshot snap) {
+    _homeData = Map<String, dynamic>.from(snap.homeData)
+      ..['featured_providers'] = snap.labs;
+    _carouselSlides = snap.carouselSlides;
+    _packages = snap.packages;
+    _offers = snap.offers;
+    _totalPackages = snap.totalPackages;
+    _totalOffers = snap.totalOffers;
+    _totalLabs = snap.totalLabs;
   }
 
   /// استخراج قائمة المختبرات من استجابة API (يدعم الترقيم)
@@ -141,11 +168,15 @@ class _HomeScreenState extends State<HomeScreen> {
     return LocationService.getDefaultLocation();
   }
 
-  Future<void> _loadData() async {
-    setState(() {
-      _isLoading = true;
-      _error = null;
-    });
+  Future<void> _loadData({bool silent = false}) async {
+    if (!silent) {
+      setState(() {
+        if (_homeData == null && _packages.isEmpty) _isLoading = true;
+        _error = null;
+      });
+    } else {
+      setState(() => _error = null);
+    }
     try {
       final homeData = await Api.home.getHome();
       // شرائح الكاروسيل: من الصفحة الرئيسية أولاً، وإلا من /mobile/slides
@@ -205,6 +236,8 @@ class _HomeScreenState extends State<HomeScreen> {
           [];
       final userLocation = await _resolveUserLocation();
       if (userLocation != null) {
+        _userLat = userLocation.lat;
+        _userLng = userLocation.lng;
         try {
           final res = await Api.providers.getProviders(
             perPage: 10,
@@ -251,19 +284,24 @@ class _HomeScreenState extends State<HomeScreen> {
         }
       }
       labsList = _filterActiveLabs(labsList);
-      setState(() {
-        _homeData = Map<String, dynamic>.from(homeData)
-          ..['featured_providers'] = labsList;
-        _carouselSlides = slidesList.isNotEmpty
+      final snap = HomeSnapshot(
+        homeData: Map<String, dynamic>.from(homeData)
+          ..['featured_providers'] = labsList,
+        carouselSlides: slidesList.isNotEmpty
             ? slidesList
-            : DummyData.carouselSlides;
-        _packages = packagesList.isEmpty
+            : DummyData.carouselSlides,
+        packages: packagesList.isEmpty
             ? List.from(DummyData.packages)
-            : packagesList;
-        _offers = offersList;
-        _totalPackages = totalPackagesFromApi;
-        _totalOffers = totalOffersFromApi;
-        _totalLabs = totalLabsFromApi;
+            : packagesList,
+        offers: offersList,
+        labs: labsList,
+        totalPackages: totalPackagesFromApi,
+        totalOffers: totalOffersFromApi,
+        totalLabs: totalLabsFromApi,
+      );
+      await CatalogCacheService.saveHome(snap);
+      setState(() {
+        _applyHomeSnapshot(snap);
         _isLoading = false;
       });
       _maybeShowPopup();
@@ -2018,8 +2056,15 @@ class _HomeScreenState extends State<HomeScreen> {
           lab,
           context.watch<AppSettingsProvider>().isArabic,
         );
-        final city = lab['city']?.toString() ?? '';
-        final district = lab['district']?.toString() ?? '';
+        final locationLine = LabLocationUtils.displayLine(
+          lab: lab,
+          userLat: _userLat,
+          userLng: _userLng,
+          branches: BranchesIndexService.instance.branchesFor(lab) ??
+              (lab['branches'] is List
+                  ? lab['branches'] as List<dynamic>
+                  : null),
+        );
         final logoUrl =
             ApiConfig.imageFromMap(lab) ??
             ApiConfig.resolveImageUrl(lab['logo_url'], lab['logo']);
@@ -2093,7 +2138,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               ),
                               SizedBox(height: Responsive.spacing(context, 4)),
                               Text(
-                                '$city ${district.isNotEmpty ? '| $district' : ''}',
+                                locationLine.formatted,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: TextStyle(

@@ -18,6 +18,10 @@ import 'package:url_launcher/url_launcher.dart';
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
 
+  /// رقم مركز المساعدة (مكالمات وواتساب).
+  static const String supportPhoneDisplay = '0540566202';
+  static const String supportPhoneWhatsApp = '966540566202';
+
   @override
   State<ProfileScreen> createState() => _ProfileScreenState();
 }
@@ -533,26 +537,98 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
+  Future<void> _launchSupportCall() async {
+    final uri = Uri.parse('tel:${ProfileScreen.supportPhoneDisplay}');
+    if (!await canLaunchUrl(uri)) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('تعذر فتح تطبيق الاتصال')),
+      );
+      return;
+    }
+    await launchUrl(uri);
+  }
+
+  Future<void> _launchSupportWhatsApp() async {
+    final uri = Uri.parse(
+      'https://wa.me/${ProfileScreen.supportPhoneWhatsApp}',
+    );
+    if (!await canLaunchUrl(uri)) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('تعذر فتح واتساب')),
+      );
+      return;
+    }
+    await launchUrl(uri, mode: LaunchMode.externalApplication);
+  }
+
   void _showHelpCenter() {
     final lang = context.read<AppSettingsProvider>().language;
+    final isAr = lang == 'ar';
     showDialog<void>(
       context: context,
       barrierDismissible: true,
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-        title: Text(lang == 'ar' ? 'مركز المساعدة' : 'Help Center'),
+        title: Text(isAr ? 'مركز المساعدة' : 'Help Center'),
         content: SingleChildScrollView(
-          child: Text(
-            lang == 'ar'
-                ? 'إذا واجهتك أي مشكلة في الحجز أو الدفع أو استخدام التطبيق، يمكنك التواصل معنا عبر الدعم أو من خلال سياسة الخصوصية للتفاصيل.'
-                : 'If you face any issue with booking, payment, or using the app, contact support or check the privacy policy for more details.',
-            style: TextStyle(color: RastUi.secondaryText(ctx)),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                isAr
+                    ? 'للمساعدة في الحجز أو الدفع أو استخدام التطبيق، تواصل معنا:'
+                    : 'For help with booking, payment, or the app, contact us:',
+                style: TextStyle(color: RastUi.secondaryText(ctx)),
+              ),
+              const SizedBox(height: 16),
+              Directionality(
+                textDirection: TextDirection.ltr,
+                child: Text(
+                  ProfileScreen.supportPhoneDisplay,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w800,
+                    color: RastUi.primaryText(ctx),
+                    letterSpacing: 0.5,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+              FilledButton.icon(
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  _launchSupportWhatsApp();
+                },
+                icon: const Icon(Icons.chat_rounded),
+                label: Text(isAr ? 'واتساب' : 'WhatsApp'),
+                style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFF25D366),
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                ),
+              ),
+              const SizedBox(height: 10),
+              OutlinedButton.icon(
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  _launchSupportCall();
+                },
+                icon: const Icon(Icons.phone_rounded),
+                label: Text(isAr ? 'اتصال' : 'Call'),
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                ),
+              ),
+            ],
           ),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('تم'),
+            child: Text(isAr ? 'إغلاق' : 'Close'),
           ),
         ],
       ),

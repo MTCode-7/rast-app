@@ -1,4 +1,6 @@
 import 'package:cached_network_image/cached_network_image.dart';
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:provider/provider.dart';
@@ -8,6 +10,7 @@ import 'package:rast/core/constants/api_config.dart';
 import 'package:rast/core/constants/app_strings.dart';
 import 'package:rast/core/constants/dummy_data.dart';
 import 'package:rast/core/providers/app_settings_provider.dart';
+import 'package:rast/core/services/catalog_cache_service.dart';
 import 'package:rast/core/services/favorites_service.dart';
 import 'package:rast/core/theme/app_theme.dart';
 import 'package:rast/core/utils/locale_utils.dart';
@@ -63,16 +66,41 @@ class _AnalysesScreenState extends State<AnalysesScreen> {
       _searchController.text = widget.initialSearchQuery!.trim();
     }
     _scrollController.addListener(_onScroll);
-    _loadData(reset: true);
+    _loadFromCacheThenNetwork();
   }
 
-  Future<void> _loadData({bool reset = false}) async {
+  Future<void> _loadFromCacheThenNetwork() async {
+    if (widget.labId == null) {
+      await CatalogCacheService.ensureHydrated();
+      final hasCache = CatalogCacheService.categories.isNotEmpty ||
+          CatalogCacheService.servicesPage1.isNotEmpty;
+      if (hasCache && mounted) {
+        setState(() {
+          if (CatalogCacheService.categories.isNotEmpty) {
+            _categories = List.from(CatalogCacheService.categories);
+          }
+          if (CatalogCacheService.servicesPage1.isNotEmpty) {
+            _services = List.from(CatalogCacheService.servicesPage1);
+            _totalAvailable ??= _services.length;
+          }
+          _isLoading = false;
+        });
+      }
+      await _loadData(reset: true, silent: hasCache);
+    } else {
+      await _loadData(reset: true);
+    }
+  }
+
+  Future<void> _loadData({bool reset = false, bool silent = false}) async {
     if (_isLoadingMore) return;
     if (!reset && !_hasMore) return;
 
     if (reset) {
       setState(() {
-        _isLoading = true;
+        if (!silent || (_services.isEmpty && _categories.isEmpty)) {
+          _isLoading = true;
+        }
         _error = null;
         _currentPage = 1;
         _hasMore = true;
@@ -129,6 +157,14 @@ class _AnalysesScreenState extends State<AnalysesScreen> {
         canLoadMore = false;
       }
       if (categories.isEmpty) categories = List.from(DummyData.categories);
+      if (widget.labId == null) {
+        if (categories.isNotEmpty) {
+          unawaited(CatalogCacheService.saveCategories(categories));
+        }
+        if (reset && servicesPage.isNotEmpty) {
+          unawaited(CatalogCacheService.saveServicesPage1(servicesPage));
+        }
+      }
       setState(() {
         _categories = categories;
         if (reset) {

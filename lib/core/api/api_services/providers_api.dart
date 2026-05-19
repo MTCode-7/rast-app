@@ -165,11 +165,30 @@ class ProvidersApi {
 
   /// GET /api/branches - كل الفروع (اختياري: provider_id, city)
   Future<List<dynamic>> getBranches({int? providerId, String? city}) async {
-    final params = <String, String>{};
+    final page = await getBranchesPage(
+      providerId: providerId,
+      city: city,
+      page: 1,
+      perPage: 50,
+    );
+    return page.items;
+  }
+
+  /// GET /api/branches — صفحات (للفهرس الكامل).
+  Future<PaginatedResponse> getBranchesPage({
+    int page = 1,
+    int perPage = 50,
+    int? providerId,
+    String? city,
+  }) async {
+    final params = <String, String>{
+      'page': page.toString(),
+      'per_page': perPage.toString(),
+    };
     if (providerId != null) params['provider_id'] = providerId.toString();
-    if (city != null) params['city'] = city;
-    final res = await _client.get('branches', queryParams: params.isEmpty ? null : params);
-    return _extractItems(res['data']);
+    if (city != null && city.isNotEmpty) params['city'] = city;
+    final res = await _client.get('branches', queryParams: params);
+    return PaginatedResponse.fromPayload(res['data']);
   }
 
   /// GET /api/providers/cities — مناطق التطبيق (إحداثيات + نصف قطر).

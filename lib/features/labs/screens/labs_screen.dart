@@ -1,5 +1,7 @@
 import 'dart:math' as math;
 
+import 'dart:async';
+
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -9,6 +11,9 @@ import 'package:rast/core/utils/locale_utils.dart';
 import 'package:provider/provider.dart';
 import 'package:rast/core/services/location_service.dart';
 import 'package:rast/core/services/favorites_service.dart';
+import 'package:rast/core/services/branches_index_service.dart';
+import 'package:rast/core/services/catalog_cache_service.dart';
+import 'package:rast/core/utils/lab_location_utils.dart';
 import 'package:rast/core/theme/app_theme.dart';
 import 'package:rast/core/utils/responsive.dart';
 import 'package:rast/core/api/api_services.dart';
@@ -51,8 +56,31 @@ class _LabsScreenState extends State<LabsScreen> {
   void initState() {
     super.initState();
     _scrollController.addListener(_onScroll);
-    _loadUserLocation();
     _ensureRegionsLoaded();
+    BranchesIndexService.instance.ensureLoaded();
+    _loadFromCacheThenNetwork();
+  }
+
+  bool get _canUseLabsCache =>
+      _selectedRegionId == null &&
+      _sortBy == 'all' &&
+      !_filterHomeOnly &&
+      _searchController.text.trim().isEmpty;
+
+  Future<void> _loadFromCacheThenNetwork() async {
+    await CatalogCacheService.ensureHydrated();
+    final hasCache = _canUseLabsCache && CatalogCacheService.labsPage1.isNotEmpty;
+    if (hasCache && mounted) {
+      setState(() {
+        _labs = List.from(CatalogCacheService.labsPage1);
+        _totalAvailable ??= _labs.length;
+        _isLoading = false;
+        _currentPage = 2;
+        _hasMore = true;
+      });
+    }
+    await _loadUserLocation();
+    await _loadData(reset: true, silent: hasCache);
   }
 
   Future<void> _loadUserLocation() async {
@@ -78,7 +106,6 @@ class _LabsScreenState extends State<LabsScreen> {
         _userLng = lng;
       });
     }
-    _loadData(reset: true);
   }
 
   List<dynamic> _extractList(dynamic resData) {
@@ -98,13 +125,13 @@ class _LabsScreenState extends State<LabsScreen> {
     }).toList();
   }
 
-  Future<void> _loadData({bool reset = false}) async {
+  Future<void> _loadData({bool reset = false, bool silent = false}) async {
     if (_isLoadingMore) return;
     if (!reset && !_hasMore) return;
 
     if (reset) {
       setState(() {
-        _isLoading = true;
+        if (!silent || _labs.isEmpty) _isLoading = true;
         _error = null;
         _currentPage = 1;
         _hasMore = true;
@@ -172,6 +199,9 @@ class _LabsScreenState extends State<LabsScreen> {
       final totalFromApi = _parseInt(
         (res['data'] is Map) ? (res['data'] as Map)['total'] : null,
       );
+      if (reset && _canUseLabsCache && nextLabs.isNotEmpty) {
+        unawaited(CatalogCacheService.saveLabsPage1(nextLabs));
+      }
       setState(() {
         if (reset) {
           _labs = nextLabs;
@@ -246,6 +276,16 @@ class _LabsScreenState extends State<LabsScreen> {
     double userLat,
     double userLng,
   ) {
+    final labMap = Map<String, dynamic>.from(lab);
+    final branches = BranchesIndexService.instance.branchesFor(labMap) ??
+        (labMap['branches'] is List ? labMap['branches'] as List<dynamic> : null);
+    final km = LabLocationUtils.distanceKmToNearest(
+      lab: labMap,
+      userLat: userLat,
+      userLng: userLng,
+      branches: branches,
+    );
+    if (km != null) return km;
     final coords = _extractCoordinates(lab);
     if (coords == null) return double.infinity;
     return _haversineKm(userLat, userLng, coords.$1, coords.$2);
@@ -452,7 +492,10 @@ class _LabsScreenState extends State<LabsScreen> {
                                       builder: (_) =>
                                           const DefaultLocationScreen(),
                                     ),
-                                  ).then((_) => _loadUserLocation()),
+                                  ).then((_) async {
+                                    await _loadUserLocation();
+                                    await _loadData(reset: true);
+                                  }),
                                   child: Container(
                                     padding: EdgeInsets.symmetric(
                                       horizontal: 12,
@@ -552,6 +595,12 @@ class _LabsScreenState extends State<LabsScreen> {
             : <String, dynamic>{};
         return _LabCard(
               lab: lab,
+              userLat: _userLat,
+              userLng: _userLng,
+              branches: BranchesIndexService.instance.branchesFor(lab) ??
+                  (lab['branches'] is List
+                      ? lab['branches'] as List<dynamic>
+                      : null),
               onTap: () => Navigator.push(
                 context,
                 MaterialPageRoute(builder: (_) => LabDetailsScreen(lab: lab)),
@@ -905,9 +954,18 @@ class _LabsScreenState extends State<LabsScreen> {
 
 class _LabCard extends StatefulWidget {
   final Map<String, dynamic> lab;
+  final double? userLat;
+  final double? userLng;
+  final List<dynamic>? branches;
   final VoidCallback onTap;
 
-  const _LabCard({required this.lab, required this.onTap});
+  const _LabCard({
+    required this.lab,
+    this.userLat,
+    this.userLng,
+    this.branches,
+    required this.onTap,
+  });
 
   @override
   State<_LabCard> createState() => _LabCardState();
@@ -950,8 +1008,12 @@ class _LabCardState extends State<_LabCard> {
       lab,
       context.watch<AppSettingsProvider>().isArabic,
     );
-    final city = lab['city']?.toString() ?? '';
-    final district = lab['district']?.toString() ?? '';
+    final locationLine = LabLocationUtils.displayLine(
+      lab: lab,
+      userLat: widget.userLat,
+      userLng: widget.userLng,
+      branches: widget.branches,
+    );
     final homeService = lab['home_service_available'] == true;
     final size =
         56.0 * (MediaQuery.of(context).size.width / 375).clamp(1.0, 1.2);
@@ -1013,7 +1075,7 @@ class _LabCardState extends State<_LabCard> {
                           ),
                           SizedBox(height: 4),
                           Text(
-                            '$city ${district.isNotEmpty ? '| $district' : ''}',
+                            locationLine.formatted,
                             style: TextStyle(
                               fontSize: Responsive.fontSize(context, 11),
                               color: RastUi.blue,
