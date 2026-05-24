@@ -52,6 +52,21 @@ class _LabsScreenState extends State<LabsScreen> {
   double? _userLng;
   bool _filterHomeOnly = false;
 
+  /// GPS أو مركز المنطقة المختارة لحساب أقرب فرع.
+  (double?, double?) get _referenceLocation {
+    if (_userLat != null && _userLng != null) {
+      return (_userLat, _userLng);
+    }
+    if (_selectedRegionId != null) {
+      for (final r in _regions) {
+        if (r.id == _selectedRegionId) {
+          return (r.latitude, r.longitude);
+        }
+      }
+    }
+    return (null, null);
+  }
+
   @override
   void initState() {
     super.initState();
@@ -593,10 +608,11 @@ class _LabsScreenState extends State<LabsScreen> {
         final lab = visibleLabs[index] is Map
             ? visibleLabs[index] as Map<String, dynamic>
             : <String, dynamic>{};
+        final ref = _referenceLocation;
         return _LabCard(
               lab: lab,
-              userLat: _userLat,
-              userLng: _userLng,
+              userLat: ref.$1,
+              userLng: ref.$2,
               branches: BranchesIndexService.instance.branchesFor(lab) ??
                   (lab['branches'] is List
                       ? lab['branches'] as List<dynamic>
@@ -1008,11 +1024,13 @@ class _LabCardState extends State<_LabCard> {
       lab,
       context.watch<AppSettingsProvider>().isArabic,
     );
-    final locationLine = LabLocationUtils.displayLine(
+    final isArabic = context.watch<AppSettingsProvider>().isArabic;
+    final locationText = LabLocationUtils.displayText(
       lab: lab,
       userLat: widget.userLat,
       userLng: widget.userLng,
       branches: widget.branches,
+      isArabic: isArabic,
     );
     final homeService = lab['home_service_available'] == true;
     final size =
@@ -1075,7 +1093,7 @@ class _LabCardState extends State<_LabCard> {
                           ),
                           SizedBox(height: 4),
                           Text(
-                            locationLine.formatted,
+                            locationText,
                             style: TextStyle(
                               fontSize: Responsive.fontSize(context, 11),
                               color: RastUi.blue,

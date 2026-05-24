@@ -542,10 +542,14 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
 
       if (success && paymentUrl != null && paymentUrl.isNotEmpty) {
         if (!context.mounted) return;
+        final bookingId = id is int ? id : int.parse(id.toString());
         await Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (_) => PaymentWebViewScreen(paymentUrl: paymentUrl),
+            builder: (_) => PaymentWebViewScreen(
+              paymentUrl: paymentUrl,
+              bookingId: bookingId,
+            ),
           ),
         );
         if (context.mounted) {

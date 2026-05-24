@@ -1,5 +1,41 @@
 import 'dart:math' as math;
 
+import 'package:rast/core/utils/locale_utils.dart';
+
+/// أقرب فرع/موقع لمختبر (للعرض والحجز).
+class NearestBranchInfo {
+  const NearestBranchInfo({
+    this.branchId,
+    required this.nameAr,
+    required this.nameEn,
+    required this.city,
+    required this.district,
+    this.distanceKm,
+    this.isMainProvider = false,
+  });
+
+  final int? branchId;
+  final String nameAr;
+  final String nameEn;
+  final String city;
+  final String district;
+  final double? distanceKm;
+  final bool isMainProvider;
+
+  String displayLine(bool isArabic) {
+    final name = LocaleUtils.localizedName(
+      {'name_ar': nameAr, 'name_en': nameEn},
+      isArabic,
+    );
+    final loc = LabLocationLine(city: city, district: district).formatted;
+    if (name.isNotEmpty && loc.isNotEmpty) return '$name · $loc';
+    if (name.isNotEmpty) return name;
+    return loc;
+  }
+
+  bool get hasBranchId => branchId != null && branchId! > 0;
+}
+
 /// سطر الموقع في بطاقة المختبر (مدينة | حي) حسب أقرب فرع للمستخدم.
 class LabLocationLine {
   const LabLocationLine({required this.city, required this.district});
@@ -28,8 +64,154 @@ class LabLocationUtils {
     return int.tryParse(id?.toString() ?? '');
   }
 
-  /// يختار موقع العرض: أقرب فرع/موقع بإحداثيات عند توفر موقع المستخدم، وإلا موقع المختبر الأساسي.
-  /// أقرب مسافة (كم) لأي فرع/موقع للمختبر؛ null إن لا إحداثيات.
+  /// من `GET /api/providers` عند إرسال GPS أو `region_id`.
+  static NearestBranchInfo? nearestFromApi(Map<String, dynamic> lab) {
+    final raw = lab['nearest_branch'];
+    if (raw is! Map) return null;
+    final m = Map<String, dynamic>.from(raw);
+    final id = m['id'];
+    final branchId = id is int ? id : int.tryParse(id?.toString() ?? '');
+    return NearestBranchInfo(
+      branchId: branchId,
+      nameAr: m['name_ar']?.toString() ?? '',
+      nameEn: m['name_en']?.toString() ?? '',
+      city: m['city']?.toString() ?? '',
+      district: m['district']?.toString() ?? '',
+      distanceKm: m['distance_km'] is num
+          ? (m['distance_km'] as num).toDouble()
+          : double.tryParse(m['distance_km']?.toString() ?? ''),
+      isMainProvider: false,
+    );
+  }
+
+  /// أقرب فرع للعرض/الحجز: API أولاً ثم حساب محلي.
+  static NearestBranchInfo? resolveForDisplay({
+    required Map<String, dynamic> lab,
+    double? userLat,
+    double? userLng,
+    List<dynamic>? branches,
+  }) {
+    final fromApi = nearestFromApi(lab);
+    if (fromApi != null && (fromApi.hasBranchId || fromApi.city.isNotEmpty)) {
+      return fromApi;
+    }
+    return resolveNearest(
+      lab: lab,
+      userLat: userLat,
+      userLng: userLng,
+      branches: branches,
+    );
+  }
+
+  static NearestBranchInfo? resolveNearest({
+    required Map<String, dynamic> lab,
+    double? userLat,
+    double? userLng,
+    List<dynamic>? branches,
+  }) {
+    final candidates = _collectCandidates(lab, branches);
+    if (candidates.isEmpty) {
+      final city = lab['city']?.toString() ?? '';
+      final district = lab['district']?.toString() ?? '';
+      if (city.isEmpty && district.isEmpty) return null;
+      return NearestBranchInfo(
+        nameAr: lab['business_name_ar']?.toString() ?? '',
+        nameEn: lab['business_name_en']?.toString() ?? '',
+        city: city,
+        district: district,
+        isMainProvider: true,
+      );
+    }
+
+    if (userLat != null && userLng != null) {
+      final withCoords = candidates.where((c) => c.hasCoords).toList();
+      if (withCoords.isNotEmpty) {
+        withCoords.sort((a, b) {
+          final da = haversineKm(userLat, userLng, a.lat!, a.lng!);
+          final db = haversineKm(userLat, userLng, b.lat!, b.lng!);
+          return da.compareTo(db);
+        });
+        return _toInfo(withCoords.first, userLat, userLng);
+      }
+    }
+
+    final main = candidates.firstWhere(
+      (c) => c.isMain,
+      orElse: () => candidates.first,
+    );
+    return _toInfo(main, userLat, userLng);
+  }
+
+  static NearestBranchInfo _toInfo(
+    _Candidate c,
+    double? userLat,
+    double? userLng,
+  ) {
+    double? dist;
+    if (userLat != null && userLng != null && c.hasCoords) {
+      dist = haversineKm(userLat, userLng, c.lat!, c.lng!);
+    }
+    return NearestBranchInfo(
+      branchId: c.branchId,
+      nameAr: c.nameAr,
+      nameEn: c.nameEn,
+      city: c.city,
+      district: c.district,
+      distanceKm: dist,
+      isMainProvider: c.isMain && c.branchId == null,
+    );
+  }
+
+  static LabLocationLine displayLine({
+    required Map<String, dynamic> lab,
+    double? userLat,
+    double? userLng,
+    List<dynamic>? branches,
+    bool isArabic = true,
+  }) {
+    final nearest = resolveNearest(
+      lab: lab,
+      userLat: userLat,
+      userLng: userLng,
+      branches: branches,
+    );
+    if (nearest == null) {
+      return LabLocationLine(
+        city: lab['city']?.toString() ?? '',
+        district: lab['district']?.toString() ?? '',
+      );
+    }
+    final text = nearest.displayLine(isArabic);
+    if (text.isEmpty) {
+      return LabLocationLine(city: nearest.city, district: nearest.district);
+    }
+    // للتوافق مع LabLocationLine نفصل city|district؛ العرض الكامل عبر displayText
+    return LabLocationLine(city: nearest.city, district: nearest.district);
+  }
+
+  /// نص العرض الكامل (اسم الفرع · مدينة | حي).
+  static String displayText({
+    required Map<String, dynamic> lab,
+    double? userLat,
+    double? userLng,
+    List<dynamic>? branches,
+    required bool isArabic,
+  }) {
+    final nearest = resolveForDisplay(
+      lab: lab,
+      userLat: userLat,
+      userLng: userLng,
+      branches: branches,
+    );
+    if (nearest == null) {
+      return LabLocationLine(
+        city: lab['city']?.toString() ?? '',
+        district: lab['district']?.toString() ?? '',
+      ).formatted;
+    }
+    return nearest.displayLine(isArabic);
+  }
+
   static double? distanceKmToNearest({
     required Map<String, dynamic> lab,
     required double userLat,
@@ -44,40 +226,6 @@ class LabLocationUtils {
       if (minKm == null || d < minKm) minKm = d;
     }
     return minKm;
-  }
-
-  static LabLocationLine displayLine({
-    required Map<String, dynamic> lab,
-    double? userLat,
-    double? userLng,
-    List<dynamic>? branches,
-  }) {
-    final candidates = _collectCandidates(lab, branches);
-    if (candidates.isEmpty) {
-      return LabLocationLine(
-        city: lab['city']?.toString() ?? '',
-        district: lab['district']?.toString() ?? '',
-      );
-    }
-
-    if (userLat != null && userLng != null) {
-      final withCoords = candidates.where((c) => c.hasCoords).toList();
-      if (withCoords.isNotEmpty) {
-        withCoords.sort((a, b) {
-          final da = haversineKm(userLat, userLng, a.lat!, a.lng!);
-          final db = haversineKm(userLat, userLng, b.lat!, b.lng!);
-          return da.compareTo(db);
-        });
-        final best = withCoords.first;
-        return LabLocationLine(city: best.city, district: best.district);
-      }
-    }
-
-    final main = candidates.firstWhere(
-      (c) => c.isMain,
-      orElse: () => candidates.first,
-    );
-    return LabLocationLine(city: main.city, district: main.district);
   }
 
   static double haversineKm(
@@ -116,6 +264,9 @@ class LabLocationUtils {
       }
       out.add(
         _Candidate(
+          branchId: isMain ? null : _branchIdFrom(map),
+          nameAr: _nameArFrom(map, isMain: isMain, lab: lab),
+          nameEn: _nameEnFrom(map, isMain: isMain, lab: lab),
           city: city.isNotEmpty ? city : (isMain ? _cityFrom(lab) : ''),
           district: district.isNotEmpty
               ? district
@@ -140,6 +291,37 @@ class LabLocationUtils {
 
     return out;
   }
+
+  static int? _branchIdFrom(Map<String, dynamic> map) {
+    final id = map['id'] ?? map['branch_id'];
+    if (id is int) return id;
+    return int.tryParse(id?.toString() ?? '');
+  }
+
+  static String _nameArFrom(
+    Map<String, dynamic> map, {
+    required bool isMain,
+    required Map<String, dynamic> lab,
+  }) =>
+      (map['name_ar'] ??
+              map['branch_name_ar'] ??
+              map['branch_name'] ??
+              (isMain ? lab['business_name_ar'] : null) ??
+              '')
+          .toString()
+          .trim();
+
+  static String _nameEnFrom(
+    Map<String, dynamic> map, {
+    required bool isMain,
+    required Map<String, dynamic> lab,
+  }) =>
+      (map['name_en'] ??
+              map['branch_name_en'] ??
+              (isMain ? lab['business_name_en'] : null) ??
+              '')
+          .toString()
+          .trim();
 
   static String _cityFrom(Map<String, dynamic> map) =>
       (map['city'] ?? map['branch_city'] ?? map['region_name'] ?? '')
@@ -188,6 +370,9 @@ class LabLocationUtils {
 
 class _Candidate {
   _Candidate({
+    required this.branchId,
+    required this.nameAr,
+    required this.nameEn,
     required this.city,
     required this.district,
     required this.lat,
@@ -195,6 +380,9 @@ class _Candidate {
     required this.isMain,
   });
 
+  final int? branchId;
+  final String nameAr;
+  final String nameEn;
   final String city;
   final String district;
   final double? lat;

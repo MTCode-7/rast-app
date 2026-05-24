@@ -124,15 +124,40 @@ class ProvidersApi {
     return page.items;
   }
 
-  /// GET /api/providers/{id}/branches - فروع المختبر
+  /// GET /api/providers/{id}/branches - فروع المختبر (صفحة واحدة).
   Future<List<dynamic>> getProviderBranches(int id) async {
-    final res = await _client.get('providers/$id/branches');
-    return _extractItems(res['data']);
+    final page = await getProviderBranchesPage(id, page: 1, perPage: 50);
+    return page.items;
   }
 
-  /// GET /api/providers/{id}/time-slots - المواعيد المتاحة
-  Future<List<dynamic>> getTimeSlots(int id, String date) async {
-    final res = await _client.get('providers/$id/time-slots', queryParams: {'date': date});
+  /// GET /api/providers/{id}/branches — صفحات.
+  Future<PaginatedResponse> getProviderBranchesPage(
+    int id, {
+    int page = 1,
+    int perPage = 50,
+  }) async {
+    final res = await _client.get(
+      'providers/$id/branches',
+      queryParams: {
+        'page': page.toString(),
+        'per_page': perPage.toString(),
+      },
+    );
+    return PaginatedResponse.fromPayload(res['data']);
+  }
+
+  /// GET /api/providers/{id}/time-slots — `branch_id` لمواعيد الفرع المختار.
+  Future<List<dynamic>> getTimeSlots(
+    int id,
+    String date, {
+    int? branchId,
+  }) async {
+    final params = <String, String>{'date': date};
+    if (branchId != null) params['branch_id'] = branchId.toString();
+    final res = await _client.get(
+      'providers/$id/time-slots',
+      queryParams: params,
+    );
     final data = res['data'];
     return data is List ? List.from(data) : [];
   }

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:rast/core/api/api_services.dart';
 import 'package:rast/core/theme/app_theme.dart';
 import 'package:rast/core/widgets/gradient_button.dart';
 import 'package:rast/core/utils/responsive.dart';
@@ -9,9 +10,13 @@ import 'package:webview_flutter/webview_flutter.dart';
 class PaymentWebViewScreen extends StatefulWidget {
   final String paymentUrl;
 
+  /// لمزامنة حالة الدفع بعد الإغلاق: `GET /api/bookings/{id}/payment/status`
+  final int? bookingId;
+
   const PaymentWebViewScreen({
     super.key,
     required this.paymentUrl,
+    this.bookingId,
   });
 
   @override
@@ -22,6 +27,7 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
   late final WebViewController _controller;
   bool _isLoading = true;
   String? _error;
+  bool _syncing = false;
 
   @override
   void initState() {
@@ -48,6 +54,50 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
     }
   }
 
+  Future<void> _finish({required bool userConfirmedPaid}) async {
+    if (_syncing) return;
+    if (widget.bookingId == null) {
+      if (!mounted) return;
+      Navigator.pop(context, userConfirmedPaid);
+      return;
+    }
+    setState(() => _syncing = true);
+    var paid = userConfirmedPaid;
+    try {
+      final status = await Api.bookings.getPaymentStatus(widget.bookingId!);
+      final paymentStatus = status['payment_status']?.toString();
+      final bookingStatus = status['booking_status']?.toString();
+      if (paymentStatus == 'paid' || bookingStatus == 'confirmed') {
+        paid = true;
+      }
+    } catch (_) {}
+    if (!mounted) return;
+    Navigator.pop(context, paid);
+  }
+
+  void _showExitDialog() {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('إلغاء الدفع؟'),
+        content: const Text('هل تريد الخروج من صفحة الدفع؟'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('متابعة الدفع'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _finish(userConfirmedPaid: false);
+            },
+            child: const Text('خروج'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Directionality(
@@ -58,7 +108,7 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
           title: const Text('الدفع الإلكتروني'),
           leading: IconButton(
             icon: const Icon(Icons.arrow_back_ios_new),
-            onPressed: () => _showExitDialog(),
+            onPressed: _showExitDialog,
           ),
           actions: [
             TextButton.icon(
@@ -72,8 +122,16 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
               label: const Text('المتصفح'),
             ),
             TextButton.icon(
-              onPressed: () => Navigator.pop(context, true),
-              icon: const Icon(Icons.check_circle_outline, size: 20),
+              onPressed: _syncing
+                  ? null
+                  : () => _finish(userConfirmedPaid: true),
+              icon: _syncing
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.check_circle_outline, size: 20),
               label: const Text('تم الدفع'),
             ),
           ],
@@ -90,9 +148,19 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            const CircularProgressIndicator(color: AppTheme.primary),
-                            SizedBox(height: Responsive.spacing(context, 16)),
-                            Text('جاري تحميل صفحة الدفع...', style: TextStyle(fontSize: Responsive.fontSize(context, 14), color: AppTheme.onSurfaceVariant)),
+                            const CircularProgressIndicator(
+                              color: AppTheme.primary,
+                            ),
+                            SizedBox(
+                              height: Responsive.spacing(context, 16),
+                            ),
+                            Text(
+                              'جاري تحميل صفحة الدفع...',
+                              style: TextStyle(
+                                fontSize: Responsive.fontSize(context, 14),
+                                color: AppTheme.onSurfaceVariant,
+                              ),
+                            ),
                           ],
                         ),
                       ),
@@ -110,9 +178,17 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.wifi_off, size: 64, color: AppTheme.onSurfaceVariant.withValues(alpha: 0.6)),
+            Icon(
+              Icons.wifi_off,
+              size: 64,
+              color: AppTheme.onSurfaceVariant.withValues(alpha: 0.6),
+            ),
             SizedBox(height: Responsive.spacing(context, 16)),
-            Text(_error!, textAlign: TextAlign.center, style: TextStyle(fontSize: Responsive.fontSize(context, 16))),
+            Text(
+              _error!,
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: Responsive.fontSize(context, 16)),
+            ),
             SizedBox(height: Responsive.spacing(context, 24)),
             GradientFilledButtonIcon(
               onPressed: () {
@@ -121,30 +197,6 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
               },
               icon: const Icon(Icons.refresh),
               label: const Text('إعادة المحاولة'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _showExitDialog() {
-    showDialog(
-      context: context,
-      builder: (ctx) => Directionality(
-        textDirection: TextDirection.rtl,
-        child: AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          title: const Text('إغلاق صفحة الدفع؟'),
-          content: const Text('إذا لم تُكمل الدفع بعد، يمكنك العودة لاحقاً من تفاصيل الحجز.'),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('إلغاء')),
-            GradientFilledButton(
-              onPressed: () {
-                Navigator.pop(ctx);
-                Navigator.pop(context, false);
-              },
-              child: const Text('إغلاق'),
             ),
           ],
         ),

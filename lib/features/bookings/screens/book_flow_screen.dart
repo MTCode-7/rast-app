@@ -14,6 +14,9 @@ import 'package:rast/core/widgets/gradient_button.dart';
 import 'package:rast/core/widgets/rast_ui.dart';
 import 'package:rast/features/auth/services/auth_service.dart';
 import 'package:rast/features/auth/screens/login_screen.dart';
+import 'package:rast/core/services/branches_index_service.dart';
+import 'package:rast/core/services/location_service.dart';
+import 'package:rast/core/utils/lab_location_utils.dart';
 import 'package:rast/features/bookings/screens/booking_detail_screen.dart';
 import 'package:rast/features/bookings/screens/payment_webview_screen.dart';
 
@@ -24,6 +27,9 @@ class BookFlowScreen extends StatefulWidget {
   final int labId;
   final String? labName;
 
+  /// فرع محدد مسبقاً (إن وُجد من شاشة سابقة).
+  final int? preselectedBranchId;
+
   /// خريطة provider_service: id, final_price, home_service_price, service.name_ar
   final Map<String, dynamic> providerService;
 
@@ -32,6 +38,7 @@ class BookFlowScreen extends StatefulWidget {
     this.lab,
     required this.labId,
     this.labName,
+    this.preselectedBranchId,
     required this.providerService,
   });
 
@@ -53,6 +60,9 @@ class _BookFlowScreenState extends State<BookFlowScreen> {
   bool _creating = false;
   String? _error;
   Map<String, dynamic>? _createdBooking;
+  NearestBranchInfo? _nearestBranch;
+  double? _userLat;
+  double? _userLng;
 
   /// نسب من API: platform_discount_rate, vat_rate (بديل عن ApiConfig.globalDiscountPercent)
   Map<String, dynamic>? _bookingConfig;
@@ -145,7 +155,11 @@ class _BookFlowScreenState extends State<BookFlowScreen> {
     _resolvedHomeServiceFeeRaw = _extractHomeFee(widget.providerService);
     _lab = widget.lab;
     _syncServiceTypeWithLabMode(silent: true);
-    if (_lab == null) _loadLab();
+    if (_lab == null) {
+      _loadLab();
+    } else {
+      _resolveNearestBranch();
+    }
     _loadBookingConfig();
     _loadPreview();
   }
@@ -221,9 +235,106 @@ class _BookFlowScreenState extends State<BookFlowScreen> {
       final lab = await Api.providers.getProvider(widget.labId);
       setState(() => _lab = lab);
       _syncServiceTypeWithLabMode();
+      await _resolveNearestBranch();
     } catch (_) {
       setState(() => _error = 'تعذر تحميل بيانات المختبر');
     }
+  }
+
+  Future<void> _resolveNearestBranch() async {
+    final labMap = _lab ?? widget.lab;
+    if (labMap == null) return;
+
+    final labJson = Map<String, dynamic>.from(labMap);
+
+    if (widget.preselectedBranchId != null) {
+      final branches = await _branchesForLab(labMap);
+      for (final b in branches) {
+        if (b is! Map) continue;
+        final m = Map<String, dynamic>.from(b);
+        final id = m['id'] ?? m['branch_id'];
+        final parsed = id is int ? id : int.tryParse(id?.toString() ?? '');
+        if (parsed == widget.preselectedBranchId) {
+          if (mounted) {
+            setState(() {
+              _nearestBranch = NearestBranchInfo(
+                branchId: parsed,
+                nameAr: m['name_ar']?.toString() ?? '',
+                nameEn: m['name_en']?.toString() ?? '',
+                city: m['city']?.toString() ?? '',
+                district: m['district']?.toString() ?? '',
+              );
+            });
+          }
+          return;
+        }
+      }
+    }
+
+    final fromApi = LabLocationUtils.nearestFromApi(labJson);
+    if (fromApi != null &&
+        (fromApi.hasBranchId ||
+            fromApi.nameAr.isNotEmpty ||
+            fromApi.city.isNotEmpty)) {
+      if (mounted) {
+        setState(() => _nearestBranch = fromApi);
+        if (_step == 2 && _selectedDate != null) _loadTimeSlots();
+      }
+      return;
+    }
+
+    double? lat = _userLat;
+    double? lng = _userLng;
+    if (lat == null || lng == null) {
+      try {
+        final current = await LocationService.getCurrentLocation(
+          saveAsDefault: false,
+        );
+        lat = current?.lat;
+        lng = current?.lng;
+      } catch (_) {}
+    }
+    if (lat == null || lng == null) {
+      final saved = await LocationService.getDefaultLocation();
+      lat ??= saved?.lat;
+      lng ??= saved?.lng;
+    }
+    _userLat = lat;
+    _userLng = lng;
+
+    final branches = await _branchesForLab(labMap);
+    final nearest = LabLocationUtils.resolveForDisplay(
+      lab: labJson,
+      userLat: lat,
+      userLng: lng,
+      branches: branches,
+    );
+    if (mounted) {
+      setState(() => _nearestBranch = nearest);
+      if (_step == 2 && _selectedDate != null) {
+        _loadTimeSlots();
+      }
+    }
+  }
+
+  Future<List<dynamic>> _branchesForLab(Map<String, dynamic> lab) async {
+    final cached = BranchesIndexService.instance.branchesFor(lab);
+    if (cached != null && cached.isNotEmpty) return cached;
+    if (lab['branches'] is List && (lab['branches'] as List).isNotEmpty) {
+      return lab['branches'] as List<dynamic>;
+    }
+    try {
+      return await Api.providers.getProviderBranches(widget.labId);
+    } catch (_) {
+      return [];
+    }
+  }
+
+  int? get _bookingBranchId {
+    if (widget.preselectedBranchId != null) {
+      return widget.preselectedBranchId;
+    }
+    return _nearestBranch?.branchId;
   }
 
   /// نسبة خصم المنصة (٪): من API أو 7% افتراضي. يدعم API يعيد 7 أو 0.07 أو نصاً
@@ -322,7 +433,11 @@ class _BookFlowScreenState extends State<BookFlowScreen> {
     });
     try {
       final dateStr = DateFormat('yyyy-MM-dd').format(_selectedDate!);
-      final slots = await Api.providers.getTimeSlots(widget.labId, dateStr);
+      final slots = await Api.providers.getTimeSlots(
+        widget.labId,
+        dateStr,
+        branchId: _bookingBranchId,
+      );
       setState(() {
         _timeSlots = slots;
         _loadingSlots = false;
@@ -348,7 +463,23 @@ class _BookFlowScreenState extends State<BookFlowScreen> {
       _creating = true;
       _error = null;
     });
+    final isArabic = context.read<AppSettingsProvider>().isArabic;
     try {
+      final savedLoc = await LocationService.getDefaultLocation();
+      final lat = _userLat ?? savedLoc?.lat;
+      final lng = _userLng ?? savedLoc?.lng;
+
+      if (_serviceType == 'in_clinic' &&
+          _bookingBranchId == null &&
+          (lat == null || lng == null)) {
+        setState(() {
+          _creating = false;
+          _error =
+              'يرجى تحديد موقعك من الإعدادات لاختيار أقرب فرع، أو انتظر اكتمال تحميل بيانات المختبر.';
+        });
+        return;
+      }
+
       final body = <String, dynamic>{
         'provider_service_id': _providerServiceId,
         'time_slot_id': _selectedSlot!['id'],
@@ -360,8 +491,20 @@ class _BookFlowScreenState extends State<BookFlowScreen> {
         body['home_city'] = _cityController.text.trim();
         body['home_district'] = _districtController.text.trim();
       }
+
+      final branchId = _bookingBranchId;
+      if (branchId != null) body['branch_id'] = branchId;
+      if (lat != null && lng != null) {
+        body['latitude'] = lat;
+        body['longitude'] = lng;
+        if (_serviceType == 'home_service') {
+          body['home_latitude'] = lat;
+          body['home_longitude'] = lng;
+        }
+      }
+
       final booking = await Api.bookings.create(body);
-      final b = _toBookingMap(booking);
+      final b = _toBookingMap(booking, isArabic: isArabic);
       setState(() {
         _creating = false;
         _createdBooking = b;
@@ -382,7 +525,10 @@ class _BookFlowScreenState extends State<BookFlowScreen> {
     }
   }
 
-  Map<String, dynamic> _toBookingMap(Map<String, dynamic> booking) {
+  Map<String, dynamic> _toBookingMap(
+    Map<String, dynamic> booking, {
+    bool isArabic = true,
+  }) {
     final summary = booking['summary'] is Map
         ? booking['summary'] as Map<String, dynamic>
         : null;
@@ -393,6 +539,25 @@ class _BookFlowScreenState extends State<BookFlowScreen> {
     final providerMap = provider is Map
         ? provider as Map<String, dynamic>
         : <String, dynamic>{};
+    final branchObj = booking['branch'];
+    String? branchLabel;
+    if (branchObj is Map) {
+      final bm = branchObj as Map<String, dynamic>;
+      branchLabel = LocaleUtils.localizedName(
+        bm,
+        isArabic,
+        arKey: 'name_ar',
+        enKey: 'name_en',
+      );
+      final city = bm['city']?.toString() ?? '';
+      final district = bm['district']?.toString() ?? '';
+      final loc = LabLocationLine(city: city, district: district).formatted;
+      if (branchLabel.isNotEmpty && loc.isNotEmpty) {
+        branchLabel = '$branchLabel · $loc';
+      } else if (loc.isNotEmpty) {
+        branchLabel = loc;
+      }
+    }
     final base = <String, dynamic>{
       'id': booking['id'],
       'booking_number': booking['booking_number'] ?? 'RST-${booking['id']}',
@@ -413,6 +578,8 @@ class _BookFlowScreenState extends State<BookFlowScreen> {
       'provider_logo_url': providerMap['logo_url'] ?? providerMap['logo'],
       'branch_name':
           booking['branch_name'] ??
+          branchLabel ??
+          _nearestBranch?.displayLine(isArabic) ??
           (_serviceType == 'home_service' ? 'منزلي' : 'الفرع'),
       ...booking,
     };
@@ -442,24 +609,45 @@ class _BookFlowScreenState extends State<BookFlowScreen> {
 
       if (success && paymentUrl != null && paymentUrl.isNotEmpty) {
         if (!mounted) return;
+        final bookingId = bid is int ? bid : int.parse(bid.toString());
         final paid = await Navigator.push<bool>(
           context,
           MaterialPageRoute(
-            builder: (_) => PaymentWebViewScreen(paymentUrl: paymentUrl),
+            builder: (_) => PaymentWebViewScreen(
+              paymentUrl: paymentUrl,
+              bookingId: bookingId,
+            ),
           ),
         );
         if (mounted) {
-          if (paid == true) {
+          Map<String, dynamic>? refreshed;
+          try {
+            refreshed = await Api.bookings.getPaymentStatus(bookingId);
+          } catch (_) {}
+          final paymentStatus =
+              refreshed?['payment_status']?.toString() ??
+              refreshed?['status']?.toString();
+          final bookingStatus = refreshed?['booking_status']?.toString();
+          final isPaid = paid == true ||
+              paymentStatus == 'paid' ||
+              bookingStatus == 'confirmed';
+          if (!mounted) return;
+          if (isPaid) {
             setState(
               () => _createdBooking = {
                 ...?_createdBooking,
                 'payment_status': 'paid',
+                if (bookingStatus != null) 'status': bookingStatus,
               },
             );
           }
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('بعد إتمام الدفع يمكنك مراجعة الحجز من حجوزاتي'),
+            SnackBar(
+              content: Text(
+                isPaid
+                    ? 'تم تأكيد الدفع بنجاح'
+                    : 'بعد إتمام الدفع يمكنك مراجعة الحجز من حجوزاتي',
+              ),
             ),
           );
         }
@@ -1264,6 +1452,13 @@ class _BookFlowScreenState extends State<BookFlowScreen> {
             children: [
               _confirmRow('التحليل', _serviceNameAr),
               _confirmRow('المختبر', labNameDisplay),
+              if (_serviceType == 'in_clinic' && _nearestBranch != null)
+                _confirmRow(
+                  'الفرع',
+                  _nearestBranch!.displayLine(
+                    context.watch<AppSettingsProvider>().isArabic,
+                  ),
+                ),
               _confirmRow(
                 'نوع الخدمة',
                 _serviceType == 'home_service' ? 'منزلي' : 'في المختبر',

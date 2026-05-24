@@ -2056,7 +2056,8 @@ class _HomeScreenState extends State<HomeScreen> {
           lab,
           context.watch<AppSettingsProvider>().isArabic,
         );
-        final locationLine = LabLocationUtils.displayLine(
+        final isArabic = context.watch<AppSettingsProvider>().isArabic;
+        final locationText = LabLocationUtils.displayText(
           lab: lab,
           userLat: _userLat,
           userLng: _userLng,
@@ -2064,6 +2065,7 @@ class _HomeScreenState extends State<HomeScreen> {
               (lab['branches'] is List
                   ? lab['branches'] as List<dynamic>
                   : null),
+          isArabic: isArabic,
         );
         final logoUrl =
             ApiConfig.imageFromMap(lab) ??
@@ -2138,7 +2140,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               ),
                               SizedBox(height: Responsive.spacing(context, 4)),
                               Text(
-                                locationLine.formatted,
+                                locationText,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: TextStyle(
