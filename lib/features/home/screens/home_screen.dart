@@ -24,7 +24,12 @@ import 'package:rast/features/labs/screens/labs_screen.dart';
 import 'package:rast/core/api/api_client.dart';
 import 'package:rast/features/auth/services/auth_service.dart';
 import 'package:rast/features/favorites/screens/favorites_screen.dart';
+import 'package:rast/core/onboarding/onboarding_catalog.dart';
+import 'package:rast/core/onboarding/onboarding_host.dart';
+import 'package:rast/core/onboarding/onboarding_step.dart';
+import 'package:rast/core/onboarding/onboarding_tour_ids.dart';
 import 'package:rast/core/widgets/gradient_button.dart';
+import 'package:rast/core/widgets/rast_help_button.dart';
 import 'package:rast/core/widgets/search_box.dart';
 import 'package:rast/core/widgets/rast_ui.dart';
 import 'package:shimmer/shimmer.dart';
@@ -39,7 +44,12 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with OnboardingTourHost {
+  final _searchKey = GlobalKey();
+  final _categoriesKey = GlobalKey();
+  final _labsSectionKey = GlobalKey();
+  bool _homeTourScheduled = false;
+
   int _carouselIndex = 0;
   int _selectedCategoryIndex = 0;
   int _categoriesPageIndex = 0;
@@ -89,6 +99,22 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   @override
+  String? get onboardingTourId => OnboardingTourIds.home;
+
+  @override
+  List<OnboardingStep> buildOnboardingSteps() => OnboardingCatalog.homeTour(
+        searchKey: _searchKey,
+        categoriesKey: _categoriesKey,
+        labsSectionKey: _labsSectionKey,
+      );
+
+  void _maybeScheduleHomeTour() {
+    if (_homeTourScheduled || _isLoading) return;
+    _homeTourScheduled = true;
+    scheduleOnboardingTour(delay: const Duration(milliseconds: 3200));
+  }
+
+  @override
   void initState() {
     super.initState();
     _categoriesPageController = PageController();
@@ -102,6 +128,7 @@ class _HomeScreenState extends State<HomeScreen> {
     if (snap != null && mounted) {
       _applyHomeSnapshot(snap);
       setState(() => _isLoading = false);
+      _maybeScheduleHomeTour();
     }
     await _loadData(silent: snap != null);
   }
@@ -305,6 +332,7 @@ class _HomeScreenState extends State<HomeScreen> {
         _isLoading = false;
       });
       _maybeShowPopup();
+      _maybeScheduleHomeTour();
     } on ApiException catch (e) {
       setState(() {
         _error = e.message;
@@ -506,17 +534,20 @@ class _HomeScreenState extends State<HomeScreen> {
                 ).animate().fadeIn(duration: 500.ms, delay: 200.ms),
               ],
               SizedBox(height: Responsive.spacing(context, 18)),
-              _buildSectionShell(
-                AppStrings.t(
-                  'categories',
-                  context.watch<AppSettingsProvider>().language,
+              KeyedSubtree(
+                key: _categoriesKey,
+                child: _buildSectionShell(
+                  AppStrings.t(
+                    'categories',
+                    context.watch<AppSettingsProvider>().language,
+                  ),
+                  AppStrings.t(
+                    'viewAll',
+                    context.watch<AppSettingsProvider>().language,
+                  ),
+                  onActionTap: _navigateToAnalyses,
+                  child: _buildCategories(),
                 ),
-                AppStrings.t(
-                  'viewAll',
-                  context.watch<AppSettingsProvider>().language,
-                ),
-                onActionTap: _navigateToAnalyses,
-                child: _buildCategories(),
               ).animate().fadeIn(duration: 500.ms, delay: 250.ms),
               SizedBox(height: Responsive.spacing(context, 18)),
               _buildSectionShell(
@@ -532,17 +563,20 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: _buildPackages(),
               ).animate().fadeIn(duration: 500.ms, delay: 300.ms),
               SizedBox(height: Responsive.spacing(context, 18)),
-              _buildSectionShell(
-                AppStrings.t(
-                  'featuredLabs',
-                  context.watch<AppSettingsProvider>().language,
+              KeyedSubtree(
+                key: _labsSectionKey,
+                child: _buildSectionShell(
+                  AppStrings.t(
+                    'featuredLabs',
+                    context.watch<AppSettingsProvider>().language,
+                  ),
+                  AppStrings.t(
+                    'viewAll',
+                    context.watch<AppSettingsProvider>().language,
+                  ),
+                  onActionTap: () => _navigateToLabs(),
+                  child: _buildLabs(),
                 ),
-                AppStrings.t(
-                  'viewAll',
-                  context.watch<AppSettingsProvider>().language,
-                ),
-                onActionTap: () => _navigateToLabs(),
-                child: _buildLabs(),
               ).animate().fadeIn(duration: 500.ms, delay: 350.ms),
               SizedBox(height: Responsive.spacing(context, 110)),
             ],
@@ -947,6 +981,11 @@ class _HomeScreenState extends State<HomeScreen> {
           padding: EdgeInsets.fromLTRB(20, topPadding + 8, 20, 4),
           child: Row(
             children: [
+              RastHelpButton(
+                tourId: OnboardingTourIds.home,
+                tourSteps: buildOnboardingSteps(),
+              ),
+              const SizedBox(width: 8),
               _buildHeaderAction(
                 icon: Icons.favorite_border_rounded,
                 onTap: () => Navigator.push(
@@ -1157,6 +1196,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildSearchBar() {
     return Padding(
+      key: _searchKey,
       padding: EdgeInsets.symmetric(
         horizontal: Responsive.spacing(context, 16),
       ),
@@ -2172,7 +2212,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                                 .watch<AppSettingsProvider>()
                                                 .language,
                                           )
-                                        : 'منزلي',
+                                        : 'في المختبر',
                                     textAlign: TextAlign.center,
                                     style: TextStyle(
                                       color: Colors.white,

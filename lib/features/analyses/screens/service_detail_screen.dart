@@ -1858,8 +1858,8 @@ class _ProviderCard extends StatelessWidget {
                       context,
                       Icons.home_rounded,
                       homePrice > 0
-                          ? '${homePrice.toStringAsFixed(0)} ر.س منزلي'
-                          : 'بدون منزلي',
+                          ? '${homePrice.toStringAsFixed(0)} ر.س · خدمة منزلية'
+                          : 'بدون خدمة منزلية',
                     ),
                     const SizedBox(width: 8),
                     Icon(

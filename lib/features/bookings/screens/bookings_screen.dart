@@ -10,10 +10,16 @@ import 'package:rast/core/utils/date_formatter.dart';
 import 'package:rast/core/api/api_client.dart';
 import 'package:rast/core/theme/app_theme.dart';
 import 'package:rast/core/utils/responsive.dart';
+import 'package:rast/core/onboarding/onboarding_catalog.dart';
+import 'package:rast/core/onboarding/onboarding_host.dart';
+import 'package:rast/core/onboarding/onboarding_step.dart';
+import 'package:rast/core/onboarding/onboarding_tour_ids.dart';
 import 'package:rast/core/widgets/gradient_button.dart';
 import 'package:rast/core/widgets/rast_ui.dart';
 import 'package:rast/features/auth/services/auth_service.dart';
 import 'package:rast/features/bookings/screens/booking_detail_screen.dart';
+import 'package:rast/app/main_tab_index_scope.dart';
+import 'package:rast/app/main_shell.dart';
 import 'package:rast/features/auth/screens/login_screen.dart';
 import 'package:shimmer/shimmer.dart';
 
@@ -25,18 +31,43 @@ class BookingsScreen extends StatefulWidget {
 }
 
 class _BookingsScreenState extends State<BookingsScreen>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, OnboardingTourHost {
   late TabController _tabController;
+  bool _bookingsTourScheduled = false;
   List<dynamic> _upcoming = [];
   List<dynamic> _past = [];
   bool _isLoading = true;
   String? _error;
 
   @override
+  String? get onboardingTourId => OnboardingTourIds.bookings;
+
+  @override
+  List<OnboardingStep> buildOnboardingSteps() =>
+      OnboardingCatalog.bookingsTour;
+
+  @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
     _loadData();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    try {
+      if (MainTabIndexScope.of(context).currentIndex ==
+          MainScaffold.bookingsTabIndex) {
+        _maybeScheduleBookingsTour();
+      }
+    } catch (_) {}
+  }
+
+  void _maybeScheduleBookingsTour() {
+    if (_bookingsTourScheduled) return;
+    _bookingsTourScheduled = true;
+    scheduleOnboardingTour(delay: const Duration(milliseconds: 600));
   }
 
   @override
@@ -110,7 +141,7 @@ class _BookingsScreenState extends State<BookingsScreen>
       'total_amount': booking['total_amount'] ?? 0,
       'branch_name':
           booking['branch_name'] ??
-          (booking['service_type'] == 'home_service' ? 'منزلي' : 'الفرع'),
+          (booking['service_type'] == 'home_service' ? 'خدمة منزلية' : 'الفرع'),
       ...booking,
     };
   }
@@ -208,7 +239,11 @@ class _BookingsScreenState extends State<BookingsScreen>
       decoration: const BoxDecoration(gradient: RastUi.headerGradient),
       child: Scaffold(
         backgroundColor: Colors.transparent,
-        appBar: const RastTopBar(title: 'الحجوزات'),
+        appBar: RastTopBar(
+          title: 'الحجوزات',
+          helpTourId: OnboardingTourIds.bookings,
+          helpTourSteps: OnboardingCatalog.bookingsTour,
+        ),
         body: ClipRRect(
           borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
           child: Container(color: RastUi.screenSurface(context), child: child),

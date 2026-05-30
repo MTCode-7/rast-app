@@ -71,7 +71,7 @@ class AppStrings {
       'darkModeOn': 'مفعّل',
       'darkModeOff': 'معطّل',
       'testsCount': 'تحليل',
-      'homeService': 'منزلي',
+      'homeService': 'خدمة منزلية',
       'sar': 'ر.س',
       'contactForPrice': 'اتصل للمعرفة',
       'bookingsSignInPrompt': 'سجّل الدخول لعرض حجوزاتك',

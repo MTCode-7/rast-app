@@ -130,7 +130,7 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
                       _buildInfoRow('المختبر', LocaleUtils.localizedName(booking, context.watch<AppSettingsProvider>().isArabic, arKey: 'provider_name_ar', enKey: 'provider_name_en')),
                       _buildInfoRow('التاريخ', DateFormatter.formatBookingDate(booking['booking_date']?.toString())),
                       _buildInfoRow('الوقت', _bookingTimeLabel(booking)),
-                      _buildInfoRow('نوع الخدمة', booking['service_type'] == 'home_service' ? 'منزلي' : 'في المختبر'),
+                      _buildInfoRow('نوع الخدمة', booking['service_type'] == 'home_service' ? 'خدمة منزلية' : 'في المختبر'),
                       _buildInfoRow('الفرع', booking['branch_name']?.toString() ?? ''),
                     ]),
                     SizedBox(height: Responsive.spacing(context, 20)),

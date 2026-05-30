@@ -18,8 +18,14 @@ import 'package:rast/core/theme/app_theme.dart';
 import 'package:rast/core/utils/responsive.dart';
 import 'package:rast/core/api/api_services.dart';
 import 'package:rast/core/api/api_client.dart';
+import 'package:rast/core/onboarding/onboarding_catalog.dart';
+import 'package:rast/core/onboarding/onboarding_host.dart';
+import 'package:rast/core/onboarding/onboarding_step.dart';
+import 'package:rast/core/onboarding/onboarding_tour_ids.dart';
 import 'package:rast/core/widgets/search_box.dart';
 import 'package:rast/core/widgets/rast_ui.dart';
+import 'package:rast/app/main_tab_index_scope.dart';
+import 'package:rast/app/main_shell.dart';
 import 'package:rast/core/models/region.dart';
 import 'package:rast/features/lab_details/screens/lab_details_screen.dart';
 import 'package:rast/features/settings/screens/default_location_screen.dart';
@@ -32,8 +38,12 @@ class LabsScreen extends StatefulWidget {
   State<LabsScreen> createState() => _LabsScreenState();
 }
 
-class _LabsScreenState extends State<LabsScreen> {
+class _LabsScreenState extends State<LabsScreen> with OnboardingTourHost {
   static const int _pageSize = 20;
+  final _searchKey = GlobalKey();
+  final _filterKey = GlobalKey();
+  final _sortKey = GlobalKey();
+  bool _labsTourScheduled = false;
   String _sortBy = 'all';
   final ScrollController _scrollController = ScrollController();
   final TextEditingController _searchController = TextEditingController();
@@ -68,12 +78,38 @@ class _LabsScreenState extends State<LabsScreen> {
   }
 
   @override
+  String? get onboardingTourId => OnboardingTourIds.labs;
+
+  @override
+  List<OnboardingStep> buildOnboardingSteps() => OnboardingCatalog.labsTour(
+        searchKey: _searchKey,
+        filterKey: _filterKey,
+        sortKey: _sortKey,
+      );
+
+  @override
   void initState() {
     super.initState();
     _scrollController.addListener(_onScroll);
     _ensureRegionsLoaded();
     BranchesIndexService.instance.ensureLoaded();
     _loadFromCacheThenNetwork();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    try {
+      if (MainTabIndexScope.of(context).currentIndex == MainScaffold.labsTabIndex) {
+        _maybeScheduleLabsTour();
+      }
+    } catch (_) {}
+  }
+
+  void _maybeScheduleLabsTour() {
+    if (_labsTourScheduled) return;
+    _labsTourScheduled = true;
+    scheduleOnboardingTour(delay: const Duration(milliseconds: 600));
   }
 
   bool get _canUseLabsCache =>
@@ -447,7 +483,11 @@ class _LabsScreenState extends State<LabsScreen> {
         decoration: BoxDecoration(gradient: _backgroundGradient(theme)),
         child: Scaffold(
           backgroundColor: Colors.transparent,
-          appBar: const RastTopBar(title: 'المختبرات'),
+          appBar: RastTopBar(
+            title: 'المختبرات',
+            helpTourId: OnboardingTourIds.labs,
+            helpTourSteps: buildOnboardingSteps(),
+          ),
           body: ClipRRect(
             borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
             child: Container(
@@ -470,16 +510,23 @@ class _LabsScreenState extends State<LabsScreen> {
                               Row(
                                 children: [
                                   Expanded(
-                                    child: SearchBox(
-                                      controller: _searchController,
-                                      hintText: 'ابحث عن مختبر',
-                                      onSearchTap: () => _loadData(reset: true),
-                                      onSubmitted: (_) =>
-                                          _loadData(reset: true),
+                                    child: KeyedSubtree(
+                                      key: _searchKey,
+                                      child: SearchBox(
+                                        controller: _searchController,
+                                        hintText: 'ابحث عن مختبر',
+                                        onSearchTap: () =>
+                                            _loadData(reset: true),
+                                        onSubmitted: (_) =>
+                                            _loadData(reset: true),
+                                      ),
                                     ),
                                   ),
                                   const SizedBox(width: 14),
-                                  _buildFilterButton(),
+                                  KeyedSubtree(
+                                    key: _filterKey,
+                                    child: _buildFilterButton(),
+                                  ),
                                 ],
                               ),
                               SizedBox(height: Responsive.spacing(context, 12)),
@@ -495,7 +542,10 @@ class _LabsScreenState extends State<LabsScreen> {
                                 ),
                               ),
                               SizedBox(height: Responsive.spacing(context, 10)),
-                              _buildSortRow(),
+                              KeyedSubtree(
+                                key: _sortKey,
+                                child: _buildSortRow(),
+                              ),
                               if (_sortBy == 'nearby' &&
                                   _userLat == null &&
                                   _userLng == null) ...[
@@ -1116,7 +1166,7 @@ class _LabCardState extends State<_LabCard> {
                                 borderRadius: BorderRadius.circular(18),
                               ),
                               child: Text(
-                                homeService ? 'منزلي' : 'منزلي',
+                                homeService ? 'خدمة منزلية' : 'في المختبر',
                                 textAlign: TextAlign.center,
                                 style: TextStyle(
                                   fontSize: Responsive.fontSize(context, 10),

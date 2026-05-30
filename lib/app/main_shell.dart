@@ -2,23 +2,36 @@ import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:provider/provider.dart';
 import 'package:rast/core/constants/app_strings.dart';
+import 'package:rast/core/onboarding/onboarding_catalog.dart';
+import 'package:rast/core/onboarding/onboarding_host.dart';
+import 'package:rast/core/onboarding/onboarding_step.dart';
+import 'package:rast/core/onboarding/onboarding_tour_ids.dart';
 import 'package:rast/core/providers/app_settings_provider.dart';
 import 'package:rast/core/widgets/rast_ui.dart';
 import 'package:rast/features/bookings/screens/bookings_screen.dart';
 import 'package:rast/features/chat/screens/chat_screen.dart';
 import 'package:rast/features/home/screens/home_screen.dart';
 import 'package:rast/features/labs/screens/labs_screen.dart';
+import 'package:rast/app/main_tab_index_scope.dart';
 import 'package:rast/features/profile/screens/profile_screen.dart';
 
 class MainScaffold extends StatefulWidget {
   const MainScaffold({super.key});
 
+  static const int bookingsTabIndex = 1;
+  static const int labsTabIndex = 2;
+
   @override
   State<MainScaffold> createState() => _MainScaffoldState();
 }
 
-class _MainScaffoldState extends State<MainScaffold> {
+class _MainScaffoldState extends State<MainScaffold> with OnboardingTourHost {
   int _currentIndex = 0;
+
+  final _navHomeKey = GlobalKey();
+  final _navBookingsKey = GlobalKey();
+  final _navLabsKey = GlobalKey();
+  final _chatFabKey = GlobalKey();
 
   final List<Widget> _screens = const [
     HomeScreen(),
@@ -26,6 +39,28 @@ class _MainScaffoldState extends State<MainScaffold> {
     LabsScreen(),
     ProfileScreen(),
   ];
+
+  @override
+  String? get onboardingTourId => OnboardingTourIds.appMain;
+
+  @override
+  List<OnboardingStep> buildOnboardingSteps() => OnboardingCatalog.appMainTour(
+        navHomeKey: _navHomeKey,
+        navBookingsKey: _navBookingsKey,
+        navLabsKey: _navLabsKey,
+        chatFabKey: _chatFabKey,
+      );
+
+  @override
+  void initState() {
+    super.initState();
+    scheduleOnboardingTour(delay: const Duration(milliseconds: 1400));
+  }
+
+  void _onNavTap(int index) {
+    if (_currentIndex == index) return;
+    setState(() => _currentIndex = index);
+  }
 
   List<_NavItem> _navItems(String lang) => [
     _NavItem(Icons.home_rounded, AppStrings.t('home', lang)),
@@ -53,7 +88,10 @@ class _MainScaffoldState extends State<MainScaffold> {
                 padding: EdgeInsets.only(
                   bottom: MediaQuery.of(context).padding.bottom + 76,
                 ),
-                child: IndexedStack(index: _currentIndex, children: _screens),
+                child: MainTabIndexScope(
+                  currentIndex: _currentIndex,
+                  child: IndexedStack(index: _currentIndex, children: _screens),
+                ),
               ),
               bottomNavigationBar: _buildGlassNavBar(),
               floatingActionButton: _buildChatFab(),
@@ -156,31 +194,34 @@ class _MainScaffoldState extends State<MainScaffold> {
 
   Widget _buildChatFab() {
     final theme = Theme.of(context);
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        gradient: RastUi.brandGradient,
-        boxShadow: [
-          BoxShadow(
-            color: theme.colorScheme.primary.withValues(alpha: 0.35),
-            blurRadius: 18,
-            offset: const Offset(0, 8),
+    return KeyedSubtree(
+      key: _chatFabKey,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          gradient: RastUi.brandGradient,
+          boxShadow: [
+            BoxShadow(
+              color: theme.colorScheme.primary.withValues(alpha: 0.35),
+              blurRadius: 18,
+              offset: const Offset(0, 8),
+            ),
+          ],
+        ),
+        child: SizedBox(
+          width: 50,
+          height: 50,
+          child: FloatingActionButton(
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const ChatScreen()),
+              );
+            },
+            backgroundColor: Colors.transparent,
+            elevation: 0,
+            child: const Icon(Icons.support_agent_rounded, color: Colors.white),
           ),
-        ],
-      ),
-      child: SizedBox(
-        width: 50,
-        height: 50,
-        child: FloatingActionButton(
-          onPressed: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const ChatScreen()),
-            );
-          },
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-          child: const Icon(Icons.support_agent_rounded, color: Colors.white),
         ),
       ),
     );
@@ -203,13 +244,22 @@ class _MainScaffoldState extends State<MainScaffold> {
           child: Row(
             children: List.generate(navItems.length, (i) {
               final selected = i == _currentIndex;
+              final navKey = i == 0
+                  ? _navHomeKey
+                  : i == 1
+                  ? _navBookingsKey
+                  : i == 2
+                  ? _navLabsKey
+                  : null;
               return Expanded(
-                child: Material(
-                  color: Colors.transparent,
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(18),
-                    onTap: () => setState(() => _currentIndex = i),
-                    child: AnimatedContainer(
+                child: KeyedSubtree(
+                  key: navKey,
+                  child: Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(18),
+                      onTap: () => _onNavTap(i),
+                      child: AnimatedContainer(
                       duration: const Duration(milliseconds: 220),
                       curve: Curves.easeOutCubic,
                       padding: const EdgeInsets.symmetric(vertical: 6),
@@ -243,6 +293,7 @@ class _MainScaffoldState extends State<MainScaffold> {
                             ),
                           ),
                         ],
+                      ),
                       ),
                     ),
                   ),

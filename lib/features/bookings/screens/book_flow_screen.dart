@@ -10,6 +10,10 @@ import 'package:rast/core/utils/date_formatter.dart';
 import 'package:rast/core/api/api_client.dart';
 import 'package:rast/core/theme/app_theme.dart';
 import 'package:rast/core/utils/responsive.dart';
+import 'package:rast/core/onboarding/onboarding_catalog.dart';
+import 'package:rast/core/onboarding/onboarding_host.dart';
+import 'package:rast/core/onboarding/onboarding_step.dart';
+import 'package:rast/core/onboarding/onboarding_tour_ids.dart';
 import 'package:rast/core/widgets/gradient_button.dart';
 import 'package:rast/core/widgets/rast_ui.dart';
 import 'package:rast/features/auth/services/auth_service.dart';
@@ -46,7 +50,7 @@ class BookFlowScreen extends StatefulWidget {
   State<BookFlowScreen> createState() => _BookFlowScreenState();
 }
 
-class _BookFlowScreenState extends State<BookFlowScreen> {
+class _BookFlowScreenState extends State<BookFlowScreen> with OnboardingTourHost {
   Map<String, dynamic>? _lab;
   int _step = 0;
   String _serviceType = 'in_clinic';
@@ -149,8 +153,16 @@ class _BookFlowScreenState extends State<BookFlowScreen> {
   bool get _homeAvailable => _isHomeOnly || _lab?['home_service_available'] == true;
 
   @override
+  String? get onboardingTourId => OnboardingTourIds.bookFlow;
+
+  @override
+  List<OnboardingStep> buildOnboardingSteps() =>
+      OnboardingCatalog.bookFlowTour;
+
+  @override
   void initState() {
     super.initState();
+    scheduleOnboardingTour(delay: const Duration(milliseconds: 700));
     _resolvedPrice = _extractPrice(widget.providerService);
     _resolvedHomeServiceFeeRaw = _extractHomeFee(widget.providerService);
     _lab = widget.lab;
@@ -580,7 +592,7 @@ class _BookFlowScreenState extends State<BookFlowScreen> {
           booking['branch_name'] ??
           branchLabel ??
           _nearestBranch?.displayLine(isArabic) ??
-          (_serviceType == 'home_service' ? 'منزلي' : 'الفرع'),
+          (_serviceType == 'home_service' ? 'خدمة منزلية' : 'الفرع'),
       ...booking,
     };
     if (summary != null) {
@@ -695,7 +707,11 @@ class _BookFlowScreenState extends State<BookFlowScreen> {
           decoration: const BoxDecoration(gradient: RastUi.headerGradient),
           child: Scaffold(
             backgroundColor: Colors.transparent,
-            appBar: const RastTopBar(title: 'حجز تحليل'),
+            appBar: RastTopBar(
+              title: 'حجز تحليل',
+              helpTourId: OnboardingTourIds.bookFlow,
+              helpTourSteps: OnboardingCatalog.bookFlowTour,
+            ),
             body: ClipRRect(
               borderRadius: const BorderRadius.vertical(
                 top: Radius.circular(28),
@@ -765,6 +781,8 @@ class _BookFlowScreenState extends State<BookFlowScreen> {
           backgroundColor: Colors.transparent,
           appBar: RastTopBar(
             title: _createdBooking != null ? 'تم الحجز' : 'حجز تحليل',
+            helpTourId: OnboardingTourIds.bookFlow,
+            helpTourSteps: OnboardingCatalog.bookFlowTour,
           ),
           body: ClipRRect(
             borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
@@ -1461,7 +1479,7 @@ class _BookFlowScreenState extends State<BookFlowScreen> {
                 ),
               _confirmRow(
                 'نوع الخدمة',
-                _serviceType == 'home_service' ? 'منزلي' : 'في المختبر',
+                _serviceType == 'home_service' ? 'خدمة منزلية' : 'في المختبر',
               ),
               _confirmRow(
                 'التاريخ',

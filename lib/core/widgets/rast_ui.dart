@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:rast/core/onboarding/onboarding_step.dart';
+import 'package:rast/core/widgets/rast_help_button.dart';
 import 'package:rast/core/theme/app_theme.dart';
 
 class RastUi {
@@ -220,12 +222,16 @@ class RastTopBar extends StatelessWidget implements PreferredSizeWidget {
     this.showMenu = true,
     this.onBack,
     this.onMenuTap,
+    this.helpTourId,
+    this.helpTourSteps,
   });
 
   final String title;
   final bool showMenu;
   final VoidCallback? onBack;
   final VoidCallback? onMenuTap;
+  final String? helpTourId;
+  final List<OnboardingStep>? helpTourSteps;
 
   @override
   Size get preferredSize => const Size.fromHeight(82);
@@ -276,6 +282,19 @@ class RastTopBar extends StatelessWidget implements PreferredSizeWidget {
               ),
             ),
           ),
+          if (helpTourId != null &&
+              helpTourSteps != null &&
+              helpTourSteps!.isNotEmpty)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Padding(
+                padding: EdgeInsets.only(left: showMenu ? 72 : 20),
+                child: RastHelpButton(
+                  tourId: helpTourId!,
+                  tourSteps: helpTourSteps!,
+                ),
+              ),
+            ),
           if (showMenu)
             Align(
               alignment: Alignment.centerLeft,

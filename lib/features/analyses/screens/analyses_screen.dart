@@ -16,6 +16,10 @@ import 'package:rast/core/theme/app_theme.dart';
 import 'package:rast/core/utils/locale_utils.dart';
 import 'package:rast/core/widgets/gradient_button.dart';
 import 'package:rast/core/utils/responsive.dart';
+import 'package:rast/core/onboarding/onboarding_catalog.dart';
+import 'package:rast/core/onboarding/onboarding_host.dart';
+import 'package:rast/core/onboarding/onboarding_step.dart';
+import 'package:rast/core/onboarding/onboarding_tour_ids.dart';
 import 'package:rast/core/widgets/search_box.dart';
 import 'package:rast/core/widgets/rast_ui.dart';
 import 'package:rast/features/analyses/screens/service_detail_screen.dart';
@@ -39,8 +43,10 @@ class AnalysesScreen extends StatefulWidget {
   State<AnalysesScreen> createState() => _AnalysesScreenState();
 }
 
-class _AnalysesScreenState extends State<AnalysesScreen> {
+class _AnalysesScreenState extends State<AnalysesScreen> with OnboardingTourHost {
   static const int _pageSize = 24;
+  final _searchKey = GlobalKey();
+  final _filterKey = GlobalKey();
   final ScrollController _scrollController = ScrollController();
   final TextEditingController _searchController = TextEditingController();
   final TextEditingController _minPriceController = TextEditingController();
@@ -58,6 +64,18 @@ class _AnalysesScreenState extends State<AnalysesScreen> {
   int? _totalAvailable;
   String? _error;
 
+  bool get _showAnalysesTour => widget.labId == null;
+
+  @override
+  String? get onboardingTourId =>
+      _showAnalysesTour ? OnboardingTourIds.analyses : null;
+
+  @override
+  List<OnboardingStep> buildOnboardingSteps() => OnboardingCatalog.analysesTour(
+        searchKey: _searchKey,
+        filterKey: _filterKey,
+      );
+
   @override
   void initState() {
     super.initState();
@@ -67,6 +85,9 @@ class _AnalysesScreenState extends State<AnalysesScreen> {
     }
     _scrollController.addListener(_onScroll);
     _loadFromCacheThenNetwork();
+    if (_showAnalysesTour) {
+      scheduleOnboardingTour(delay: const Duration(milliseconds: 900));
+    }
   }
 
   Future<void> _loadFromCacheThenNetwork() async {
@@ -356,7 +377,12 @@ class _AnalysesScreenState extends State<AnalysesScreen> {
         decoration: const BoxDecoration(gradient: RastUi.headerGradient),
         child: Scaffold(
           backgroundColor: Colors.transparent,
-          appBar: RastTopBar(title: title),
+          appBar: RastTopBar(
+            title: title,
+            helpTourId: _showAnalysesTour ? OnboardingTourIds.analyses : null,
+            helpTourSteps:
+                _showAnalysesTour ? buildOnboardingSteps() : null,
+          ),
           body: ClipRRect(
             borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
             child: Container(
@@ -379,16 +405,23 @@ class _AnalysesScreenState extends State<AnalysesScreen> {
                               Row(
                                 children: [
                                   Expanded(
-                                    child: SearchBox(
-                                      controller: _searchController,
-                                      hintText: 'ابحث عن مختبر',
-                                      onSearchTap: () => _loadData(reset: true),
-                                      onSubmitted: (_) =>
-                                          _loadData(reset: true),
+                                    child: KeyedSubtree(
+                                      key: _searchKey,
+                                      child: SearchBox(
+                                        controller: _searchController,
+                                        hintText: 'ابحث عن مختبر',
+                                        onSearchTap: () =>
+                                            _loadData(reset: true),
+                                        onSubmitted: (_) =>
+                                            _loadData(reset: true),
+                                      ),
                                     ),
                                   ),
                                   const SizedBox(width: 14),
-                                  _buildFilterButton(),
+                                  KeyedSubtree(
+                                    key: _filterKey,
+                                    child: _buildFilterButton(),
+                                  ),
                                 ],
                               ),
                               SizedBox(height: Responsive.spacing(context, 10)),

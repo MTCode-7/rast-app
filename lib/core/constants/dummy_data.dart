@@ -118,7 +118,7 @@ class DummyData {
       'service_name_ar': 'تحليل السكر والدهون',
       'provider_name_ar': 'مختبر الصحة',
       'total_amount': 95,
-      'branch_name': 'منزلي',
+      'branch_name': 'خدمة منزلية',
     },
     {
       'id': 3,
