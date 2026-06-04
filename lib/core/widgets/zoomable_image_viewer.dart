@@ -4,12 +4,20 @@ import 'package:photo_view/photo_view.dart';
 import 'package:photo_view/photo_view_gallery.dart';
 
 /// يفتح معاينة ملء الشاشة مع تكبير/تصغير بالإصبع.
-void showZoomableImage(BuildContext context, String? imageUrl) {
+void showZoomableImage(
+  BuildContext context,
+  String? imageUrl, {
+  List<String>? imageUrls,
+}) {
   final url = imageUrl?.trim() ?? '';
   if (url.isEmpty) return;
+  final all = imageUrls?.where((u) => u.trim().isNotEmpty).toList() ?? [url];
   Navigator.of(context).push(
     MaterialPageRoute<void>(
-      builder: (_) => ZoomableImageViewer(imageUrl: url),
+      builder: (_) => ZoomableImageViewer(
+        imageUrl: url,
+        imageUrls: all.length > 1 ? all : null,
+      ),
     ),
   );
 }
@@ -21,11 +29,15 @@ class HeroImageBackground extends StatelessWidget {
     required this.imageUrl,
     required this.placeholder,
     this.fit = BoxFit.cover,
+    this.galleryUrls,
+    this.onImageTap,
   });
 
   final String? imageUrl;
   final Widget placeholder;
   final BoxFit fit;
+  final List<String>? galleryUrls;
+  final VoidCallback? onImageTap;
 
   @override
   Widget build(BuildContext context) {
@@ -33,7 +45,10 @@ class HeroImageBackground extends StatelessWidget {
     if (url.isEmpty) return placeholder;
 
     return GestureDetector(
-      onTap: () => showZoomableImage(context, url),
+      onTap: () {
+        showZoomableImage(context, url, imageUrls: galleryUrls);
+        onImageTap?.call();
+      },
       child: CachedNetworkImage(
         imageUrl: url,
         fit: fit,
@@ -202,7 +217,9 @@ class TappableImage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTap: () => showZoomableImage(context, imageUrl),
+      onTap: () {
+        showZoomableImage(context, imageUrl, imageUrls: imageUrls);
+      },
       child: CachedNetworkImage(
         imageUrl: imageUrl,
         fit: fit,

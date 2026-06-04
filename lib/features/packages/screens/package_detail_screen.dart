@@ -1,6 +1,9 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:rast/core/api/api_services.dart';
 import 'package:rast/core/constants/api_config.dart';
+import 'package:rast/core/constants/app_strings.dart';
+import 'package:rast/core/widgets/package_image_tap_hint.dart';
 import 'package:rast/core/providers/app_settings_provider.dart';
 import 'package:rast/core/utils/locale_utils.dart';
 import 'package:provider/provider.dart';
@@ -23,7 +26,8 @@ class PackageDetailScreen extends StatefulWidget {
   State<PackageDetailScreen> createState() => _PackageDetailScreenState();
 }
 
-class _PackageDetailScreenState extends State<PackageDetailScreen> {
+class _PackageDetailScreenState extends State<PackageDetailScreen>
+    with PackageImageTapHintMixin {
   Map<String, dynamic>? _package;
   bool _isLoading = true;
 
@@ -40,6 +44,7 @@ class _PackageDetailScreenState extends State<PackageDetailScreen> {
         _package = widget.package;
         _isLoading = false;
       });
+      await _afterPackageLoaded();
       return;
     }
     setState(() => _isLoading = true);
@@ -51,15 +56,27 @@ class _PackageDetailScreenState extends State<PackageDetailScreen> {
         _package = data.isNotEmpty ? data : widget.package;
         _isLoading = false;
       });
+      await _afterPackageLoaded();
     } catch (_) {
       setState(() {
         _package = widget.package;
         _isLoading = false;
       });
+      await _afterPackageLoaded();
     }
   }
 
+  Future<void> _afterPackageLoaded() async {
+    final pkg = _package ?? widget.package;
+    await preparePackageImageTapHint(
+      hasImages: ApiConfig.packageImageUrls(pkg).isNotEmpty,
+    );
+  }
+
   String? _getImageUrl(Map<String, dynamic> p) => ApiConfig.packageImageUrl(p);
+
+  List<String> _getImageUrls(Map<String, dynamic> p) =>
+      ApiConfig.packageImageUrls(p);
 
   /// استخراج قائمة تحاليل الباقة (يدعم package_items و packageItems و items)
   List<dynamic> _getPackageItemsList(Map<String, dynamic> pkg) {
@@ -225,9 +242,14 @@ class _PackageDetailScreenState extends State<PackageDetailScreen> {
         ? orig.toDouble()
         : ((orig is String) ? double.tryParse(orig) : null);
     final imageUrl = _getImageUrl(pkg);
+    final imageUrls = _getImageUrls(pkg);
     final items = _getPackageItemsList(pkg);
     final testsCount = pkg['tests_count'] ?? items.length;
     final isArabic = context.watch<AppSettingsProvider>().isArabic;
+    final lang = context.watch<AppSettingsProvider>().language;
+    final tapHintMessage = imageUrls.length > 1
+        ? AppStrings.t('packageImagesTapHint', lang)
+        : AppStrings.t('packageImageTapHint', lang);
     final providerName = _providerName(pkg, isArabic);
 
     return Directionality(
@@ -265,8 +287,15 @@ class _PackageDetailScreenState extends State<PackageDetailScreen> {
                           children: [
                             HeroImageBackground(
                               imageUrl: imageUrl,
+                              galleryUrls:
+                                  imageUrls.length > 1 ? imageUrls : null,
+                              onImageTap: dismissPackageImageTapHint,
                               placeholder: _buildPlaceholder(),
                             ),
+                            buildPackageImageTapHintOverlay(
+                              message: tapHintMessage,
+                            ) ??
+                                const SizedBox.shrink(),
                             IgnorePointer(
                               child: DecoratedBox(
                                 decoration: BoxDecoration(
@@ -450,6 +479,78 @@ class _PackageDetailScreenState extends State<PackageDetailScreen> {
                                   ),
                                 ),
                               ),
+                              if (imageUrls.length > 1) ...[
+                                SizedBox(
+                                  height: Responsive.spacing(context, 20),
+                                ),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: _sectionTitle(
+                                        AppStrings.t('packagePhotos', lang),
+                                        Icons.photo_library_outlined,
+                                      ),
+                                    ),
+                                    PackageImageTapBadge(
+                                      label: AppStrings.t('tapToZoom', lang),
+                                    ),
+                                  ],
+                                ),
+                                SizedBox(height: Responsive.spacing(context, 10)),
+                                SizedBox(
+                                  height: 118,
+                                  child: ListView.separated(
+                                    scrollDirection: Axis.horizontal,
+                                    itemCount: imageUrls.length,
+                                    separatorBuilder: (_, __) =>
+                                        const SizedBox(width: 10),
+                                    itemBuilder: (context, index) {
+                                      final url = imageUrls[index];
+                                      return GestureDetector(
+                                        onTap: () {
+                                          dismissPackageImageTapHint();
+                                          showZoomableImage(
+                                            context,
+                                            url,
+                                            imageUrls: imageUrls,
+                                          );
+                                        },
+                                        child: ClipRRect(
+                                          borderRadius:
+                                              BorderRadius.circular(14),
+                                          child: SizedBox(
+                                            width: 110,
+                                            height: 118,
+                                            child: CachedNetworkImage(
+                                              imageUrl: url,
+                                              fit: BoxFit.cover,
+                                              placeholder: (_, __) => ColoredBox(
+                                                color: AppTheme.primary
+                                                    .withValues(alpha: 0.08),
+                                                child: const Center(
+                                                  child:
+                                                      CircularProgressIndicator(
+                                                    strokeWidth: 2,
+                                                  ),
+                                                ),
+                                              ),
+                                              errorWidget: (_, __, ___) =>
+                                                  ColoredBox(
+                                                color: AppTheme.primary
+                                                    .withValues(alpha: 0.08),
+                                                child: Icon(
+                                                  Icons.broken_image_outlined,
+                                                  color: AppTheme.primary,
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      );
+                                    },
+                                  ),
+                                ),
+                              ],
                               if (description.isNotEmpty) ...[
                                 SizedBox(
                                   height: Responsive.spacing(context, 20),

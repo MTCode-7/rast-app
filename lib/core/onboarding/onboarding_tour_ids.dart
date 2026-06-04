@@ -7,4 +7,5 @@ abstract final class OnboardingTourIds {
   static const bookings = 'tour_bookings';
   static const bookFlow = 'tour_book_flow';
   static const bookingGuide = 'tour_booking_guide_seen';
+  static const packageImageTapHint = 'tour_package_image_tap_hint';
 }

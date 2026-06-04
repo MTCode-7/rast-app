@@ -57,8 +57,39 @@ class ApiConfig {
     return null;
   }
 
+  /// كل روابط صور الباقة (مصفوفة package_images ثم الغلاف)
+  static List<String> packageImageUrls(Map<String, dynamic>? pkg) {
+    final urls = <String>[];
+    void addResolved(Object? item) {
+      String? parsed;
+      if (item is Map) {
+        parsed = imageFromMap(Map<String, dynamic>.from(item)) ??
+            resolveImageUrl(item['url'], item['image'] ?? item['image_url']);
+      } else {
+        parsed = resolveImageUrl(item, null);
+      }
+      if (parsed != null && parsed.isNotEmpty && !urls.contains(parsed)) {
+        urls.add(parsed);
+      }
+    }
+
+    final packageImages = pkg?['package_images'];
+    if (packageImages is List) {
+      for (final item in packageImages) {
+        addResolved(item);
+      }
+    }
+    addResolved(pkg?['image_url']);
+    addResolved(pkg?['image']);
+    addResolved(pkg?['image_path']);
+    addResolved(imageFromMap(pkg));
+    return urls;
+  }
+
   /// استخراج رابط صورة الباقة (يتحقق من provider_services عند عدم وجود صورة على الباقة)
   static String? packageImageUrl(Map<String, dynamic>? pkg) {
+    final fromList = packageImageUrls(pkg);
+    if (fromList.isNotEmpty) return fromList.first;
     final url = imageFromMap(pkg) ?? resolveImageUrl(pkg?['image_url'], pkg?['image'] ?? pkg?['image_path']);
     if (url != null && url.isNotEmpty) return url;
     final packageImages = pkg?['package_images'];

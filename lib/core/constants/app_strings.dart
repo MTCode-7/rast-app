@@ -109,6 +109,10 @@ class AppStrings {
       'testsInPackage': '%s تحليل ضمن الباقة',
       'andMoreTests': 'و %s تحليل آخر',
       'bookNow': 'احجز الآن',
+      'packagePhotos': 'صور الباقة',
+      'packageImageTapHint': 'اضغط على الصورة للتكبير والمعاينة',
+      'packageImagesTapHint': 'اضغط على أي صورة للتكبير والتمرير بينها',
+      'tapToZoom': 'قابلة للتكبير',
     },
     'en': {
       'appName': 'Rast',
@@ -218,6 +222,10 @@ class AppStrings {
       'testsInPackage': '%s tests in package',
       'andMoreTests': 'and %s more tests',
       'bookNow': 'Book now',
+      'packagePhotos': 'Package photos',
+      'packageImageTapHint': 'Tap the image to zoom and view full size',
+      'packageImagesTapHint': 'Tap any photo to zoom and swipe between images',
+      'tapToZoom': 'Tap to zoom',
     },
   };
 
