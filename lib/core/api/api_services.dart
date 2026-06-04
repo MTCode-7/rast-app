@@ -3,6 +3,7 @@ import 'package:rast/core/api/api_services/services_api.dart';
 import 'package:rast/core/api/api_services/providers_api.dart';
 import 'package:rast/core/api/api_services/auth_api.dart';
 import 'package:rast/core/api/api_services/bookings_api.dart';
+import 'package:rast/core/api/api_services/cart_api.dart';
 import 'package:rast/core/api/api_services/chat_api.dart';
 
 /// نقاط الوصول للـ API
@@ -12,5 +13,6 @@ class Api {
   static final providers = ProvidersApi();
   static final auth = AuthApi();
   static final bookings = BookingsApi();
+  static final cart = CartApi();
   static final chat = ChatApi();
 }

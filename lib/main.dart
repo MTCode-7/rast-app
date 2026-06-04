@@ -4,6 +4,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
 import 'package:rast/core/constants/app_strings.dart';
 import 'package:rast/core/providers/app_settings_provider.dart';
+import 'package:rast/core/services/cart_service.dart';
 import 'package:rast/core/services/permissions_service.dart';
 import 'package:rast/core/theme/app_theme.dart';
 import 'package:rast/features/auth/services/auth_service.dart';
@@ -21,8 +22,11 @@ class RastApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ChangeNotifierProvider(
-      create: (_) => AppSettingsProvider(),
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => AppSettingsProvider()),
+        ChangeNotifierProvider(create: (_) => CartService()),
+      ],
       child: Consumer<AppSettingsProvider>(
         builder: (_, settings, __) {
           final isDark = settings.isDarkMode;

@@ -98,4 +98,14 @@ class ApiClient {
         .timeout(ApiConfig.connectTimeout);
     return _handleResponse(response);
   }
+
+  Future<Map<String, dynamic>> delete(String path) async {
+    _updateAuthHeader();
+    final p = path.startsWith('/') ? path.substring(1) : path;
+    final uri = Uri.parse('$_baseUrl$p');
+    final response = await http
+        .delete(uri, headers: _headers)
+        .timeout(ApiConfig.connectTimeout);
+    return _handleResponse(response);
+  }
 }

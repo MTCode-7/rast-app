@@ -21,8 +21,10 @@ import 'package:rast/features/auth/screens/login_screen.dart';
 import 'package:rast/core/services/branches_index_service.dart';
 import 'package:rast/core/services/location_service.dart';
 import 'package:rast/core/utils/lab_location_utils.dart';
+import 'package:rast/core/services/cart_service.dart';
 import 'package:rast/features/bookings/screens/booking_detail_screen.dart';
 import 'package:rast/features/bookings/screens/payment_webview_screen.dart';
+import 'package:rast/features/cart/screens/cart_screen.dart';
 
 /// شاشة حجز تحليل: نوع الخدمة → التاريخ → الوقت → تأكيد وإنشاء → الدفع
 class BookFlowScreen extends StatefulWidget {
@@ -62,6 +64,7 @@ class _BookFlowScreenState extends State<BookFlowScreen> with OnboardingTourHost
   List<dynamic> _timeSlots = [];
   bool _loadingSlots = false;
   bool _creating = false;
+  bool _addingToCart = false;
   String? _error;
   Map<String, dynamic>? _createdBooking;
   NearestBranchInfo? _nearestBranch;
@@ -462,6 +465,88 @@ class _BookFlowScreenState extends State<BookFlowScreen> with OnboardingTourHost
     }
   }
 
+  Future<Map<String, dynamic>> _buildBookingBody() async {
+    final savedLoc = await LocationService.getDefaultLocation();
+    final lat = _userLat ?? savedLoc?.lat;
+    final lng = _userLng ?? savedLoc?.lng;
+
+    if (_serviceType == 'in_clinic' &&
+        _bookingBranchId == null &&
+        (lat == null || lng == null)) {
+      throw ApiException(
+        'يرجى تحديد موقعك من الإعدادات لاختيار أقرب فرع، أو انتظر اكتمال تحميل بيانات المختبر.',
+      );
+    }
+
+    final body = <String, dynamic>{
+      'provider_service_id': _providerServiceId,
+      'time_slot_id': _selectedSlot!['id'],
+      'service_type': _serviceType,
+    };
+    if (_isNonSaudi) body['nationality'] = 'non_saudi';
+    if (_serviceType == 'home_service') {
+      body['home_address'] = _addressController.text.trim();
+      body['home_city'] = _cityController.text.trim();
+      body['home_district'] = _districtController.text.trim();
+    }
+
+    final branchId = _bookingBranchId;
+    if (branchId != null) body['branch_id'] = branchId;
+    if (lat != null && lng != null) {
+      body['latitude'] = lat;
+      body['longitude'] = lng;
+      if (_serviceType == 'home_service') {
+        body['home_latitude'] = lat;
+        body['home_longitude'] = lng;
+      }
+    }
+    return body;
+  }
+
+  Future<void> _addToCart() async {
+    if (!AuthService.isLoggedIn) {
+      final ok = await Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const LoginScreen()),
+      );
+      if (ok == true && mounted) setState(() {});
+      return;
+    }
+    setState(() {
+      _addingToCart = true;
+      _error = null;
+    });
+    try {
+      final body = await _buildBookingBody();
+      if (!mounted) return;
+      await context.read<CartService>().addItem(body);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('تمت الإضافة إلى السلة'),
+          action: SnackBarAction(
+            label: 'عرض السلة',
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const CartScreen()),
+            ),
+          ),
+        ),
+      );
+      Navigator.pop(context);
+    } on ApiException catch (e) {
+      setState(() => _error = e.message);
+    } catch (e) {
+      setState(() {
+        _error = e.toString().contains('SocketException')
+            ? 'تحقق من الاتصال'
+            : e.toString();
+      });
+    } finally {
+      if (mounted) setState(() => _addingToCart = false);
+    }
+  }
+
   Future<void> _createBooking() async {
     if (!AuthService.isLoggedIn) {
       final ok = await Navigator.push(
@@ -477,44 +562,7 @@ class _BookFlowScreenState extends State<BookFlowScreen> with OnboardingTourHost
     });
     final isArabic = context.read<AppSettingsProvider>().isArabic;
     try {
-      final savedLoc = await LocationService.getDefaultLocation();
-      final lat = _userLat ?? savedLoc?.lat;
-      final lng = _userLng ?? savedLoc?.lng;
-
-      if (_serviceType == 'in_clinic' &&
-          _bookingBranchId == null &&
-          (lat == null || lng == null)) {
-        setState(() {
-          _creating = false;
-          _error =
-              'يرجى تحديد موقعك من الإعدادات لاختيار أقرب فرع، أو انتظر اكتمال تحميل بيانات المختبر.';
-        });
-        return;
-      }
-
-      final body = <String, dynamic>{
-        'provider_service_id': _providerServiceId,
-        'time_slot_id': _selectedSlot!['id'],
-        'service_type': _serviceType,
-      };
-      if (_isNonSaudi) body['nationality'] = 'non_saudi';
-      if (_serviceType == 'home_service') {
-        body['home_address'] = _addressController.text.trim();
-        body['home_city'] = _cityController.text.trim();
-        body['home_district'] = _districtController.text.trim();
-      }
-
-      final branchId = _bookingBranchId;
-      if (branchId != null) body['branch_id'] = branchId;
-      if (lat != null && lng != null) {
-        body['latitude'] = lat;
-        body['longitude'] = lng;
-        if (_serviceType == 'home_service') {
-          body['home_latitude'] = lat;
-          body['home_longitude'] = lng;
-        }
-      }
-
+      final body = await _buildBookingBody();
       final booking = await Api.bookings.create(body);
       final b = _toBookingMap(booking, isArabic: isArabic);
       setState(() {
@@ -1678,49 +1726,108 @@ class _BookFlowScreenState extends State<BookFlowScreen> with OnboardingTourHost
 
   Widget _buildNextButton() {
     final isConfirm = _step == 3;
-    return Row(
-      children: [
-        if (_step > 0) ...[
-          SizedBox(
-            width: 56,
-            height: 56,
-            child: OutlinedButton(
-              onPressed: _backStep,
-              style: OutlinedButton.styleFrom(
-                foregroundColor: RastUi.purple,
-                side: const BorderSide(color: Color(0xFFE2E0EA)),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(18),
+    if (!isConfirm) {
+      return Row(
+        children: [
+          if (_step > 0) ...[
+            SizedBox(
+              width: 56,
+              height: 56,
+              child: OutlinedButton(
+                onPressed: _backStep,
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: RastUi.purple,
+                  side: const BorderSide(color: Color(0xFFE2E0EA)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(18),
+                  ),
+                  padding: EdgeInsets.zero,
                 ),
-                padding: EdgeInsets.zero,
+                child: const Icon(Icons.arrow_back_ios_new_rounded, size: 18),
               ),
-              child: const Icon(Icons.arrow_back_ios_new_rounded, size: 18),
+            ),
+            const SizedBox(width: 12),
+          ],
+          Expanded(
+            child: GradientFilledButton(
+              onPressed: _nextStep,
+              style: FilledButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 17),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(22),
+                ),
+              ),
+              child: const Text('التالي'),
             ),
           ),
-          const SizedBox(width: 12),
         ],
-        Expanded(
-          child: GradientFilledButton(
-            onPressed: isConfirm
-                ? (_creating ? null : _createBooking)
-                : _nextStep,
-            style: FilledButton.styleFrom(
-              padding: const EdgeInsets.symmetric(vertical: 17),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(22),
+      );
+    }
+
+    final busy = _creating || _addingToCart;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            SizedBox(
+              width: 56,
+              height: 56,
+              child: OutlinedButton(
+                onPressed: _backStep,
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: RastUi.purple,
+                  side: const BorderSide(color: Color(0xFFE2E0EA)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(18),
+                  ),
+                  padding: EdgeInsets.zero,
+                ),
+                child: const Icon(Icons.arrow_back_ios_new_rounded, size: 18),
               ),
             ),
-            child: _creating
-                ? const SizedBox(
-                    height: 24,
-                    width: 24,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: Colors.white,
-                    ),
-                  )
-                : Text(isConfirm ? 'إنشاء الحجز والمتابعة للدفع' : 'التالي'),
+            const SizedBox(width: 12),
+            Expanded(
+              child: GradientFilledButton(
+                onPressed: busy ? null : _addToCart,
+                style: FilledButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 17),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(22),
+                  ),
+                ),
+                child: _addingToCart
+                    ? const SizedBox(
+                        height: 24,
+                        width: 24,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Text('إضافة إلى السلة'),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        OutlinedButton(
+          onPressed: busy ? null : _createBooking,
+          style: OutlinedButton.styleFrom(
+            foregroundColor: RastUi.purple,
+            padding: const EdgeInsets.symmetric(vertical: 16),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(22),
+            ),
+            side: const BorderSide(color: Color(0xFFE2E0EA)),
           ),
+          child: _creating
+              ? const SizedBox(
+                  height: 22,
+                  width: 22,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Text('حجز فوري والدفع'),
         ),
       ],
     );

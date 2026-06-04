@@ -13,10 +13,14 @@ class PaymentWebViewScreen extends StatefulWidget {
   /// لمزامنة حالة الدفع بعد الإغلاق: `GET /api/bookings/{id}/payment/status`
   final int? bookingId;
 
+  /// دفع طلب السلة: `GET /api/cart-orders/{id}/payment/status`
+  final int? cartOrderId;
+
   const PaymentWebViewScreen({
     super.key,
     required this.paymentUrl,
     this.bookingId,
+    this.cartOrderId,
   });
 
   @override
@@ -64,11 +68,18 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
     setState(() => _syncing = true);
     var paid = userConfirmedPaid;
     try {
-      final status = await Api.bookings.getPaymentStatus(widget.bookingId!);
-      final paymentStatus = status['payment_status']?.toString();
-      final bookingStatus = status['booking_status']?.toString();
-      if (paymentStatus == 'paid' || bookingStatus == 'confirmed') {
-        paid = true;
+      if (widget.cartOrderId != null) {
+        final status = await Api.cart.getPaymentStatus(widget.cartOrderId!);
+        if (status['payment_status']?.toString() == 'paid') {
+          paid = true;
+        }
+      } else if (widget.bookingId != null) {
+        final status = await Api.bookings.getPaymentStatus(widget.bookingId!);
+        final paymentStatus = status['payment_status']?.toString();
+        final bookingStatus = status['booking_status']?.toString();
+        if (paymentStatus == 'paid' || bookingStatus == 'confirmed') {
+          paid = true;
+        }
       }
     } catch (_) {}
     if (!mounted) return;

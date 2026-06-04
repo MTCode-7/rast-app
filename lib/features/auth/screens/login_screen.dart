@@ -11,6 +11,7 @@ import 'package:rast/core/widgets/gradient_button.dart';
 import 'package:rast/core/widgets/rast_ui.dart';
 import 'package:rast/features/auth/screens/forgot_password_screen.dart';
 import 'package:rast/features/auth/screens/register_screen.dart';
+import 'package:rast/core/services/cart_service.dart';
 import 'package:rast/features/auth/services/auth_service.dart';
 import 'package:rast/features/chat/screens/chat_screen.dart';
 
@@ -62,6 +63,7 @@ class _LoginScreenState extends State<LoginScreen> {
       );
       await AuthService.login(token, user);
       if (!mounted) return;
+      context.read<CartService>().refresh(silent: true);
 
       setState(() => _isLoading = false);
       widget.onSuccess?.call();

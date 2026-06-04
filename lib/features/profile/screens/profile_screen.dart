@@ -11,7 +11,9 @@ import 'package:rast/features/auth/screens/login_screen.dart';
 import 'package:rast/features/auth/screens/register_screen.dart';
 import 'package:rast/features/auth/services/auth_service.dart'
     show AuthService, UserModel;
+import 'package:rast/core/services/cart_service.dart';
 import 'package:rast/features/bookings/screens/bookings_screen.dart';
+import 'package:rast/features/cart/screens/cart_screen.dart';
 import 'package:rast/features/favorites/screens/favorites_screen.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -59,6 +61,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         await Api.auth.logout();
       } catch (_) {}
       await AuthService.logout();
+      if (mounted) context.read<CartService>().clearLocal();
       setState(() {});
     }
   }
@@ -95,7 +98,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
         await Api.auth.deleteAccount();
       } catch (_) {}
       await AuthService.logout();
-      if (mounted) setState(() {});
+      if (mounted) {
+        context.read<CartService>().clearLocal();
+        setState(() {});
+      }
     }
   }
 
@@ -266,6 +272,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 onTap: () => Navigator.push(
                   context,
                   MaterialPageRoute(builder: (_) => const BookingsScreen()),
+                ),
+              ),
+              _buildActionTile(
+                icon: Icons.shopping_cart_outlined,
+                title: AppStrings.t('cart', lang),
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const CartScreen()),
                 ),
               ),
               _buildActionTile(

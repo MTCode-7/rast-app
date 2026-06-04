@@ -31,6 +31,7 @@ import 'package:rast/core/onboarding/onboarding_tour_ids.dart';
 import 'package:rast/core/widgets/gradient_button.dart';
 import 'package:rast/core/widgets/rast_help_button.dart';
 import 'package:rast/core/widgets/search_box.dart';
+import 'package:rast/core/widgets/cart_icon_button.dart';
 import 'package:rast/core/widgets/rast_ui.dart';
 import 'package:shimmer/shimmer.dart';
 import 'package:smooth_page_indicator/smooth_page_indicator.dart';
@@ -985,6 +986,8 @@ class _HomeScreenState extends State<HomeScreen> with OnboardingTourHost {
                 tourId: OnboardingTourIds.home,
                 tourSteps: buildOnboardingSteps(),
               ),
+              const SizedBox(width: 8),
+              const CartIconButton(),
               const SizedBox(width: 8),
               _buildHeaderAction(
                 icon: Icons.favorite_border_rounded,
