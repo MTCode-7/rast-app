@@ -104,6 +104,42 @@ mixin PackageImageTapHintMixin<T extends StatefulWidget> on State<T> {
   }
 }
 
+/// شارة دائمة على صورة الغلاف: الصورة قابلة للنقر.
+class PackageHeroTapChip extends StatelessWidget {
+  const PackageHeroTapChip({super.key, required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.55),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.35)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.zoom_in_rounded, color: Colors.white, size: 18),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 /// شارة صغيرة دائمة (اختياري) بجانب عنوان قسم الصور.
 class PackageImageTapBadge extends StatelessWidget {
   const PackageImageTapBadge({super.key, required this.label});

@@ -278,21 +278,24 @@ class _PackageDetailScreenState extends State<PackageDetailScreen>
       child: Container(
         decoration: const BoxDecoration(gradient: RastUi.headerGradient),
         child: Scaffold(
-          backgroundColor: Colors.transparent,
+          backgroundColor: RastUi.screenSurface(context),
+          bottomNavigationBar: _buildBottomBar(context, pkg),
           body: _isLoading && _package == null
               ? _buildLoading()
               : CustomScrollView(
                   slivers: [
                     SliverAppBar(
-                      expandedHeight: 275,
+                      expandedHeight: imageUrl != null && imageUrl.isNotEmpty
+                          ? 280
+                          : 200,
                       pinned: true,
                       backgroundColor: RastUi.purple,
                       leading: IconButton(
                         icon: Container(
                           padding: const EdgeInsets.all(8),
                           decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.24),
-                            borderRadius: BorderRadius.circular(14),
+                            color: Colors.black.withValues(alpha: 0.30),
+                            shape: BoxShape.circle,
                           ),
                           child: Icon(
                             Icons.arrow_back_ios,
@@ -303,90 +306,24 @@ class _PackageDetailScreenState extends State<PackageDetailScreen>
                         onPressed: () => Navigator.pop(context),
                       ),
                       flexibleSpace: FlexibleSpaceBar(
-                        background: Stack(
-                          fit: StackFit.expand,
-                          children: [
-                            HeroImageBackground(
-                              imageUrl: imageUrl,
-                              galleryUrls:
-                                  imageUrls.length > 1 ? imageUrls : null,
-                              onImageTap: dismissPackageImageTapHint,
-                              placeholder: _buildPlaceholder(),
-                            ),
-                            buildPackageImageTapHintOverlay(
-                              message: tapHintMessage,
-                            ) ??
-                                const SizedBox.shrink(),
-                            IgnorePointer(
-                              child: DecoratedBox(
-                                decoration: BoxDecoration(
-                                  gradient: LinearGradient(
-                                    begin: Alignment.topCenter,
-                                    end: Alignment.bottomCenter,
-                                    colors: [
-                                      RastUi.purple.withValues(alpha: 0.18),
-                                      RastUi.purple.withValues(alpha: 0.88),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ),
-                            IgnorePointer(
-                              child: PositionedDirectional(
-                              start: 22,
-                              end: 22,
-                              bottom: 34,
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 12,
-                                      vertical: 5,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: Colors.white.withValues(
-                                        alpha: 0.18,
-                                      ),
-                                      borderRadius: BorderRadius.circular(18),
-                                    ),
-                                    child: Text(
-                                      '$testsCount تحليل',
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontWeight: FontWeight.w700,
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 10),
-                                  Text(
-                                    nameAr,
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      color: Colors.white,
-                                      fontSize: Responsive.fontSize(
-                                        context,
-                                        23,
-                                      ),
-                                      fontWeight: FontWeight.w800,
-                                      height: 1.2,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            ),
-                          ],
+                        background: _buildHeroBackground(
+                          context,
+                          imageUrl: imageUrl,
+                          imageUrls: imageUrls,
+                          tapHintMessage: tapHintMessage,
+                          tapLabel: AppStrings.t('tapToZoom', lang),
                         ),
                       ),
                     ),
                     SliverToBoxAdapter(
                       child: Transform.translate(
-                        offset: const Offset(0, -28),
+                        offset: Offset(
+                          0,
+                          imageUrl != null && imageUrl.isNotEmpty ? -24 : -28,
+                        ),
                         child: Container(
                           decoration: BoxDecoration(
-                            color: Colors.white,
+                            color: RastUi.screenSurface(context),
                             borderRadius: const BorderRadius.vertical(
                               top: Radius.circular(30),
                             ),
@@ -674,7 +611,7 @@ class _PackageDetailScreenState extends State<PackageDetailScreen>
                                     ),
                                   ),
                               ],
-                              SizedBox(height: 100),
+                              SizedBox(height: Responsive.spacing(context, 24)),
                             ],
                           ),
                         ),
@@ -682,20 +619,121 @@ class _PackageDetailScreenState extends State<PackageDetailScreen>
                     ),
                   ],
                 ),
-          bottomNavigationBar: SafeArea(
-            child: Padding(
-              padding: EdgeInsets.all(Responsive.spacing(context, 16)),
-              child: GradientFilledButtonIcon(
-                onPressed: () => _handleBook(pkg),
-                icon: const Icon(Icons.calendar_today_rounded, size: 20),
-                label: const Text('احجز الآن'),
-                style: FilledButton.styleFrom(
-                  padding: EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  elevation: 0,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHeroBackground(
+    BuildContext context, {
+    required String? imageUrl,
+    required List<String> imageUrls,
+    required String tapHintMessage,
+    required String tapLabel,
+  }) {
+    final hasImage = imageUrl != null && imageUrl.trim().isNotEmpty;
+    if (!hasImage) return _buildPlaceholder();
+
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        HeroImageBackground(
+          imageUrl: imageUrl,
+          galleryUrls: imageUrls.length > 1 ? imageUrls : null,
+          onImageTap: dismissPackageImageTapHint,
+          placeholder: _buildImageLoadingPlaceholder(context),
+          fit: BoxFit.cover,
+        ),
+        IgnorePointer(
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Colors.black.withValues(alpha: 0.28),
+                  Colors.transparent,
+                  Colors.transparent,
+                ],
+                stops: const [0.0, 0.35, 1.0],
+              ),
+            ),
+          ),
+        ),
+        Positioned(
+          left: 16,
+          right: 16,
+          bottom: showPackageImageTapHint ? 68 : 18,
+          child: IgnorePointer(
+            child: PackageHeroTapChip(label: tapLabel),
+          ),
+        ),
+        if (showPackageImageTapHint)
+          Positioned(
+            left: 16,
+            right: 16,
+            bottom: 14,
+            child: PackageImageTapHintBanner(
+              message: tapHintMessage,
+              compact: true,
+              onDismiss: dismissPackageImageTapHint,
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildImageLoadingPlaceholder(BuildContext context) {
+    return ColoredBox(
+      color: RastUi.subtleFill(context),
+      child: Center(
+        child: Icon(
+          Icons.inventory_2_outlined,
+          size: 64,
+          color: AppTheme.primary.withValues(alpha: 0.35),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBottomBar(BuildContext context, Map<String, dynamic> pkg) {
+    return Material(
+      elevation: 12,
+      shadowColor: Colors.black.withValues(alpha: 0.08),
+      color: RastUi.screenSurface(context),
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(
+            Responsive.spacing(context, 20),
+            Responsive.spacing(context, 12),
+            Responsive.spacing(context, 20),
+            Responsive.spacing(context, 14),
+          ),
+          child: SizedBox(
+            width: double.infinity,
+            child: GradientFilledButton(
+              onPressed: () => _handleBook(pkg),
+              style: FilledButton.styleFrom(
+                minimumSize: const Size(double.infinity, 54),
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(18),
                 ),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.calendar_today_rounded, size: 22),
+                  const SizedBox(width: 10),
+                  Text(
+                    'احجز الآن',
+                    style: TextStyle(
+                      fontSize: Responsive.fontSize(context, 16),
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
               ),
             ),
           ),

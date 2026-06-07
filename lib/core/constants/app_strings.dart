@@ -2,7 +2,7 @@
 class AppStrings {
   static final Map<String, Map<String, String>> _strings = {
     'ar': {
-      'appName': 'راست',
+      'appName': 'راست لابس',
       'profile': 'حسابي',
       'signInToContinue': 'سجّل الدخول للوصول إلى كل المزايا',
       'manageDataSubtitle': 'ادفع حجوزاتك، تتبع النتائج، وادير بياناتك من مكان واحد',
