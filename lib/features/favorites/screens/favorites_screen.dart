@@ -68,7 +68,10 @@ class _FavoritesScreenState extends State<FavoritesScreen>
         decoration: const BoxDecoration(gradient: RastUi.headerGradient),
         child: Scaffold(
           backgroundColor: Colors.transparent,
-          appBar: RastTopBar(title: AppStrings.t('favorites', lang)),
+          appBar: RastTopBar(
+            title: AppStrings.t('favorites', lang),
+            showCart: true,
+          ),
           body: ClipRRect(
             borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
             child: Container(

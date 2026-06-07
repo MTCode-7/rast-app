@@ -292,7 +292,9 @@ class _LabDetailsScreenState extends State<LabDetailsScreen>
         providerService['price'] ??
         service['price'];
     service['home_price'] =
-        providerService['home_service_price'] ?? providerService['home_price'];
+        providerService['home_service_price'] ??
+        providerService['home_price'] ??
+        _labMap['home_service_fee'];
     service['provider_service_id'] = providerService['id'];
     final psImg = providerService['image']?.toString().trim();
     if (psImg != null && psImg.isNotEmpty) service['image'] = psImg;
@@ -314,8 +316,10 @@ class _LabDetailsScreenState extends State<LabDetailsScreen>
     final providerService = item is Map ? item : const {};
     final value =
         providerService['home_service_price'] ?? providerService['home_price'];
-    if (value == null) return null;
-    return _asDouble(value);
+    if (value != null) return _asDouble(value);
+    final labFee = _labMap['home_service_fee'];
+    if (labFee != null) return _asDouble(labFee);
+    return null;
   }
 
   String _serviceDisplayName(dynamic item) {
@@ -1538,6 +1542,7 @@ class _LabDetailsScreenState extends State<LabDetailsScreen>
                   _labMap,
                   context.watch<AppSettingsProvider>().isArabic,
                 ),
+                lab: _labMap,
               ),
             ),
           ),

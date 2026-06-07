@@ -66,6 +66,7 @@ class _BookFlowScreenState extends State<BookFlowScreen> with OnboardingTourHost
   bool _creating = false;
   bool _addingToCart = false;
   String? _error;
+  String? _timeSlotsError;
   Map<String, dynamic>? _createdBooking;
   NearestBranchInfo? _nearestBranch;
   double? _userLat;
@@ -124,22 +125,41 @@ class _BookFlowScreenState extends State<BookFlowScreen> with OnboardingTourHost
     return 0.0;
   }
 
-  /// استخراج رسوم الخدمة المنزلية من الخريطة (مطابق للباكند: home_service_price أو من المختبر).
-  static double _extractHomeFee(Map<String, dynamic> map) {
+  /// استخراج رسوم الخدمة المنزلية (مطابق للباكند: provider_service ثم المختبر).
+  static double _extractHomeFee(
+    Map<String, dynamic> map, {
+    Map<String, dynamic>? lab,
+  }) {
     var v =
         map['home_service_price'] ??
         map['home_price'] ??
         map['home_service_fee'];
-    if (v is num) return v.toDouble();
+    if (v is num && v.toDouble() > 0) return v.toDouble();
     if (v != null) {
       final parsed = double.tryParse(v.toString().trim().replaceAll(',', ''));
-      if (parsed != null) return parsed;
+      if (parsed != null && parsed > 0) return parsed;
     }
     final ps = map['provider_service'] ?? map['providerService'];
     if (ps is Map<String, dynamic>) {
-      final h = ps['home_service_price'] ?? ps['home_price'];
-      if (h is num) return h.toDouble();
-      if (h != null) return double.tryParse(h.toString()) ?? 0;
+      final fromPs = _extractHomeFee(ps);
+      if (fromPs > 0) return fromPs;
+    }
+    final provider = map['provider'];
+    if (provider is Map<String, dynamic>) {
+      final fee = provider['home_service_fee'] ?? provider['home_service_price'];
+      if (fee is num && fee.toDouble() > 0) return fee.toDouble();
+      if (fee != null) {
+        final parsed = double.tryParse(fee.toString());
+        if (parsed != null && parsed > 0) return parsed;
+      }
+    }
+    if (lab != null) {
+      final fee = lab['home_service_fee'] ?? lab['home_service_price'];
+      if (fee is num && fee.toDouble() > 0) return fee.toDouble();
+      if (fee != null) {
+        final parsed = double.tryParse(fee.toString());
+        if (parsed != null && parsed > 0) return parsed;
+      }
     }
     return 0;
   }
@@ -167,7 +187,10 @@ class _BookFlowScreenState extends State<BookFlowScreen> with OnboardingTourHost
     super.initState();
     scheduleOnboardingTour(delay: const Duration(milliseconds: 700));
     _resolvedPrice = _extractPrice(widget.providerService);
-    _resolvedHomeServiceFeeRaw = _extractHomeFee(widget.providerService);
+    _resolvedHomeServiceFeeRaw = _extractHomeFee(
+      widget.providerService,
+      lab: widget.lab ?? _lab,
+    );
     _lab = widget.lab;
     _syncServiceTypeWithLabMode(silent: true);
     if (_lab == null) {
@@ -207,6 +230,7 @@ class _BookFlowScreenState extends State<BookFlowScreen> with OnboardingTourHost
         nationality: 'saudi',
       );
       if (mounted) setState(() => _previewData = data);
+      _syncHomeServiceFeeFromContext();
     } catch (_) {
       if (mounted) setState(() => _previewData = null);
     } finally {
@@ -245,10 +269,69 @@ class _BookFlowScreenState extends State<BookFlowScreen> with OnboardingTourHost
     super.dispose();
   }
 
+  void _syncHomeServiceFeeFromContext() {
+    var fee = _extractHomeFee(
+      widget.providerService,
+      lab: _lab ?? widget.lab,
+    );
+    final homeRow = _previewData?['home_service'];
+    if (homeRow is Map<String, dynamic>) {
+      final fromPreview = _parseNum(homeRow['home_service_fee']);
+      if (fromPreview > fee) fee = fromPreview;
+    }
+    if (fee > 0 && fee != _resolvedHomeServiceFeeRaw && mounted) {
+      setState(() => _resolvedHomeServiceFeeRaw = fee);
+    }
+  }
+
+  /// إجمالي العرض لنوع الزيارة — يضيف رسوم المنزل إن غابت من معاينة الـ API.
+  double _displayTotalForServiceType(String serviceType) {
+    final previewKey = serviceType == 'home_service' ? 'home_service' : 'in_clinic';
+    final row = _previewData?[previewKey];
+    if (row is Map<String, dynamic>) {
+      final total = _parseNum(row['total_amount']);
+      if (serviceType == 'in_clinic' && total > 0) return total;
+
+      if (serviceType == 'home_service') {
+        final inClinicRow = _previewData?['in_clinic'];
+        final inClinicTotal = inClinicRow is Map<String, dynamic>
+            ? _parseNum(inClinicRow['total_amount'])
+            : 0.0;
+        final previewHomeFee = _parseNum(row['home_service_fee']);
+        final homeFee = previewHomeFee > 0
+            ? previewHomeFee
+            : _homeServiceFeeRaw;
+
+        if (total > 0) {
+          if (homeFee > 0 &&
+              inClinicTotal > 0 &&
+              total <= inClinicTotal + 0.01) {
+            return (inClinicTotal + homeFee).roundToDouble();
+          }
+          if (homeFee > 0 && inClinicTotal <= 0 && total <= _price + 0.01) {
+            return (_afterDiscountForBase(_price + homeFee)).roundToDouble();
+          }
+          return total;
+        }
+      }
+    }
+    if (serviceType == 'home_service') return _homeTotal;
+    return _price;
+  }
+
+  double _afterDiscountForBase(double base) {
+    final rate = _platformDiscountRate;
+    if (rate <= 0 || _price <= 0) return base;
+    final discount = _price * (rate / 100);
+    return (base - discount.roundToDouble()).roundToDouble();
+  }
+
   Future<void> _loadLab() async {
     try {
       final lab = await Api.providers.getProvider(widget.labId);
+      if (!mounted) return;
       setState(() => _lab = lab);
+      _syncHomeServiceFeeFromContext();
       _syncServiceTypeWithLabMode();
       await _resolveNearestBranch();
     } catch (_) {
@@ -445,22 +528,49 @@ class _BookFlowScreenState extends State<BookFlowScreen> with OnboardingTourHost
       _loadingSlots = true;
       _timeSlots = [];
       _selectedSlot = null;
+      _timeSlotsError = null;
     });
     try {
       final dateStr = DateFormat('yyyy-MM-dd').format(_selectedDate!);
-      final slots = await Api.providers.getTimeSlots(
-        widget.labId,
-        dateStr,
-        branchId: _bookingBranchId,
-      );
+      final branchId = _bookingBranchId;
+      List<dynamic> slots;
+
+      try {
+        slots = await Api.providers.getTimeSlots(
+          widget.labId,
+          dateStr,
+          branchId: branchId,
+        );
+      } on ApiException {
+        if (branchId != null) {
+          slots = await Api.providers.getTimeSlots(
+            widget.labId,
+            dateStr,
+          );
+        } else {
+          rethrow;
+        }
+      }
+
+      if (!mounted) return;
       setState(() {
         _timeSlots = slots;
         _loadingSlots = false;
+        _timeSlotsError = null;
       });
-    } catch (_) {
+    } on ApiException catch (e) {
+      if (!mounted) return;
       setState(() {
         _loadingSlots = false;
-        _error = 'تعذر تحميل المواعيد';
+        _timeSlotsError = e.message.isNotEmpty
+            ? e.message
+            : 'تعذر تحميل المواعيد';
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _loadingSlots = false;
+        _timeSlotsError = 'تعذر تحميل المواعيد. تحقق من الاتصال وحاول مرة أخرى.';
       });
     }
   }
@@ -1132,14 +1242,8 @@ class _BookFlowScreenState extends State<BookFlowScreen> with OnboardingTourHost
   }
 
   Widget _buildStepServiceType() {
-    final inClinicTotal =
-        _previewData != null && _previewData!['in_clinic'] is Map
-        ? _parseNum((_previewData!['in_clinic'] as Map)['total_amount'])
-        : _price;
-    final homeTotal =
-        _previewData != null && _previewData!['home_service'] is Map
-        ? _parseNum((_previewData!['home_service'] as Map)['total_amount'])
-        : _homeTotal;
+    final inClinicTotal = _displayTotalForServiceType('in_clinic');
+    final homeTotal = _displayTotalForServiceType('home_service');
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1433,7 +1537,29 @@ class _BookFlowScreenState extends State<BookFlowScreen> with OnboardingTourHost
       children: [
         _buildSectionTitle('اختر الوقت', Icons.schedule_rounded),
         SizedBox(height: Responsive.spacing(context, 12)),
-        if (_loadingSlots)
+        if (_timeSlotsError != null) ...[
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: AppTheme.cardDecorationFor(context),
+            child: Column(
+              children: [
+                Icon(Icons.error_outline, color: AppTheme.error, size: 40),
+                const SizedBox(height: 10),
+                Text(
+                  _timeSlotsError!,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: AppTheme.onSurfaceVariant),
+                ),
+                const SizedBox(height: 12),
+                FilledButton.icon(
+                  onPressed: _loadingSlots ? null : _loadTimeSlots,
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('إعادة المحاولة'),
+                ),
+              ],
+            ),
+          ),
+        ] else if (_loadingSlots)
           const Center(
             child: Padding(
               padding: EdgeInsets.all(24),
@@ -1626,12 +1752,15 @@ class _BookFlowScreenState extends State<BookFlowScreen> with OnboardingTourHost
     if (row != null) {
       final servicePrice = _parseNum(row['service_price']);
       final homeFee = _parseNum(row['home_service_fee']);
+      final effectiveHomeFee = homeFee > 0
+          ? homeFee
+          : (_serviceType == 'home_service' ? _homeServiceFeeRaw : 0.0);
       final disc = _previewPlatformDiscountAndRate(row, servicePrice);
       final discount = disc.discount;
       final discountRate = disc.ratePercent;
       final vatAmount = _parseNum(row['vat_amount']);
       final total =
-          (servicePrice + homeFee - discount + vatAmount).roundToDouble();
+          (servicePrice + effectiveHomeFee - discount + vatAmount).roundToDouble();
       var vatRate = _parseNum(row['vat_rate']);
       if (vatRate <= 0 && _isNonSaudi) vatRate = _vatRate;
       if (vatRate > 0 && vatRate <= 1) vatRate *= 100;
@@ -1642,7 +1771,7 @@ class _BookFlowScreenState extends State<BookFlowScreen> with OnboardingTourHost
           if (_serviceType == 'home_service')
             _confirmRow(
               'الخدمة المنزلية',
-              '+ ${homeFee.toStringAsFixed(2)} ر.س',
+              '+ ${effectiveHomeFee.toStringAsFixed(2)} ر.س',
             ),
           _confirmRow(
             'خصم المنصة ${discountRate.toStringAsFixed(0)}%',

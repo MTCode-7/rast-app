@@ -23,12 +23,14 @@ class ServiceDetailScreen extends StatefulWidget {
   final Map<String, dynamic> service;
   final int? labId;
   final String? labName;
+  final Map<String, dynamic>? lab;
 
   const ServiceDetailScreen({
     super.key,
     required this.service,
     this.labId,
     this.labName,
+    this.lab,
   });
 
   @override
@@ -345,201 +347,115 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
       child: Container(
         decoration: const BoxDecoration(gradient: RastUi.headerGradient),
         child: Scaffold(
-          backgroundColor: Colors.transparent,
+          backgroundColor: RastUi.screenSurface(context),
+          bottomNavigationBar: (!_isLoading && _service != null)
+              ? _buildBottomBar(context, service)
+              : null,
           body: _isLoading && _service == null
               ? _buildLoading()
-              : Column(
-                  children: [
-                    Expanded(
-                      child: CustomScrollView(
-                        slivers: [
-                          SliverAppBar(
-                            expandedHeight: 290,
-                            pinned: true,
-                            stretch: true,
-                            backgroundColor: RastUi.purple,
-                            leading: IconButton(
-                              icon: Container(
-                                padding: const EdgeInsets.all(8),
-                                decoration: BoxDecoration(
-                                  color: Colors.black.withValues(alpha: 0.30),
-                                  shape: BoxShape.circle,
-                                ),
-                                child: Icon(
-                                  Icons.arrow_back_ios,
-                                  color: RastUi.screenSurface(context),
-                                  size: 18,
-                                ),
-                              ),
-                              onPressed: () => Navigator.pop(context),
+              : CustomScrollView(
+                  slivers: [
+                    SliverAppBar(
+                      expandedHeight: imageUrl != null && imageUrl.isNotEmpty
+                          ? 260
+                          : 200,
+                      pinned: true,
+                      stretch: true,
+                      backgroundColor: RastUi.purple,
+                      leading: IconButton(
+                        icon: Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.30),
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(
+                            Icons.arrow_back_ios,
+                            color: RastUi.screenSurface(context),
+                            size: 18,
+                          ),
+                        ),
+                        onPressed: () => Navigator.pop(context),
+                      ),
+                      actions: [
+                        IconButton(
+                          onPressed: () => _toggleFavorite(service),
+                          icon: Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withValues(alpha: 0.30),
+                              shape: BoxShape.circle,
                             ),
-                            actions: [
-                              IconButton(
-                                onPressed: () => _toggleFavorite(service),
-                                icon: Container(
-                                  padding: const EdgeInsets.all(8),
-                                  decoration: BoxDecoration(
-                                    color: Colors.black.withValues(alpha: 0.30),
-                                    shape: BoxShape.circle,
-                                  ),
-                                  child: Icon(
-                                    _isFavorite
-                                        ? Icons.favorite_rounded
-                                        : Icons.favorite_border_rounded,
-                                    color: const Color(0xFFFF4D61),
-                                    size: 18,
-                                  ),
-                                ),
-                              ),
-                            ],
-                            flexibleSpace: FlexibleSpaceBar(
-                              background: Stack(
-                                fit: StackFit.expand,
-                                children: [
-                                  HeroImageBackground(
-                                    imageUrl: imageUrl,
-                                    placeholder: _buildImagePlaceholder(),
-                                  ),
-                                  IgnorePointer(
-                                    child: DecoratedBox(
-                                      decoration: BoxDecoration(
-                                        gradient: LinearGradient(
-                                          begin: Alignment.topLeft,
-                                          end: Alignment.bottomCenter,
-                                          colors: [
-                                            RastUi.purple.withValues(
-                                              alpha: 0.10,
-                                            ),
-                                            RastUi.purple.withValues(
-                                              alpha: 0.88,
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                  IgnorePointer(
-                                    child: Positioned(
-                                    right: Responsive.spacing(context, 18),
-                                    left: Responsive.spacing(context, 18),
-                                    bottom: Responsive.spacing(context, 28),
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          categoryName,
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: TextStyle(
-                                            color: Colors.white.withValues(
-                                              alpha: 0.92,
-                                            ),
-                                            fontSize: Responsive.fontSize(
-                                              context,
-                                              12,
-                                            ),
-                                            fontWeight: FontWeight.w600,
-                                          ),
-                                        ),
-                                        SizedBox(
-                                          height: Responsive.spacing(
-                                            context,
-                                            6,
-                                          ),
-                                        ),
-                                        Text(
-                                          LocaleUtils.localizedName(
-                                            service,
-                                            context
-                                                .watch<AppSettingsProvider>()
-                                                .isArabic,
-                                          ),
-                                          maxLines: 2,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: TextStyle(
-                                            color: Colors.white,
-                                            fontSize: Responsive.fontSize(
-                                              context,
-                                              21,
-                                            ),
-                                            fontWeight: FontWeight.w700,
-                                            height: 1.2,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  ),
-                                ],
-                              ),
+                            child: Icon(
+                              _isFavorite
+                                  ? Icons.favorite_rounded
+                                  : Icons.favorite_border_rounded,
+                              color: const Color(0xFFFF4D61),
+                              size: 18,
                             ),
                           ),
-                          SliverToBoxAdapter(
-                            child: Transform.translate(
-                              offset: const Offset(0, -34),
-                              child: Container(
-                                decoration: BoxDecoration(
-                                  color: Colors.white,
-                                  borderRadius: const BorderRadius.vertical(
-                                    top: Radius.circular(32),
-                                  ),
-                                ),
-                                child: Padding(
-                                  padding: EdgeInsets.all(
-                                    Responsive.spacing(context, 20),
-                                  ),
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      _buildTitleSection(
-                                        context,
-                                        service,
-                                        categoryName,
-                                        price,
-                                      ),
-                                      SizedBox(
-                                        height: Responsive.spacing(context, 14),
-                                      ),
-                                      _buildQuickFactsRow(
-                                        context,
-                                        price,
-                                        categoryName,
-                                        providersCount,
-                                      ),
-                                      SizedBox(
-                                        height: Responsive.spacing(context, 24),
-                                      ),
-                                      _buildDescriptionCard(
-                                        context,
-                                        description,
-                                      ),
-                                      SizedBox(
-                                        height: Responsive.spacing(context, 24),
-                                      ),
-                                      if (widget.labId != null &&
-                                          widget.labName != null)
-                                        _buildLabChip(widget.labName!)
-                                      else
-                                        _buildLabsSection(context, service),
-                                      SizedBox(
-                                        height: Responsive.spacing(
-                                          context,
-                                          100,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
+                        ),
+                      ],
+                      flexibleSpace: FlexibleSpaceBar(
+                        background: _buildHeroBackground(context, imageUrl),
                       ),
                     ),
-                    if (!_isLoading && _service != null)
-                      _buildBottomBar(context, service),
+                    SliverToBoxAdapter(
+                      child: Transform.translate(
+                        offset: Offset(
+                          0,
+                          imageUrl != null && imageUrl.isNotEmpty ? -24 : -34,
+                        ),
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: RastUi.screenSurface(context),
+                            borderRadius: const BorderRadius.vertical(
+                              top: Radius.circular(32),
+                            ),
+                          ),
+                          child: Padding(
+                            padding: EdgeInsets.all(
+                              Responsive.spacing(context, 20),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                _buildTitleSection(
+                                  context,
+                                  service,
+                                  categoryName,
+                                  price,
+                                ),
+                                SizedBox(
+                                  height: Responsive.spacing(context, 14),
+                                ),
+                                _buildQuickFactsRow(
+                                  context,
+                                  price,
+                                  categoryName,
+                                  providersCount,
+                                ),
+                                SizedBox(
+                                  height: Responsive.spacing(context, 24),
+                                ),
+                                _buildDescriptionCard(context, description),
+                                SizedBox(
+                                  height: Responsive.spacing(context, 24),
+                                ),
+                                if (widget.labId != null &&
+                                    widget.labName != null)
+                                  _buildLabChip(widget.labName!)
+                                else
+                                  _buildLabsSection(context, service),
+                                SizedBox(
+                                  height: Responsive.spacing(context, 24),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
                   ],
                 ),
         ),
@@ -1150,44 +1066,92 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
     );
   }
 
-  Widget _buildBottomBar(BuildContext context, Map<String, dynamic> service) {
-    return Container(
-      padding: EdgeInsets.fromLTRB(
-        Responsive.spacing(context, 16),
-        Responsive.spacing(context, 12),
-        Responsive.spacing(context, 16),
-        Responsive.spacing(context, 16) + MediaQuery.of(context).padding.bottom,
-      ),
-      decoration: BoxDecoration(
-        color: RastUi.cardSurface(context),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.06),
-            blurRadius: 12,
-            offset: const Offset(0, -4),
+  Widget _buildHeroBackground(BuildContext context, String? imageUrl) {
+    final hasImage = imageUrl != null && imageUrl.trim().isNotEmpty;
+    if (!hasImage) {
+      return _buildImagePlaceholder();
+    }
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        HeroImageBackground(
+          imageUrl: imageUrl,
+          placeholder: _buildImageLoadingPlaceholder(),
+          fit: BoxFit.cover,
+        ),
+        IgnorePointer(
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Colors.black.withValues(alpha: 0.28),
+                  Colors.transparent,
+                  Colors.transparent,
+                ],
+                stops: const [0.0, 0.35, 1.0],
+              ),
+            ),
           ),
-        ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildImageLoadingPlaceholder() {
+    return ColoredBox(
+      color: RastUi.subtleFill(context),
+      child: Center(
+        child: Icon(
+          Icons.medical_services_outlined,
+          size: 64,
+          color: AppTheme.primary.withValues(alpha: 0.35),
+        ),
       ),
+    );
+  }
+
+  Widget _buildBottomBar(BuildContext context, Map<String, dynamic> service) {
+    return Material(
+      elevation: 12,
+      shadowColor: Colors.black.withValues(alpha: 0.08),
+      color: RastUi.screenSurface(context),
       child: SafeArea(
         top: false,
-        child: GradientFilledButtonIcon(
-          onPressed: () => _showBookingOptions(context, service),
-          icon: const Icon(Icons.calendar_today_rounded, size: 22),
-          label: Text(
-            'احجز الآن',
-            style: TextStyle(
-              fontSize: Responsive.fontSize(context, 16),
-              fontWeight: FontWeight.w600,
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(
+            Responsive.spacing(context, 20),
+            Responsive.spacing(context, 12),
+            Responsive.spacing(context, 20),
+            Responsive.spacing(context, 14),
+          ),
+          child: SizedBox(
+            width: double.infinity,
+          child: GradientFilledButton(
+            onPressed: () => _showBookingOptions(context, service),
+            style: FilledButton.styleFrom(
+              minimumSize: const Size(double.infinity, 54),
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(18),
+              ),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.calendar_today_rounded, size: 22),
+                const SizedBox(width: 10),
+                Text(
+                  'احجز الآن',
+                  style: TextStyle(
+                    fontSize: Responsive.fontSize(context, 16),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
             ),
           ),
-          style: FilledButton.styleFrom(
-            padding: EdgeInsets.symmetric(
-              vertical: Responsive.spacing(context, 16),
-            ),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(22),
-            ),
-            elevation: 2,
           ),
         ),
       ),
@@ -1319,6 +1283,7 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
           labId,
           widget.labName ?? '',
           _buildProviderServiceMap(service, providerServiceId),
+          lab: widget.lab,
         );
         return;
       }
@@ -1337,6 +1302,7 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
               context.read<AppSettingsProvider>().isArabic,
             ),
           ),
+          lab: widget.lab,
         );
         return;
       }
@@ -1432,13 +1398,21 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
       if (homePriceRaw == null) {
         final provider = matchedPs['provider'] is Map
             ? matchedPs['provider'] as Map<String, dynamic>
-            : null;
+            : widget.lab;
         final fee = provider?['home_service_fee'];
         if (fee is num) {
           homePriceRaw = fee.toDouble();
         } else if (fee != null) {
           homePriceRaw = double.tryParse(fee.toString());
         }
+      }
+    }
+    if (homePriceRaw == null && widget.lab != null) {
+      final fee = widget.lab!['home_service_fee'];
+      if (fee is num) {
+        homePriceRaw = fee.toDouble();
+      } else if (fee != null) {
+        homePriceRaw = double.tryParse(fee.toString());
       }
     }
     if (price == 0.0) {
@@ -1501,7 +1475,7 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
     } else {
       final provider = ps['provider'] is Map
           ? ps['provider'] as Map<String, dynamic>
-          : null;
+          : widget.lab;
       final fee = provider?['home_service_fee'];
       if (fee is num) {
         homePrice = fee.toDouble();
@@ -1524,14 +1498,16 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
     Map<String, dynamic> service,
     int labId,
     String labName,
-    Map<String, dynamic> providerService,
-  ) {
+    Map<String, dynamic> providerService, {
+    Map<String, dynamic>? lab,
+  }) {
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => BookFlowScreen(
           labId: labId,
           labName: labName,
+          lab: lab,
           providerService: providerService,
         ),
       ),

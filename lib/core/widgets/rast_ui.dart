@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:rast/core/onboarding/onboarding_step.dart';
+import 'package:rast/core/widgets/cart_icon_button.dart';
 import 'package:rast/core/widgets/rast_help_button.dart';
 import 'package:rast/core/theme/app_theme.dart';
 
@@ -220,6 +221,7 @@ class RastTopBar extends StatelessWidget implements PreferredSizeWidget {
     super.key,
     required this.title,
     this.showMenu = true,
+    this.showCart = false,
     this.onBack,
     this.onMenuTap,
     this.helpTourId,
@@ -228,6 +230,7 @@ class RastTopBar extends StatelessWidget implements PreferredSizeWidget {
 
   final String title;
   final bool showMenu;
+  final bool showCart;
   final VoidCallback? onBack;
   final VoidCallback? onMenuTap;
   final String? helpTourId;
@@ -288,11 +291,21 @@ class RastTopBar extends StatelessWidget implements PreferredSizeWidget {
             Align(
               alignment: Alignment.centerLeft,
               child: Padding(
-                padding: EdgeInsets.only(left: showMenu ? 72 : 20),
+                padding: EdgeInsets.only(
+                  left: 16 + (showMenu ? 50 : 0) + (showCart ? 50 : 0),
+                ),
                 child: RastHelpButton(
                   tourId: helpTourId!,
                   tourSteps: helpTourSteps!,
                 ),
+              ),
+            ),
+          if (showCart)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Padding(
+                padding: EdgeInsets.only(left: 16 + (showMenu ? 50 : 0)),
+                child: const CartIconButton(size: 42),
               ),
             ),
           if (showMenu)

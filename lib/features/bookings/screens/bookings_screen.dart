@@ -241,6 +241,7 @@ class _BookingsScreenState extends State<BookingsScreen>
         backgroundColor: Colors.transparent,
         appBar: RastTopBar(
           title: 'الحجوزات',
+          showCart: true,
           helpTourId: OnboardingTourIds.bookings,
           helpTourSteps: OnboardingCatalog.bookingsTour,
         ),

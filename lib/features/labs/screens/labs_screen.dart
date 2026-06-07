@@ -485,6 +485,7 @@ class _LabsScreenState extends State<LabsScreen> with OnboardingTourHost {
           backgroundColor: Colors.transparent,
           appBar: RastTopBar(
             title: 'المختبرات',
+            showCart: true,
             helpTourId: OnboardingTourIds.labs,
             helpTourSteps: buildOnboardingSteps(),
           ),

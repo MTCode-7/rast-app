@@ -379,6 +379,7 @@ class _AnalysesScreenState extends State<AnalysesScreen> with OnboardingTourHost
           backgroundColor: Colors.transparent,
           appBar: RastTopBar(
             title: title,
+            showCart: true,
             helpTourId: _showAnalysesTour ? OnboardingTourIds.analyses : null,
             helpTourSteps:
                 _showAnalysesTour ? buildOnboardingSteps() : null,
