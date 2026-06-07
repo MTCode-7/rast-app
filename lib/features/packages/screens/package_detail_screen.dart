@@ -137,6 +137,41 @@ class _PackageDetailScreenState extends State<PackageDetailScreen>
     return '';
   }
 
+  double _resolvePackagePrice(
+    Map<String, dynamic> pkg,
+    Map<String, dynamic> ps,
+  ) {
+    var price = ApiConfig.priceFromMap(pkg);
+    if (price > 0) return price;
+    price = ApiConfig.priceFromMap(ps);
+    if (price > 0) return price;
+    final psList = pkg['provider_services'] ?? pkg['providerServices'];
+    if (psList is List) {
+      for (final item in psList) {
+        if (item is! Map) continue;
+        price = ApiConfig.priceFromMap(Map<String, dynamic>.from(item));
+        if (price > 0) return price;
+      }
+    }
+    return 0;
+  }
+
+  double _resolvePackageHomeFee(
+    Map<String, dynamic> ps,
+    Map<String, dynamic> provider,
+  ) {
+    var fee = ApiConfig.priceFromMap({
+      'price': ps['home_service_price'] ?? ps['home_price'],
+    });
+    if (fee > 0) return fee;
+    final fromProvider = provider['home_service_fee'] ?? provider['home_service_price'];
+    if (fromProvider is num) return fromProvider.toDouble();
+    if (fromProvider != null) {
+      return double.tryParse(fromProvider.toString()) ?? 0;
+    }
+    return 0;
+  }
+
   Future<void> _handleBook(Map<String, dynamic> pkg) async {
     if (!AuthService.isLoggedIn) {
       final ok = await Navigator.push(
@@ -178,29 +213,14 @@ class _PackageDetailScreenState extends State<PackageDetailScreen>
     if (labId == null || !mounted) return;
     final isArabic = context.read<AppSettingsProvider>().isArabic;
     final pkgName = LocaleUtils.localizedName(pkg, isArabic);
-    final price = (ps['final_price'] ?? ps['price'] ?? 0) is num
-        ? (ps['final_price'] ?? ps['price'] as num).toDouble()
-        : 0.0;
-    var homeFee = 0.0;
-    final h = ps['home_service_price'] ?? ps['home_price'];
-    if (h is num) {
-      homeFee = h.toDouble();
-    } else if (h != null) {
-      homeFee = double.tryParse(h.toString()) ?? 0;
-    }
-    if (homeFee == 0) {
-      final fee = provider['home_service_fee'];
-      if (fee is num) {
-        homeFee = fee.toDouble();
-      } else if (fee != null) {
-        homeFee = double.tryParse(fee.toString()) ?? 0;
-      }
-    }
+    final price = _resolvePackagePrice(pkg, ps);
+    final homeFee = _resolvePackageHomeFee(ps, provider);
     final providerService = {
       'id': ps['id'],
       'final_price': price,
       'price': price,
       'home_service_price': homeFee,
+      'provider': provider,
       'service': {'name_ar': pkgName},
       'name_ar': pkgName,
     };
@@ -209,6 +229,7 @@ class _PackageDetailScreenState extends State<PackageDetailScreen>
       MaterialPageRoute(
         builder: (_) => BookFlowScreen(
           labId: labId!,
+          lab: provider.isNotEmpty ? provider : null,
           labName: LocaleUtils.localizedBusinessName(provider, isArabic),
           providerService: providerService,
         ),
