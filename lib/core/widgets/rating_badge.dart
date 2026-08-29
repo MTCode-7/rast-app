@@ -42,48 +42,51 @@ class RatingBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final effectiveRating = rating.clamp(0.0, 5.0);
-    return Container(
-      padding: EdgeInsets.symmetric(
-        horizontal: size == RatingBadgeSize.small ? 6 : 10,
-        vertical: size == RatingBadgeSize.small ? 4 : 6,
-      ),
-      decoration: BoxDecoration(
-        color: Colors.amber.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.amber.withValues(alpha: 0.25), width: 1),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          RatingBarIndicator(
-            rating: effectiveRating,
-            itemBuilder: (_, __) => const Icon(Icons.star_rounded, color: Colors.amber),
-            itemCount: 5,
-            itemSize: _starSize,
-            unratedColor: Colors.amber.withValues(alpha: 0.25),
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        RatingBarIndicator(
+          rating: effectiveRating,
+          itemBuilder: (_, __) => const Icon(
+            Icons.star_rounded,
+            color: Color(0xFFFFC107),
           ),
-          SizedBox(width: size == RatingBadgeSize.small ? 4 : 6),
+          itemCount: 5,
+          itemSize: _starSize,
+          unratedColor: const Color(0xFFE5E7EB),
+        ),
+
+        SizedBox(
+          width: size == RatingBadgeSize.small ? 5 : 7,
+        ),
+
+        Text(
+          effectiveRating.toStringAsFixed(1),
+          style: TextStyle(
+            fontSize: _fontSize,
+            fontWeight: FontWeight.w800,
+            color: const Color(0xFF2F3542),
+            height: 1,
+          ),
+        ),
+
+        if (showLabel && reviewCount != null) ...[
+          SizedBox(
+            width: size == RatingBadgeSize.small ? 3 : 5,
+          ),
           Text(
-            effectiveRating.toStringAsFixed(1),
+            '($reviewCount)',
             style: TextStyle(
-              fontSize: _fontSize,
-              fontWeight: FontWeight.w700,
-              color: AppTheme.onSurface,
+              fontSize: _fontSize - 1,
+              color: const Color(0xFF8A94A6),
+              fontWeight: FontWeight.w600,
+              height: 1,
             ),
           ),
-          if (showLabel && reviewCount != null) ...[
-            SizedBox(width: size == RatingBadgeSize.small ? 2 : 4),
-            Text(
-              '($reviewCount)',
-              style: TextStyle(
-                fontSize: _fontSize - 1,
-                color: AppTheme.onSurfaceVariant,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ],
         ],
-      ),
+      ],
     );
   }
 }

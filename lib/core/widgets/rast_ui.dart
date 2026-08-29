@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:rast/core/onboarding/onboarding_step.dart';
 import 'package:rast/core/widgets/cart_icon_button.dart';
 import 'package:rast/core/widgets/rast_help_button.dart';
 import 'package:rast/core/theme/app_theme.dart';
+
+import '../providers/app_settings_provider.dart';
 
 class RastUi {
   const RastUi._();
@@ -226,6 +229,11 @@ class RastTopBar extends StatelessWidget implements PreferredSizeWidget {
     this.onMenuTap,
     this.helpTourId,
     this.helpTourSteps,
+    this.useWhiteBackground = false,
+    this.iconColor,
+    this.showBack = true,
+    this.backgroundColor,
+
   });
 
   final String title;
@@ -235,152 +243,169 @@ class RastTopBar extends StatelessWidget implements PreferredSizeWidget {
   final VoidCallback? onMenuTap;
   final String? helpTourId;
   final List<OnboardingStep>? helpTourSteps;
+  final bool useWhiteBackground;
+  final Color? iconColor;
+  final bool showBack;
+  final Color? backgroundColor;
 
   @override
   Size get preferredSize => const Size.fromHeight(82);
 
   @override
   Widget build(BuildContext context) {
+    final settings = context.watch<AppSettingsProvider>();
+    final isRtl = settings.isArabic;
+    final textDirection =
+    isRtl ? TextDirection.rtl : TextDirection.ltr;
+
+    final headerColor = iconColor ??
+        (useWhiteBackground
+            ? RastUi.primaryText(context)
+            : Colors.white);
+
+    final buttonBackground = useWhiteBackground
+        ? Colors.black.withValues(alpha: 0.04)
+        : Colors.white.withValues(alpha: 0.14);
+
+    final buttonBorderColor = useWhiteBackground
+        ? Colors.black.withValues(alpha: 0.08)
+        : Colors.white.withValues(alpha: 0.28);
+
     return Container(
-      height: preferredSize.height + MediaQuery.of(context).padding.top,
-      padding: EdgeInsets.only(top: MediaQuery.of(context).padding.top),
-      decoration: const BoxDecoration(gradient: RastUi.headerGradient),
+      height:
+      preferredSize.height +
+          MediaQuery.of(context).padding.top,
+      padding: EdgeInsets.only(
+        top: MediaQuery.of(context).padding.top,
+      ),
+      decoration: BoxDecoration(
+        color: backgroundColor ??
+            (useWhiteBackground ? Colors.white : null),
+
+        gradient: backgroundColor != null
+            ? null
+            : useWhiteBackground
+            ? null
+            : RastUi.headerGradient,
+      ),
       child: Stack(
+        alignment: Alignment.center,
         children: [
-          Align(
-            alignment: Alignment.centerRight,
-            child: Padding(
-              padding: const EdgeInsets.only(right: 20),
-              child: Material(
-                color: Colors.transparent,
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(12),
-                  onTap:
-                      onBack ??
-                      () {
-                        if (Navigator.of(context).canPop()) {
-                          Navigator.pop(context);
-                        }
-                      },
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        title,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 18,
-                          fontWeight: FontWeight.w600,
-                        ),
+          // HELP + CART
+          PositionedDirectional(
+            end: 16,
+            top: 0,
+            bottom: 0,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // HELP
+                if (helpTourId != null &&
+                    helpTourSteps != null &&
+                    helpTourSteps!.isNotEmpty)
+                  Container(
+                    width: 42,
+                    height: 42,
+                    decoration: BoxDecoration(
+                      color: buttonBackground,
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: buttonBorderColor,
+                        width: 1,
                       ),
-                      const SizedBox(width: 8),
-                      const Icon(
-                        Icons.arrow_forward_ios_rounded,
-                        color: Colors.white,
-                        size: 18,
-                      ),
-                    ],
+                    ),
+                    alignment: Alignment.center,
+                    child: RastHelpButton(
+                      tourId: helpTourId!,
+                      tourSteps: helpTourSteps!,
+                      color: iconColor,
+                    ),
                   ),
-                ),
+
+                if (showCart &&
+                    helpTourId != null &&
+                    helpTourSteps != null &&
+                    helpTourSteps!.isNotEmpty)
+                  const SizedBox(width: 10),
+
+                // CART
+                if (showCart)
+                  Container(
+                    width: 42,
+                    height: 42,
+                    decoration: BoxDecoration(
+                      color: buttonBackground,
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: buttonBorderColor,
+                        width: 1,
+                      ),
+                    ),
+                    alignment: Alignment.center,
+                    child: CartIconButton(
+                      size: 38,
+                      iconColor: iconColor,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+
+          // CENTER TITLE
+          Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: 115,
+            ),
+            child: Text(
+              title,
+              textDirection: textDirection,
+              textAlign: TextAlign.center,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: headerColor,
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
               ),
             ),
           ),
-          if (helpTourId != null &&
-              helpTourSteps != null &&
-              helpTourSteps!.isNotEmpty)
-            Align(
-              alignment: Alignment.centerLeft,
-              child: Padding(
-                padding: EdgeInsets.only(
-                  left: 16 + (showMenu ? 50 : 0) + (showCart ? 50 : 0),
-                ),
-                child: RastHelpButton(
-                  tourId: helpTourId!,
-                  tourSteps: helpTourSteps!,
-                ),
-              ),
-            ),
-          if (showCart)
-            Align(
-              alignment: Alignment.centerLeft,
-              child: Padding(
-                padding: EdgeInsets.only(left: 16 + (showMenu ? 50 : 0)),
-                child: const CartIconButton(size: 42),
-              ),
-            ),
-          if (showMenu)
-            Align(
-              alignment: Alignment.centerLeft,
-              child: Padding(
-                padding: const EdgeInsets.only(left: 24),
+
+          // BACK BUTTON
+          if(showBack)
+            PositionedDirectional(
+              start: 16,
+              top: 0,
+              bottom: 0,
+              child: Center(
                 child: Material(
                   color: Colors.transparent,
-                  shape: const CircleBorder(),
                   child: InkWell(
-                    customBorder: const CircleBorder(),
-                    onTap:
-                        onMenuTap ??
-                        () {
-                          showModalBottomSheet(
-                            context: context,
-                            backgroundColor: Colors.transparent,
-                            builder: (ctx) => Container(
-                              padding: const EdgeInsets.fromLTRB(
-                                16,
-                                10,
-                                16,
-                                20,
-                              ),
-                              decoration: BoxDecoration(
-                                color: RastUi.cardSurface(ctx),
-                                borderRadius: const BorderRadius.vertical(
-                                  top: Radius.circular(20),
-                                ),
-                              ),
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Container(
-                                    width: 40,
-                                    height: 4,
-                                    decoration: BoxDecoration(
-                                      color: RastUi.softBorder(ctx),
-                                      borderRadius: BorderRadius.circular(2),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 12),
-                                  ListTile(
-                                    leading: const Icon(
-                                      Icons.arrow_back_rounded,
-                                    ),
-                                    title: const Text('رجوع'),
-                                    onTap: () {
-                                      Navigator.pop(ctx);
-                                      if (Navigator.of(context).canPop()) {
-                                        Navigator.pop(context);
-                                      }
-                                    },
-                                  ),
-                                  ListTile(
-                                    leading: const Icon(Icons.close_rounded),
-                                    title: const Text('إغلاق'),
-                                    onTap: () => Navigator.pop(ctx),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          );
+                    onTap: onBack ??
+                            () {
+                          if (Navigator.of(context).canPop()) {
+                            Navigator.pop(context);
+                          }
                         },
+                    borderRadius: BorderRadius.circular(30),
                     child: Container(
                       width: 42,
                       height: 42,
                       decoration: BoxDecoration(
-                        color: RastUi.cardSurface(context),
+                        color: buttonBackground,
                         shape: BoxShape.circle,
+                        border: Border.all(
+                          color: buttonBorderColor,
+                          width: 1,
+                        ),
                       ),
+                      alignment: Alignment.center,
                       child: Icon(
-                        Icons.more_vert,
-                        color: RastUi.primaryText(context),
+                        isRtl
+                            ? Icons.arrow_forward_ios_rounded
+                            : Icons.arrow_back_ios_new_rounded ,
+                        textDirection: TextDirection.ltr,
+                        color: headerColor,
+                        size: 19,
                       ),
                     ),
                   ),

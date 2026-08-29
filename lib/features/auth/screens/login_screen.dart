@@ -3,7 +3,6 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:provider/provider.dart';
 import 'package:rast/core/api/api_client.dart';
 import 'package:rast/core/api/api_services.dart';
-import 'package:rast/core/constants/app_assets.dart';
 import 'package:rast/core/constants/app_strings.dart';
 import 'package:rast/core/providers/app_settings_provider.dart';
 import 'package:rast/core/utils/responsive.dart';
@@ -14,6 +13,8 @@ import 'package:rast/features/auth/screens/register_screen.dart';
 import 'package:rast/core/services/cart_service.dart';
 import 'package:rast/features/auth/services/auth_service.dart';
 import 'package:rast/features/chat/screens/chat_screen.dart';
+
+import '../../../app/main_shell.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key, this.onSuccess});
@@ -94,127 +95,168 @@ class _LoginScreenState extends State<LoginScreen> {
   Widget build(BuildContext context) {
     final settings = context.watch<AppSettingsProvider>();
     final lang = settings.language;
+
+    final textDirection =
+    lang == 'en' ? TextDirection.ltr : TextDirection.rtl;
+
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Directionality(
-      textDirection: settings.textDirection,
+      textDirection: textDirection,
       child: Scaffold(
         backgroundColor: RastUi.screenSurface(context),
         body: Stack(
           children: [
+            // Header background
             Container(
-              height: 132,
-              decoration: const BoxDecoration(gradient: RastUi.headerGradient),
-            ),
-            SafeArea(
-              child: Stack(
-                alignment: Alignment.center,
-                children: [
-                  Align(
-                    alignment: Alignment.topCenter,
-                    child: Padding(
-                      padding: const EdgeInsets.only(top: 8),
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(14),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.22),
-                              blurRadius: 12,
-                              offset: const Offset(0, 4),
-                            ),
-                          ],
-                        ),
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(14),
-                          child: Image.asset(
-                            AppAssets.appIcon,
-                            width: 52,
-                            height: 52,
-                            fit: BoxFit.cover,
-                            errorBuilder: (_, __, ___) => Container(
-                              width: 52,
-                              height: 52,
-                              color: Colors.white.withValues(alpha: 0.2),
-                              child: const Icon(
-                                Icons.medical_services_rounded,
-                                color: Colors.white,
-                                size: 28,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                  Align(
-                    alignment: Alignment.topRight,
-                    child: Padding(
-                      padding: const EdgeInsets.only(top: 12, right: 20),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: const [
-                          Text(
-                            'تسجيل الدخول',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 17,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          SizedBox(width: 8),
-                          Icon(
-                            Icons.arrow_forward_ios_rounded,
-                            color: Colors.white,
-                            size: 18,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
+              height: 240,
+              decoration: const BoxDecoration(
+                gradient: RastUi.headerGradient,
               ),
             ),
-            Positioned.fill(
-              top: 108,
-              child: Container(
-                decoration: BoxDecoration(
-                  color: RastUi.screenSurface(context),
-                  borderRadius: BorderRadius.vertical(top: Radius.circular(30)),
-                ),
-                child: SingleChildScrollView(
-                  padding: EdgeInsets.fromLTRB(
-                    Responsive.spacing(context, 24),
-                    Responsive.spacing(context, 12),
-                    Responsive.spacing(context, 24),
-                    Responsive.spacing(context, 90),
+
+            // Top title
+            SafeArea(
+              child: Align(
+                alignment: AlignmentDirectional.topStart,
+                child: Padding(
+                  padding: const EdgeInsetsDirectional.only(
+                    top: 12,
+                    start: 20,
                   ),
-                  child: Column(
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      _authHeader(
-                            icon: Icons.lock_open_rounded,
-                            title: AppStrings.t('loginTitle', lang),
-                            subtitle: AppStrings.t('loginSubtitle', lang),
-                          )
-                          .animate()
-                          .fadeIn(duration: 420.ms)
-                          .slideY(begin: 0.1, end: 0),
-                      SizedBox(height: Responsive.spacing(context, 24)),
-                      _buildCard(context, isDark, lang)
-                          .animate()
-                          .fadeIn(delay: 120.ms, duration: 420.ms)
-                          .slideY(begin: 0.07, end: 0),
-                      SizedBox(height: Responsive.spacing(context, 12)),
-                      _buildBottomLink(lang),
+                      Text(
+                        AppStrings.t(
+                          'loginTopTitle',
+                          lang,
+                        ),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 17,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+
                     ],
                   ),
                 ),
               ),
             ),
+
+            // Floating form
+            Positioned.fill(
+              top: 135,
+              child: SingleChildScrollView(
+                padding: EdgeInsets.fromLTRB(
+                  Responsive.spacing(context, 16),
+                  0,
+                  Responsive.spacing(context, 16),
+                  Responsive.spacing(context, 90),
+                ),
+                child: Container(
+                  padding: EdgeInsets.fromLTRB(
+                    Responsive.spacing(context, 20),
+                    Responsive.spacing(context, 20),
+                    Responsive.spacing(context, 20),
+                    Responsive.spacing(context, 18),
+                  ),
+                  decoration: BoxDecoration(
+                    color: RastUi.screenSurface(context),
+                    borderRadius: BorderRadius.circular(30),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.32),
+                        blurRadius: 30,
+                        spreadRadius: 2,
+                        offset: const Offset(0, 12),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    children: [
+                      _authHeader(
+                        title: AppStrings.t(
+                          'loginTitle',
+                          lang,
+                        ),
+                        subtitle: AppStrings.t(
+                          'loginSubtitle',
+                          lang,
+                        ),
+                      )
+                          .animate()
+                          .fadeIn(duration: 420.ms)
+                          .slideY(begin: 0.1, end: 0),
+
+                      SizedBox(
+                        height: Responsive.spacing(context, 24),
+                      ),
+
+                      _buildCard(
+                        context,
+                        isDark,
+                        lang,
+                      )
+                          .animate()
+                          .fadeIn(
+                        delay: 120.ms,
+                        duration: 420.ms,
+                      )
+                          .slideY(begin: 0.07, end: 0),
+
+                      SizedBox(
+                        height: Responsive.spacing(context, 14),
+                      ),
+
+                      _buildBottomLink(lang),
+
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            AppStrings.t("continueAs", settings.language),
+                            style: TextStyle(
+                              color: Color(0xFF535353),
+                            ),
+                          ),
+                          TextButton(
+                            onPressed: () {
+                              Navigator.of(context).pushAndRemoveUntil(
+                                MaterialPageRoute(
+                                  builder: (_) => const MainScaffold(),
+                                ),
+                                    (route) => false,
+                              );
+                            },
+                            child: Text(
+                              AppStrings.t(
+                                'Guest',
+                                settings.language,
+                              ),
+                              style: TextStyle(
+                                color: Theme.of(context).colorScheme.primary,
+                                fontSize: Responsive.fontSize(context, 15),
+                                fontWeight: FontWeight.bold,
+                                decoration: TextDecoration.underline,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+
             RastSupportBubble(
               onTap: () => Navigator.push(
                 context,
-                MaterialPageRoute(builder: (_) => const ChatScreen()),
+                MaterialPageRoute(
+                  builder: (_) => const ChatScreen(),
+                ),
               ),
             ),
           ],
@@ -240,21 +282,33 @@ class _LoginScreenState extends State<LoginScreen> {
                 fill,
                 primary: primary,
                 label: '',
-                hint: 'رقم الجوال',
+                hint: AppStrings.t(
+                  'phoneNumber',
+                  lang,
+                ),
                 icon: Icons.phone_iphone_rounded,
               ),
               validator: (v) {
                 final phone = v?.trim() ?? '';
+
                 if (phone.isEmpty) {
-                  return 'رقم الجوال مطلوب';
+                  return AppStrings.t(
+                    'phoneRequired',
+                    lang,
+                  );
                 }
+
                 if (phone.length < 9) {
-                  return 'رقم الجوال غير صحيح';
+                  return AppStrings.t(
+                    'phoneInvalid',
+                    lang,
+                  );
                 }
+
                 return null;
               },
             ),
-            SizedBox(height: Responsive.spacing(context, 20)),
+            SizedBox(height: Responsive.spacing(context, 12)),
             TextFormField(
               controller: _passwordController,
               obscureText: _obscurePassword,
@@ -279,7 +333,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   : null,
             ),
             Align(
-              alignment: Alignment.centerLeft,
+              alignment: AlignmentDirectional.centerStart,
               child: TextButton(
                 onPressed: () => Navigator.push(
                   context,
@@ -290,12 +344,12 @@ class _LoginScreenState extends State<LoginScreen> {
                 child: Text(AppStrings.t('forgotPassword', lang)),
               ),
             ),
-            SizedBox(height: Responsive.spacing(context, 8)),
+            SizedBox(height: Responsive.spacing(context, 26)),
             GradientFilledButton(
               onPressed: _isLoading ? null : _submit,
               style: FilledButton.styleFrom(
                 padding: EdgeInsets.symmetric(
-                  vertical: Responsive.spacing(context, 15),
+                  vertical: Responsive.spacing(context, 12),
                 ),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(30),
@@ -313,7 +367,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   : Text(
                       AppStrings.t('loginButton', lang),
                       style: TextStyle(
-                        fontSize: Responsive.fontSize(context, 16),
+                        fontSize: Responsive.fontSize(context, 14),
                         fontWeight: FontWeight.w700,
                       ),
                     ),
@@ -330,7 +384,7 @@ class _LoginScreenState extends State<LoginScreen> {
       children: [
         Text(
           AppStrings.t('noAccount', lang),
-          style: const TextStyle(color: Color(0xFFBDB9C3), fontSize: 12),
+          style: const TextStyle(color: Color(0xFF535353), fontSize: 12),
         ),
         TextButton(
           onPressed: () async {
@@ -353,7 +407,6 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Widget _authHeader({
-    required IconData icon,
     required String title,
     required String subtitle,
   }) {
@@ -364,83 +417,30 @@ class _LoginScreenState extends State<LoginScreen> {
           textAlign: TextAlign.center,
           style: TextStyle(
             color: RastUi.blue,
-            fontSize: Responsive.fontSize(context, 26),
+            fontSize: Responsive.fontSize(
+              context,
+              21,
+            ),
             fontWeight: FontWeight.w800,
           ),
         ),
-        SizedBox(height: Responsive.spacing(context, 6)),
+
+        SizedBox(
+          height: Responsive.spacing(context, 4),
+        ),
+
         Text(
           subtitle,
           textAlign: TextAlign.center,
           style: TextStyle(
             color: RastUi.textPurple,
-            fontSize: Responsive.fontSize(context, 14),
+            fontSize: Responsive.fontSize(
+              context,
+              12,
+            ),
           ),
         ),
-        SizedBox(height: Responsive.spacing(context, 28)),
-        _buildLockIllustration(),
       ],
-    );
-  }
-
-  Widget _buildLockIllustration() {
-    return SizedBox(
-      height: 168,
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          Container(
-            width: 118,
-            height: 118,
-            decoration: BoxDecoration(
-              color: const Color(0xFFF1F1F1),
-              shape: BoxShape.circle,
-            ),
-          ),
-          Positioned(top: 6, child: _dot(10, RastUi.purple)),
-          Positioned(right: 42, top: 28, child: _dot(24, RastUi.purple)),
-          Positioned(left: 44, bottom: 32, child: _dot(20, RastUi.blue)),
-          Positioned(right: 52, bottom: 38, child: _dot(10, Colors.black54)),
-          Positioned(
-            left: 28,
-            top: 70,
-            child: _dot(10, const Color(0xFFE8E4E2)),
-          ),
-          Container(
-            width: 60,
-            height: 62,
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [RastUi.blue, RastUi.purple],
-              ),
-              borderRadius: BorderRadius.circular(6),
-              boxShadow: RastUi.softShadow,
-            ),
-            child: const Padding(
-              padding: EdgeInsets.all(8),
-              child: FittedBox(
-                fit: BoxFit.contain,
-                child: RastLogo(size: 44, light: true),
-              ),
-            ),
-          ),
-          Positioned(
-            top: 48,
-            child: Container(
-              width: 34,
-              height: 30,
-              decoration: BoxDecoration(
-                border: Border.all(color: RastUi.blue, width: 5),
-                borderRadius: const BorderRadius.vertical(
-                  top: Radius.circular(20),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
     );
   }
 
@@ -451,32 +451,62 @@ class _LoginScreenState extends State<LoginScreen> {
   );
 
   InputDecoration _fieldDecoration(
-    Color fill, {
-    required Color primary,
-    required String label,
-    required String hint,
-    required IconData icon,
-    Widget? suffix,
-  }) {
+      Color fill, {
+        required Color primary,
+        required String label,
+        required String hint,
+        required IconData icon,
+        Widget? suffix,
+      }) {
     return InputDecoration(
       labelText: label.isEmpty ? null : label,
       hintText: hint,
-      prefixIcon: Icon(icon, color: primary.withValues(alpha: 0.85)),
+
+      prefixIcon: Icon(
+        icon,
+        color: primary.withValues(alpha: 0.85),
+        size: 19,
+      ),
+
       suffixIcon: suffix,
+
       filled: true,
       fillColor: fill,
+
+      hintStyle: TextStyle(
+        fontSize: Responsive.fontSize(
+          context,
+          12,
+        ),
+      ),
+
+      contentPadding: const EdgeInsets.symmetric(
+        horizontal: 20,
+        vertical: 16,
+      ),
+
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(28),
-        borderSide: const BorderSide(color: Color(0xFFD7D4DA)),
+        borderSide: const BorderSide(
+          color: Color(0xFFD7D4DA),
+        ),
       ),
+
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(28),
-        borderSide: const BorderSide(color: Color(0xFFD7D4DA)),
+        borderSide: const BorderSide(
+          color: Color(0xFFD7D4DA),
+        ),
       ),
+
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(28),
-        borderSide: BorderSide(color: primary, width: 2),
+        borderSide: BorderSide(
+          color: primary,
+          width: 2,
+        ),
       ),
     );
   }
+
 }

@@ -89,6 +89,52 @@ class ServicesApi {
     return res;
   }
 
+  /// GET /api/services/packages/search?q=...
+  Future<List<dynamic>> searchPackages(String query) async {
+    final res = await _client.get(
+      'services/packages/search',
+      queryParams: {
+        'q': query,
+      },
+    );
+
+    final data = res['data'];
+
+    return data is List
+        ? List<dynamic>.from(data)
+        : [];
+  }
+
+  Future<String?> globalSearch(String query) async {
+    final res = await _client.get(
+      'services/search',
+      queryParams: {
+        'q': query,
+      },
+    );
+
+    final data = res['data'];
+
+    if (data is Map) {
+      return data['type']?.toString();
+    }
+
+    return null;
+  }
+
+  /// GET /api/providers/{providerId}/packages
+  Future<List<dynamic>> getProviderPackages(int providerId) async {
+    final res = await _client.get(
+      'providers/$providerId/packages',
+    );
+
+    final data = res['data'];
+
+    return data is List
+        ? List<dynamic>.from(data)
+        : [];
+  }
+
   /// يجمع كل صفحات GET /api/packages.
   Future<List<dynamic>> getAllPackages({int? categoryId, int perPage = 100}) async {
     final all = <dynamic>[];

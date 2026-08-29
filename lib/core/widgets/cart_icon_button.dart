@@ -12,15 +12,14 @@ import 'package:rast/features/cart/screens/cart_screen.dart';
 class CartIconButton extends StatelessWidget {
   const CartIconButton({
     super.key,
-    this.iconColor = Colors.white,
+    this.iconColor = Colors.black,
     this.backgroundColor,
     this.size = 40,
   });
 
-  final Color iconColor;
+  final Color? iconColor;
   final Color? backgroundColor;
   final double size;
-
   Future<void> _openCart(BuildContext context) async {
     if (!AuthService.isLoggedIn) {
       final ok = await Navigator.push<bool>(

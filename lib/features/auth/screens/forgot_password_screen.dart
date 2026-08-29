@@ -7,6 +7,10 @@ import 'package:rast/core/providers/app_settings_provider.dart';
 import 'package:rast/core/utils/responsive.dart';
 import 'package:rast/core/widgets/rast_ui.dart';
 import 'package:rast/features/chat/screens/chat_screen.dart';
+import 'package:url_launcher/url_launcher.dart';
+
+import '../../../core/constants/app_strings.dart';
+import '../../profile/screens/profile_screen.dart';
 
 class ForgotPasswordScreen extends StatefulWidget {
   const ForgotPasswordScreen({super.key});
@@ -57,6 +61,63 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
     final hasLower = RegExp(r'[a-z]').hasMatch(value);
     final hasDigit = RegExp(r'\d').hasMatch(value);
     return value.length >= 8 && hasUpper && hasLower && hasDigit;
+  }
+
+  Future<void> _launchSupportCall() async {
+    final lang = context.read<AppSettingsProvider>().language;
+
+    final uri = Uri.parse(
+      'tel:${ProfileScreen.supportPhoneDisplay}',
+    );
+
+    if (!await canLaunchUrl(uri)) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            AppStrings.t(
+              'cannotOpenCall',
+              lang,
+            ),
+          ),
+        ),
+      );
+
+      return;
+    }
+
+    await launchUrl(uri);
+  }
+
+  Future<void> _launchSupportWhatsApp() async {
+    final lang = context.read<AppSettingsProvider>().language;
+
+    final uri = Uri.parse(
+      'https://wa.me/${ProfileScreen.supportPhoneWhatsApp}',
+    );
+
+    if (!await canLaunchUrl(uri)) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            AppStrings.t(
+              'cannotOpenWhatsapp',
+              lang,
+            ),
+          ),
+        ),
+      );
+
+      return;
+    }
+
+    await launchUrl(
+      uri,
+      mode: LaunchMode.externalApplication,
+    );
   }
 
   @override
@@ -147,95 +208,677 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
 
   @override
   Widget build(BuildContext context) {
+    final settings = context.watch<AppSettingsProvider>();
+    final lang = settings.language;
     final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    final textDirection =
+    lang == 'en' ? TextDirection.ltr : TextDirection.rtl;
+
     if (_emailSent) {
       return _buildEmailSuccessScreen();
     }
+
     if (_whatsappOtpSent) {
       return _buildOtpScreen();
     }
 
     return Directionality(
-      textDirection: TextDirection.rtl,
+      textDirection: textDirection,
       child: Scaffold(
         backgroundColor: RastUi.screenSurface(context),
-        body: Container(
-          decoration: BoxDecoration(color: RastUi.screenSurface(context)),
-          child: Stack(
-            children: [
-              Container(
-                height: 132,
-                decoration: const BoxDecoration(
-                  gradient: RastUi.headerGradient,
-                ),
+        body: Stack(
+          children: [
+            SingleChildScrollView(
+
+              padding: EdgeInsets.only(
+                bottom: Responsive.spacing(context, 15),
               ),
-              SafeArea(
-                child: Column(
-                  children: [
-                    AppBar(
-                      backgroundColor: Colors.transparent,
-                      elevation: 0,
-                      leading: IconButton(
-                        icon: Icon(
-                          Icons.arrow_back_ios,
-                          color: RastUi.cardSurface(context),
-                        ),
-                        onPressed: () => Navigator.pop(context),
+              child: Column(
+                children: [
+                  // White top header
+                  SafeArea(
+                    bottom: false,
+                    child: SizedBox(
+                      height: 72,
+                      child: Stack(
+                        alignment: Alignment.center,
+                        children: [
+                          Text(
+                            AppStrings.t(
+                              'forgotPasswordTitle',
+                              lang,
+                            ),
+                            style: TextStyle(
+                              color: RastUi.primaryText(context),
+                              fontSize: Responsive.fontSize(context, 16),
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: Padding(
+                              padding: const EdgeInsets.only(left: 12),
+                              child: IconButton(
+                                onPressed: () => Navigator.pop(context),
+                                icon: Icon(
+                                  Icons.arrow_back_ios_new_rounded,
+                                  color: RastUi.primaryText(context),
+                                  size: 20,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
-                      title: const Text(
-                        'استرجاع كلمة المرور',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      centerTitle: true,
                     ),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 100),
+                  ),
+
+                  // Purple hero
+                  Container(
+                    height: 255,
+                    width: double.infinity,
+                    decoration: const BoxDecoration(
+                      gradient: RastUi.headerGradient,
+                    ),
+                    child: Column(
+                      children: [
+                        SizedBox(
+                          height: Responsive.spacing(context, 28),
+                        ),
+
+                        Container(
+                          width: 70,
+                          height: 70,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: Colors.white.withValues(alpha: 0.12),
+                            border: Border.all(
+                              color: Colors.white.withValues(alpha: 0.20),
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: 0.10),
+                                blurRadius: 16,
+                                offset: const Offset(0, 6),
+                              ),
+                            ],
+                          ),
+                          child: Center(
+                            child: Container(
+                              width: 56,
+                              height: 56,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: Colors.white.withValues(alpha: 0.10),
+                              ),
+                              child: const Icon(
+                                Icons.lock_outline_rounded,
+                                color: Colors.white,
+                                size: 30,
+                              ),
+                            ),
+                          ),
+                        ),
+
+                        SizedBox(
+                          height: Responsive.spacing(context, 10),
+                        ),
+
+                        Text(
+                          AppStrings.t(
+                            'forgotPasswordHeading',
+                            lang,
+                          ),
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: Responsive.fontSize(context, 20),
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+
+                        SizedBox(
+                          height: Responsive.spacing(context, 6),
+                        ),
+
+                        Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 50,
+                          ),
+                          child: Text(
+                            AppStrings.t(
+                              'forgotPasswordSubtitle',
+                              lang,
+                            ),
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              color: Colors.white.withValues(alpha: 0.90),
+                              fontSize: Responsive.fontSize(context, 11),
+                              height: 1.5,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  // Floating tabs
+                  Transform.translate(
+                    offset: const Offset(0, -28),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 24,
+                      ),
                       child: Container(
+                        height: 56,
+                        padding: const EdgeInsets.all(5),
                         decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(24),
-                          boxShadow: RastUi.softShadow,
-                          border: Border.all(color: const Color(0xFFE8E6EE)),
+                          color: RastUi.screenSurface(context)
+                              .withValues(alpha: 0.78),
+                          borderRadius: BorderRadius.circular(16),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.15),
+                              blurRadius: 12,
+                              offset: const Offset(0, 5),
+                            ),
+                          ],
                         ),
                         child: TabBar(
                           controller: _tabController,
                           dividerColor: Colors.transparent,
+                          indicatorSize: TabBarIndicatorSize.tab,
                           indicator: BoxDecoration(
-                            gradient: RastUi.brandGradient,
-                            borderRadius: BorderRadius.circular(18),
+                            color: RastUi.cardSurface(context),
+                            borderRadius: BorderRadius.circular(13),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: 0.15),
+                                blurRadius: 8,
+                                offset: const Offset(0, 3),
+                              ),
+                            ],
                           ),
-                          labelColor: Colors.white,
-                          unselectedLabelColor: const Color(0xFFC8C8C8),
-                          tabs: const [
+                          labelColor: settings.primaryColor,
+                          unselectedLabelColor:
+                          const Color(0xFF535353),
+                          tabs: [
                             Tab(
-                              text: 'Email',
-                              icon: Icon(Icons.email_outlined),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  const Icon(
+                                    Icons.email_outlined,
+                                    size: 18,
+                                  ),
+                                  const SizedBox(width: 7),
+                                  Text(
+                                    AppStrings.t(
+                                      'email',
+                                      lang,
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
                             Tab(
-                              text: 'WhatsApp',
-                              icon: Icon(Icons.chat_outlined),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  const Icon(
+                                    Icons.chat_bubble_outline_rounded,
+                                    size: 18,
+                                  ),
+                                  const SizedBox(width: 7),
+                                  Text(
+                                    AppStrings.t(
+                                      'whatsapp',
+                                      lang,
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
                           ],
                         ),
                       ),
                     ),
-                    Expanded(
-                      child: TabBarView(
-                        controller: _tabController,
-                        children: [
-                          _buildEmailTab(context, isDark),
-                          _buildWhatsAppTab(isDark),
-                        ],
-                      ),
+                  ),
+
+                  Transform.translate(
+                    offset: const Offset(0, -12),
+                    child: AnimatedBuilder(
+                      animation: _tabController,
+                      builder: (context, _) {
+                        return _tabController.index == 0
+                            ? _buildEmailTab(
+                          context,
+                          isDark,
+                        )
+                            : _buildWhatsAppTab(
+                          isDark,
+                        );
+                      },
                     ),
-                  ],
+                  ),
+
+                  SizedBox(
+                    height: Responsive.spacing(context, 10),
+                  ),
+
+                  _buildHelpSection(
+                    lang,
+                    settings,
+                  ),
+                  SizedBox(
+                    height: Responsive.spacing(context, 28),
+                  ),
+
+                  _buildFooter(lang),
+                ],
+              ),
+            ),
+
+            _supportBubble(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFooter(String lang) {
+    final settings = context.read<AppSettingsProvider>();
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(
+        16,
+        9,
+        16,
+        8,
+      ),
+      decoration: BoxDecoration(
+        color: RastUi.cardSurface(context),
+        border: Border(
+          top: BorderSide(
+            color: RastUi.softBorder(context),
+            width: 1,
+          ),
+        ),
+      ),
+      child: SafeArea(
+        top: false,
+        minimum: EdgeInsets.zero,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Contact us
+            GestureDetector(
+              onTap: _showHelpCenter,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    AppStrings.t(
+                      'contactWithUs',
+                      lang,
+                    ),
+                    style: TextStyle(
+                      color: const Color(0xFF535353),
+                      fontSize: Responsive.fontSize(context, 11),
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+
+                  const SizedBox(width: 6),
+
+                  Icon(
+                    Icons.mail_outline_rounded,
+                    size: 16,
+                    color: const Color(0xFF535353),
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 7),
+
+            // Security + copyright
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.verified_user_outlined,
+                  size: 12,
+                  color: settings.primaryColor,
+                ),
+
+                const SizedBox(width: 5),
+
+                Text(
+                  AppStrings.t(
+                    'securePass',
+                    lang,
+                  ),
+                  style: TextStyle(
+                    color: Color(0xFF535353),
+                    fontSize: Responsive.fontSize(context, 11),
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+
+                 Container(height: 10,width: 1, color: Color(0xFF535353),
+                 margin: EdgeInsets.symmetric(horizontal: 10),
+                 ),
+
+                Text(
+                  AppStrings.t(
+                    'allRightsReserved',
+                    lang,
+                  ),
+                  style: TextStyle(
+                    color: Color(0xFF535353),
+                    fontSize: Responsive.fontSize(context, 11),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+  Widget _buildHelpSection(
+      String lang,
+      AppSettingsProvider settings,
+      ) {
+    return Padding(
+      padding: EdgeInsets.symmetric(
+        horizontal: Responsive.spacing(context, 24),
+      ),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.start,
+            children: lang == 'ar'
+                ? [
+              GestureDetector(
+                onTap: _showHelpCenter,
+                child: Icon(
+                  Icons.help_outline_rounded,
+                  color: settings.primaryColor,
+                  size: 19,
+                ),
+              ),
+              const SizedBox(width: 6),
+              Text(
+                AppStrings.t('needHelp', lang),
+                style: TextStyle(
+                  color: settings.primaryColor,
+                  fontSize: Responsive.fontSize(context, 16),
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ]
+                : [
+              Text(
+                AppStrings.t('needHelp', lang),
+                style: TextStyle(
+                  color: settings.primaryColor,
+                  fontSize: Responsive.fontSize(context, 16),
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(width: 6),
+              GestureDetector(
+                onTap: _showHelpCenter,
+                child: Icon(
+                  Icons.help_outline_rounded,
+                  color: settings.primaryColor,
+                  size: 19,
                 ),
               ),
             ],
           ),
+
+          SizedBox(
+            height: Responsive.spacing(context, 16),
+          ),
+
+          Container(
+            width: double.infinity,
+            padding: EdgeInsets.symmetric(
+              horizontal: Responsive.spacing(context, 18),
+              vertical: Responsive.spacing(context, 18),
+            ),
+            decoration: BoxDecoration(
+              color: RastUi.subtleFill(context),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Column(
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: 6,
+                      height: 6,
+                      decoration: BoxDecoration(
+                        color: settings.primaryColor,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: 7),
+                    Text(
+                      AppStrings.t('needHelpTitle', lang),
+                      style: TextStyle(
+                        color: settings.primaryColor,
+                        fontSize: Responsive.fontSize(context, 12),
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ],
+                ),
+
+                SizedBox(
+                  height: Responsive.spacing(context, 10),
+                ),
+
+                Text(
+                  AppStrings.t('needHelpMessage', lang),
+                  textAlign: TextAlign.start,
+                  softWrap: true,
+                  style: TextStyle(
+                    color: RastUi.secondaryText(context),
+                    fontSize: Responsive.fontSize(context, 11),
+                    height: 1.6,
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          SizedBox(
+            height: Responsive.spacing(context, 12),
+          ),
+
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                AppStrings.t('rememberPassword', lang),
+                style: TextStyle(
+                  color:Color(0xFF535353),
+                  fontSize: Responsive.fontSize(context, 11),
+                ),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: Text(
+                  AppStrings.t('loginLink', lang),
+                  style: TextStyle(
+                    color: settings.primaryColor,
+                    fontSize: Responsive.fontSize(context, 11),
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showHelpCenter() {
+    final lang = context.read<AppSettingsProvider>().language;
+
+    showDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) => Directionality(
+        textDirection:
+        lang == 'en' ? TextDirection.ltr : TextDirection.rtl,
+        child: AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(24),
+          ),
+          title: Text(
+            AppStrings.t('helpCenter', lang),
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  AppStrings.t(
+                    'helpCenterMessage',
+                    lang,
+                  ),
+                  style: TextStyle(
+                    color: RastUi.secondaryText(ctx),
+                  ),
+                ),
+
+                const SizedBox(height: 16),
+
+                Directionality(
+                  textDirection:
+                  lang == 'en' ? TextDirection.ltr : TextDirection.rtl,
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Directionality(
+                        textDirection: TextDirection.ltr,
+                        child: Text(
+                          ProfileScreen.supportPhoneDisplay,
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: 22,
+                            fontWeight: FontWeight.w800,
+                            color: RastUi.primaryText(ctx),
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                      ),
+
+                      const SizedBox(width: 8),
+
+                      IconButton(
+                        tooltip: AppStrings.t('copy', lang),
+                        onPressed: () async {
+                          await Clipboard.setData(
+                            const ClipboardData(
+                              text: ProfileScreen.supportPhoneDisplay,
+                            ),
+                          );
+
+                          if (!ctx.mounted) return;
+
+                          ScaffoldMessenger.of(ctx).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                AppStrings.t('copied', lang),
+                              ),
+                            ),
+                          );
+                        },
+                        icon: const Icon(
+                          Icons.copy_rounded,
+                          size: 20,
+                          color: RastUi.purple,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 20),
+
+                FilledButton.icon(
+                  onPressed: () {
+                    Navigator.pop(ctx);
+                    _launchSupportWhatsApp();
+                  },
+                  icon: const Icon(
+                    Icons.chat_rounded,
+                  ),
+                  label: Text(
+                    AppStrings.t(
+                      'whatsapp',
+                      lang,
+                    ),
+                  ),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: const Color(0xFF25D366),
+                    padding: const EdgeInsets.symmetric(
+                      vertical: 12,
+                    ),
+                  ),
+                ),
+
+                const SizedBox(height: 10),
+
+                OutlinedButton.icon(
+                  onPressed: () {
+                    Navigator.pop(ctx);
+                    _launchSupportCall();
+                  },
+                  icon: const Icon(
+                    Icons.phone_rounded,
+                  ),
+                  label: Text(
+                    AppStrings.t(
+                      'call',
+                      lang,
+                    ),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(
+                      vertical: 12,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: Text(
+                AppStrings.t(
+                  'close',
+                  lang,
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -592,19 +1235,32 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
           backgroundColor: Colors.transparent,
           shadowColor: Colors.transparent,
           padding: EdgeInsets.symmetric(
-            vertical: Responsive.spacing(context, 18),
+            vertical: Responsive.spacing(context, 10),
           ),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(32),
           ),
         ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: Colors.white,
-            fontSize: Responsive.fontSize(context, 18),
-            fontWeight: FontWeight.w800,
-          ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              label,
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: Responsive.fontSize(context, 18),
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(width: 15),
+
+            const Icon(
+              Icons.send_rounded,
+              color: Colors.white,
+              size: 20,
+            ),
+          ],
         ),
       ),
     );
@@ -620,87 +1276,102 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
   }
 
   Widget _buildEmailTab(BuildContext context, bool isDark) {
-    if (_emailSent) {
-      return Center(
-        child: _surfaceCard(
-          isDark,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                Icons.mark_email_read_rounded,
-                size: 56,
-                color: Colors.green.shade700,
-              ),
-              SizedBox(height: Responsive.spacing(context, 12)),
-              const Text(
-                'Email Sent Successfully',
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
-              ),
-              SizedBox(height: Responsive.spacing(context, 8)),
-              const Text(
-                'Check your inbox and follow the reset link.',
-                textAlign: TextAlign.center,
-              ),
-            ],
-          ),
-        ),
-      );
-    }
+    final settings = context.watch<AppSettingsProvider>();
+    final lang = settings.language;
 
-    return SingleChildScrollView(
-      padding: EdgeInsets.all(Responsive.spacing(context, 20)),
-      child: _surfaceCard(
-        isDark,
+    return Padding(
+      padding: EdgeInsets.symmetric(
+        horizontal: Responsive.spacing(context, 24),
+      ),
+      child: Container(
+        width: double.infinity,
+        padding: EdgeInsets.all(
+          Responsive.spacing(context, 24),
+        ),
+        decoration: BoxDecoration(
+          color: RastUi.cardSurface(context),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(
+            color: RastUi.softBorder(context),
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(
+                alpha: 0.10,
+              ),
+              blurRadius: 16,
+              offset: const Offset(0, 7),
+            ),
+          ],
+        ),
         child: Form(
           key: _formKey,
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
+            crossAxisAlignment:
+            CrossAxisAlignment.stretch,
             children: [
-              Icon(
-                Icons.lock_reset_rounded,
-                size: 54,
-                color: context.watch<AppSettingsProvider>().primaryColor,
-              ),
-              SizedBox(height: Responsive.spacing(context, 12)),
-              const Text(
-                'Enter your email to receive a reset link',
+              Text(
+                AppStrings.t(
+                  'forgotEmailInstruction',
+                  lang,
+                ),
                 textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: RastUi.primaryText(context),
+                  fontSize:
+                  Responsive.fontSize(context, 14),
+                  fontWeight: FontWeight.w600,
+                  height: 1.6,
+                ),
               ),
-              SizedBox(height: Responsive.spacing(context, 18)),
+
+              SizedBox(
+                height:
+                Responsive.spacing(context, 28),
+              ),
+
               TextFormField(
                 controller: _emailController,
-                keyboardType: TextInputType.emailAddress,
-                decoration: InputDecoration(
-                  labelText: 'Email',
-                  hintText: 'example@email.com',
-                  prefixIcon: Icon(
-                    Icons.email_outlined,
-                    color: context
-                        .watch<AppSettingsProvider>()
-                        .primaryColor
-                        .withValues(alpha: 0.85),
+                keyboardType:
+                TextInputType.emailAddress,
+                decoration: _forgotFieldDecoration(
+                  hint: AppStrings.t(
+                    'emailHint',
+                    lang,
                   ),
+                  icon: Icons.email_outlined,
                 ),
                 validator: (v) {
-                  if (v == null || v.isEmpty) return 'Email is required';
-                  if (!v.contains('@')) return 'Invalid email';
+                  if (v == null || v.isEmpty) {
+                    return AppStrings.t(
+                      'emailRequired',
+                      lang,
+                    );
+                  }
+
+                  if (!v.contains('@')) {
+                    return AppStrings.t(
+                      'emailInvalid',
+                      lang,
+                    );
+                  }
+
                   return null;
                 },
               ),
-              SizedBox(height: Responsive.spacing(context, 18)),
-              FilledButton(
-                onPressed: _isLoading ? null : _sendEmailReset,
-                child: _isLoading
-                    ? const SizedBox(
-                        width: 22,
-                        height: 22,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Colors.white,
-                        ),
-                      )
-                    : const Text('Send Reset Link'),
+
+              SizedBox(
+                height:
+                Responsive.spacing(context, 20),
+              ),
+
+              _gradientActionButton(
+                label: AppStrings.t(
+                  'sendResetLink',
+                  lang,
+                ),
+                onPressed:
+                _isLoading ? null : _sendEmailReset,
               ),
             ],
           ),
@@ -710,49 +1381,123 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
   }
 
   Widget _buildWhatsAppTab(bool isDark) {
-    return SingleChildScrollView(
-      padding: EdgeInsets.all(Responsive.spacing(context, 20)),
-      child: _surfaceCard(
-        isDark,
+    final settings = context.watch<AppSettingsProvider>();
+    final lang = settings.language;
+
+    return Padding(
+      padding: EdgeInsets.symmetric(
+        horizontal: Responsive.spacing(context, 24),
+      ),
+      child: Container(
+        width: double.infinity,
+        padding: EdgeInsets.all(
+          Responsive.spacing(context, 24),
+        ),
+        decoration: BoxDecoration(
+          color: RastUi.cardSurface(context),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(
+            color: RastUi.softBorder(context),
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(
+                alpha: 0.10,
+              ),
+              blurRadius: 16,
+              offset: const Offset(0, 7),
+            ),
+          ],
+        ),
         child: Form(
           key: _whatsappFormKey,
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
+            crossAxisAlignment:
+            CrossAxisAlignment.stretch,
             children: [
-              const Icon(Icons.chat_rounded, size: 54, color: RastUi.purple),
-              SizedBox(height: Responsive.spacing(context, 12)),
-              const Text(
-                'Enter your registered phone number',
-                textAlign: TextAlign.center,
+              Text(
+                AppStrings.t(
+                  'registeredPhone',
+                  lang,
+                ),
+                style: TextStyle(
+                  color: RastUi.primaryText(context),
+                  fontSize:
+                  Responsive.fontSize(context, 14),
+                  fontWeight: FontWeight.w600,
+                ),
               ),
-              SizedBox(height: Responsive.spacing(context, 18)),
+
+              SizedBox(
+                height:
+                Responsive.spacing(context, 20),
+              ),
+
               TextFormField(
-                controller: _whatsappPhoneController,
+                controller:
+                _whatsappPhoneController,
                 keyboardType: TextInputType.phone,
-                decoration: InputDecoration(
-                  labelText: 'Phone Number',
-                  hintText: '05xxxxxxxx',
-                  prefixIcon: Icon(
-                    Icons.phone_android_outlined,
-                    color: context
-                        .watch<AppSettingsProvider>()
-                        .primaryColor
-                        .withValues(alpha: 0.85),
-                  ),
+                decoration: _forgotFieldDecoration(
+                  hint: '+966 5X XXX XXXX',
+                  icon:
+                  Icons.phone_android_outlined,
                 ),
                 validator: (v) {
-                  if (v == null || v.trim().isEmpty) return 'Phone is required';
-                  final digits = v.replaceAll(RegExp(r'[^\d]'), '');
-                  if (digits.length < 9) return 'Invalid phone number';
+                  if (v == null ||
+                      v.trim().isEmpty) {
+                    return AppStrings.t(
+                      'phoneRequired',
+                      lang,
+                    );
+                  }
+
+                  final digits = v.replaceAll(
+                    RegExp(r'[^\d]'),
+                    '',
+                  );
+
+                  if (digits.length < 9) {
+                    return AppStrings.t(
+                      'phoneInvalid',
+                      lang,
+                    );
+                  }
+
                   return null;
                 },
               ),
-              SizedBox(height: Responsive.spacing(context, 18)),
-              FilledButton.icon(
-                onPressed: _isLoading ? null : _submitWhatsAppRequest,
-                icon: const Icon(Icons.chat_rounded),
-                label: const Text('Send via WhatsApp'),
-                style: FilledButton.styleFrom(),
+
+              SizedBox(
+                height:
+                Responsive.spacing(context, 10),
+              ),
+
+              Text(
+                AppStrings.t(
+                  'whatsappCodeHint',
+                  lang,
+                ),
+                style: TextStyle(
+                  color:
+                  Color(0xFF535353),
+                  fontSize:
+                  Responsive.fontSize(context, 11),
+                ),
+              ),
+
+              SizedBox(
+                height:
+                Responsive.spacing(context, 22),
+              ),
+
+              _gradientActionButton(
+                label: AppStrings.t(
+                  'sendViaWhatsapp',
+                  lang,
+                ),
+                onPressed: _isLoading
+                    ? null
+                    : _submitWhatsAppRequest,
               ),
             ],
           ),
@@ -761,21 +1506,53 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
     );
   }
 
-  Widget _surfaceCard(bool isDark, {required Widget child}) {
-    return Container(
-      padding: EdgeInsets.all(Responsive.spacing(context, 20)),
-      decoration: BoxDecoration(
-        gradient: RastUi.headerGradient,
-        borderRadius: BorderRadius.circular(8),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: isDark ? 0.32 : 0.10),
-            blurRadius: 24,
-            offset: const Offset(0, 12),
-          ),
-        ],
+  InputDecoration _forgotFieldDecoration({
+    required String hint,
+    required IconData icon,
+  }) {
+    final primary =
+        context.watch<AppSettingsProvider>().primaryColor;
+
+    return InputDecoration(
+      hintText: hint,
+      hintStyle: TextStyle(
+        color: RastUi.secondaryText(context),
+        fontSize: Responsive.fontSize(
+          context,
+          13,
+        ),
       ),
-      child: child,
+      prefixIcon: Icon(
+        icon,
+        color: RastUi.secondaryText(context),
+        size: 20,
+      ),
+      filled: true,
+      fillColor: RastUi.screenSurface(context),
+      contentPadding: const EdgeInsets.symmetric(
+        horizontal: 20,
+        vertical: 17,
+      ),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(30),
+        borderSide: BorderSide(
+          color: RastUi.softBorder(context),
+        ),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(30),
+        borderSide: BorderSide(
+          color: RastUi.softBorder(context),
+        ),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(30),
+        borderSide: BorderSide(
+          color: primary,
+          width: 1.5,
+        ),
+      ),
     );
   }
+
 }

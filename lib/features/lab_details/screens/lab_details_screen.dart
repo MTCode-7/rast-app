@@ -22,6 +22,8 @@ import 'package:rast/features/analyses/screens/service_detail_screen.dart';
 import 'package:rast/features/packages/screens/package_detail_screen.dart';
 import 'package:shimmer/shimmer.dart';
 
+import '../../../core/constants/app_strings.dart';
+
 class LabDetailsScreen extends StatefulWidget {
   final Map<String, dynamic> lab;
 
@@ -169,59 +171,43 @@ class _LabDetailsScreenState extends State<LabDetailsScreen>
     }
   }
 
-  bool _packageBelongsToLab(dynamic item) {
-    if (item is! Map) return false;
-    final pkg = Map<String, dynamic>.from(item);
-    final provider = pkg['provider'];
-    if (provider is Map && provider['id']?.toString() == _labId.toString()) {
-      return true;
-    }
-    final providerServices =
-        pkg['provider_services'] ?? pkg['providerServices'];
-    if (providerServices is List) {
-      for (final ps in providerServices) {
-        if (ps is! Map) continue;
-        if (ps['provider_id']?.toString() == _labId.toString()) return true;
-        final psProvider = ps['provider'];
-        if (psProvider is Map &&
-            psProvider['id']?.toString() == _labId.toString()) {
-          return true;
-        }
-      }
-    }
-    return false;
-  }
 
-  Future<void> _loadPackagesInternal({bool reset = false}) async {
-    if (_loadingMorePackages && !reset) return;
-    if (!reset && !_hasMorePackages) return;
-    final nextPage = reset ? 1 : _packagesPage + 1;
+  Future<void> _loadPackagesInternal({
+    bool reset = false,
+  }) async {
+    if (_loadingMorePackages) return;
+
     setState(() {
+      _loadingMorePackages = true;
+
       if (reset) {
         _packages = [];
         _packagesPage = 0;
         _hasMorePackages = true;
       }
-      _loadingMorePackages = true;
     });
+
     try {
-      final res = await Api.services.getPackages(page: nextPage, perPage: 20);
-      final page = PaginatedResponse.fromPayload(res['data']);
-      final matched =
-          page.items.where((e) => _packageBelongsToLab(e)).toList();
+      final packages = await Api.services.getProviderPackages(
+        _labId,
+      );
+
       if (!mounted) return;
+
       setState(() {
-        if (reset) {
-          _packages = matched;
-        } else {
-          _packages.addAll(matched);
-        }
-        _packagesPage = page.currentPage;
-        _hasMorePackages = page.hasMore;
+        _packages = List<dynamic>.from(packages);
+
+        // This endpoint returns all packages at once.
+        _packagesPage = 1;
+        _hasMorePackages = false;
         _loadingMorePackages = false;
       });
     } catch (_) {
-      if (mounted) setState(() => _loadingMorePackages = false);
+      if (!mounted) return;
+
+      setState(() {
+        _loadingMorePackages = false;
+      });
     }
   }
 
@@ -398,23 +384,36 @@ class _LabDetailsScreenState extends State<LabDetailsScreen>
       _error = null;
       _providerLoading = true;
     });
+
     try {
       final provider = await Api.providers.getProvider(_labId);
+
       if (!mounted) return;
-      setState(() => _labMap = {..._labMap, ...provider});
-      await Future.wait([
-        _loadServicesInternal(reset: true),
-        _loadPackagesInternal(reset: true),
-        _loadReviewsInternal(reset: true),
-      ]);
-      if (!mounted) return;
-      setState(() => _providerLoading = false);
+
+      setState(() {
+        _labMap = {
+          ..._labMap,
+          ...provider,
+        };
+
+        // SHOW THE SCREEN NOW
+        _providerLoading = false;
+      });
+
+      // Load these in the background.
+      unawaited(_loadServicesInternal(reset: true));
+      unawaited(_loadPackagesInternal(reset: true));
+      unawaited(_loadReviewsInternal(reset: true));
     } on ApiException catch (e) {
+      if (!mounted) return;
+
       setState(() {
         _error = e.message;
         _providerLoading = false;
       });
     } catch (e) {
+      if (!mounted) return;
+
       setState(() {
         _error = e.toString();
         _providerLoading = false;
@@ -424,6 +423,8 @@ class _LabDetailsScreenState extends State<LabDetailsScreen>
 
   @override
   Widget build(BuildContext context) {
+    final settings = context.watch<AppSettingsProvider>();
+    final lang = settings.language;
     final lab = _labMap;
     final logoUrl =
         ApiConfig.imageFromMap(lab) ??
@@ -436,63 +437,125 @@ class _LabDetailsScreenState extends State<LabDetailsScreen>
     final district = lab['district']?.toString() ?? '';
 
     return Directionality(
-      textDirection: TextDirection.rtl,
+      textDirection: settings.textDirection,
       child: Scaffold(
         backgroundColor: Theme.of(context).colorScheme.surface,
-        body: _providerLoading
-            ? _buildLoading()
-            : _error != null
-            ? _buildError()
-            : CustomScrollView(
+        body: Column(
+          children: [
+            Container(
+              height: MediaQuery.of(context).padding.top + 56,
+              width: double.infinity,
+              padding: EdgeInsets.only(
+                top: MediaQuery.of(context).padding.top,
+                left: 16,
+                right: 16,
+              ),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.30),
+                    blurRadius: 12,
+                    spreadRadius: 1,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: Row(
+                children: [
+                  // BACK
+                  InkWell(
+                    onTap: () => Navigator.pop(context),
+                    customBorder: const CircleBorder(),
+                    child: Container(
+                      width: 38,
+                      height: 38,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF7F7F8),
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: const Color(0xFFE4E4E7),
+                          width: 1,
+                        ),
+                      ),
+                      child: Icon(
+                        Icons.arrow_back_ios_new_rounded,
+                        textDirection: settings.textDirection,
+                        size: 18,
+                        color: RastUi.purple,
+                      ),
+                    ),
+                  ),
+
+                  // LAB NAME
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                      child: Text(
+                        name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: Responsive.fontSize(context, 17),
+                          fontWeight: FontWeight.w800,
+                          color: RastUi.primaryText(context),
+                          height: 1.2,
+                        ),
+                      ),
+                    ),
+                  ),
+
+                  // FAVORITE
+                  InkWell(
+                    onTap: _toggleFavorite,
+                    customBorder: const CircleBorder(),
+                    child: Container(
+                      width: 38,
+                      height: 38,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF7F7F8),
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: const Color(0xFFE4E4E7),
+                        ),
+                      ),
+                      child: Icon(
+                        _isFavorite
+                            ? Icons.favorite_rounded
+                            : Icons.favorite_border_rounded,
+                        size: 19,
+                        color: _isFavorite
+                            ? const Color(0xFFFF4D61)
+                            : const Color(0xFF374151),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            Expanded(
+              child: _providerLoading
+                  ? _buildLoading()
+                  : _error != null
+                  ? _buildError()
+                  : CustomScrollView(
                 controller: _scrollController,
                 slivers: [
-                  SliverAppBar(
-                    expandedHeight: 260,
-                    pinned: true,
-                    stretch: true,
-                    backgroundColor: AppTheme.primary,
-                    leading: IconButton(
-                      icon: Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.25),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: const Icon(
-                          Icons.arrow_back_ios,
-                          color: Colors.white,
-                          size: 18,
-                        ),
-                      ),
-                      onPressed: () => Navigator.pop(context),
-                    ),
-                    actions: [
-                      IconButton(
-                        onPressed: _toggleFavorite,
-                        icon: Container(
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.25),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: Icon(
-                            _isFavorite
-                                ? Icons.favorite_rounded
-                                : Icons.favorite_border_rounded,
-                            color: const Color(0xFFFF4D61),
-                            size: 18,
-                          ),
-                        ),
-                      ),
-                    ],
-                    flexibleSpace: FlexibleSpaceBar(
-                      stretchModes: const [StretchMode.zoomBackground],
-                      background: Stack(
+
+                  SliverToBoxAdapter(
+                    child: SizedBox(
+                      width: double.infinity,
+                      height: 260,
+                      child: Stack(
                         fit: StackFit.expand,
                         children: [
-                          if (logoUrl != null && logoUrl.isNotEmpty)
-                            GestureDetector(
-                              onTap: () {
+                          GestureDetector(
+                            onTap: () {
+                              if (logoUrl != null && logoUrl.isNotEmpty) {
                                 Navigator.push(
                                   context,
                                   MaterialPageRoute(
@@ -501,148 +564,172 @@ class _LabDetailsScreenState extends State<LabDetailsScreen>
                                     ),
                                   ),
                                 );
-                              },
-                              child: CachedNetworkImage(
-                                imageUrl: logoUrl,
-                                fit: BoxFit.cover,
-                                placeholder: (_, __) => _buildPlaceholder(),
-                                errorWidget: (_, __, ___) =>
-                                    _buildPlaceholder(),
-                              ),
+                              }
+                            },
+                            child: logoUrl != null && logoUrl.isNotEmpty
+                                ? CachedNetworkImage(
+                              imageUrl: logoUrl,
+                              width: double.infinity,
+                              height: double.infinity,
+                              fit: BoxFit.cover,
+                              placeholder: (_, __) => _buildPlaceholder(),
+                              errorWidget: (_, __, ___) => _buildPlaceholder(),
                             )
-                          else
-                            _buildPlaceholder(),
+                                : _buildPlaceholder(),
+                          ),
+
                           Container(
                             decoration: BoxDecoration(
                               gradient: LinearGradient(
                                 begin: Alignment.topCenter,
                                 end: Alignment.bottomCenter,
                                 colors: [
-                                  Colors.transparent,
-                                  Colors.black.withValues(alpha: 0.6),
+                                  Colors.black.withValues(alpha: 0.05),
+                                  Colors.black.withValues(alpha: 0.15),
+                                  Colors.black.withValues(alpha: 0.65),
+                                ],
+                                stops: const [
+                                  0.0,
+                                  0.45,
+                                  1.0,
                                 ],
                               ),
                             ),
                           ),
+
                           Positioned(
-                            left: 0,
-                            right: 0,
-                            bottom: 0,
-                            child: Padding(
-                              padding: EdgeInsets.all(
-                                Responsive.spacing(context, 20),
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Text(
-                                    name,
-                                    style: TextStyle(
-                                      fontSize: Responsive.fontSize(
-                                        context,
-                                        22,
+                            left: 18,
+                            right: 18,
+                            bottom: 18,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+
+                                const SizedBox(height: 12),
+
+                                // INFO ROW
+                                Wrap(
+                                  spacing: 10,
+                                  runSpacing: 10,
+                                  crossAxisAlignment: WrapCrossAlignment.center,
+                                  children: [
+                                    // LOCATION
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 10,
+                                        vertical: 7,
                                       ),
-                                      fontWeight: FontWeight.w500,
-                                      color: Colors.white,
-                                      shadows: [
-                                        Shadow(
-                                          color: Colors.black54,
-                                          blurRadius: 8,
+                                      decoration: BoxDecoration(
+                                        color: Colors.white,
+                                        borderRadius: BorderRadius.circular(12),
+                                        border: Border.all(
+                                          color: const Color(0xFFE5E7EB),
+                                          width: 1,
                                         ),
-                                      ],
+                                      ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          const Icon(
+                                            Icons.location_on_outlined,
+                                            color: Color(0xFF374151),
+                                            size: 17,
+                                          ),
+
+                                          const SizedBox(width: 5),
+
+                                          ConstrainedBox(
+                                            constraints: BoxConstraints(
+                                              maxWidth: MediaQuery.sizeOf(context).width * 0.42,
+                                            ),
+                                            child: Text(
+                                              '$city${district.isNotEmpty ? ' - $district' : ''}',
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: TextStyle(
+                                                fontSize: Responsive.fontSize(context, 11),
+                                                color: const Color(0xFF374151),
+                                                fontWeight: FontWeight.w600,
+                                                height: 1.2,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
                                     ),
-                                  ),
-                                  SizedBox(height: 6),
-                                  Row(
-                                    children: [
-                                      Icon(
-                                        Icons.location_on_rounded,
-                                        size: 16,
-                                        color: Colors.white.withValues(
-                                          alpha: 0.9,
+
+                                    // HOME SERVICE
+                                    if (lab['home_service_available'] == true)
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 10,
+                                          vertical: 7,
                                         ),
-                                      ),
-                                      SizedBox(width: 6),
-                                      Text(
-                                        '$city${district.isNotEmpty ? ' - $district' : ''}',
-                                        style: TextStyle(
-                                          fontSize: Responsive.fontSize(
-                                            context,
-                                            13,
-                                          ),
-                                          color: Colors.white.withValues(
-                                            alpha: 0.95,
+                                        decoration: BoxDecoration(
+                                          color: Colors.white,
+                                          borderRadius: BorderRadius.circular(12),
+                                          border: Border.all(
+                                            color: const Color(0xFFE5E7EB),
+                                            width: 1,
                                           ),
                                         ),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            const Icon(
+                                              Icons.home_outlined,
+                                              color: Color(0xFF374151),
+                                              size: 16,
+                                            ),
+                                            const SizedBox(width: 5),
+                                            Text(
+                                              AppStrings.t('homeService', lang),
+                                              style: const TextStyle(
+                                                color: Color(0xFF374151),
+                                                fontSize: 11,
+                                                fontWeight: FontWeight.w600,
+                                                height: 1.2,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
                                       ),
-                                    ],
-                                  ),
-                                  SizedBox(height: 12),
-                                  Row(
-                                    children: [
-                                      RatingBadge(
+
+                                    // RATING
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                        vertical: 4,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: Colors.white.withValues(alpha: 0.94),
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                      child: RatingBadge(
                                         rating:
-                                            (lab['avg_rating'] is num
-                                                    ? lab['avg_rating'] as num
-                                                    : 0)
-                                                .toDouble(),
+                                        (lab['avg_rating'] is num
+                                            ? lab['avg_rating'] as num
+                                            : 0)
+                                            .toDouble(),
                                         reviewCount: lab['total_reviews'] is num
-                                            ? (lab['total_reviews'] as num)
-                                                  .toInt()
+                                            ? (lab['total_reviews'] as num).toInt()
                                             : 0,
                                         size: RatingBadgeSize.medium,
                                         showLabel: true,
                                       ),
-                                      if (lab['home_service_available'] ==
-                                          true) ...[
-                                        SizedBox(width: 12),
-                                        Container(
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 10,
-                                            vertical: 5,
-                                          ),
-                                          decoration: BoxDecoration(
-                                            color: Colors.white.withValues(
-                                              alpha: 0.25,
-                                            ),
-                                            borderRadius: BorderRadius.circular(
-                                              12,
-                                            ),
-                                          ),
-                                          child: Row(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              Icon(
-                                                Icons.home_rounded,
-                                                size: 14,
-                                                color: Colors.white,
-                                              ),
-                                              SizedBox(width: 5),
-                                              Text(
-                                                'خدمة منزلية',
-                                                style: TextStyle(
-                                                  fontSize: 12,
-                                                  color: Colors.white,
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      ],
-                                    ],
-                                  ),
-                                ],
-                              ),
+                                    ),
+                                  ],
+                                ),
+                              ],
                             ),
                           ),
                         ],
                       ),
                     ),
                   ),
+
                   SliverToBoxAdapter(
-                    child: Transform.translate(
-                      offset: const Offset(0, -28),
                       child: Container(
                         decoration: BoxDecoration(
                           color: AppTheme.surface,
@@ -657,53 +744,55 @@ class _LabDetailsScreenState extends State<LabDetailsScreen>
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            _buildLabServicesAndPackagesTabs(context),
-                            SizedBox(height: Responsive.spacing(context, 24)),
                             _buildSection(
-                              'التقييمات',
+                              AppStrings.t('ratings', lang),
                               Icons.star_rounded,
                               _reviews.isEmpty && !_loadingMoreReviews
                                   ? _buildEmptyReviews()
                                   : Column(
-                                      children: [
-                                        ..._reviews.map(
-                                          (r) => _buildReviewItem(r),
+                                children: [
+                                  ..._reviews.map(
+                                        (r) => _buildReviewItem(r),
+                                  ),
+                                  if (_hasMoreReviews)
+                                    Padding(
+                                      padding: EdgeInsets.only(
+                                        top: Responsive.spacing(
+                                          context,
+                                          12,
                                         ),
-                                        if (_hasMoreReviews)
-                                          Padding(
-                                            padding: EdgeInsets.only(
-                                              top: Responsive.spacing(
-                                                context,
-                                                12,
-                                              ),
-                                            ),
-                                            child: Center(
-                                              child: TextButton(
-                                                onPressed:
-                                                    _loadingMoreReviews
-                                                    ? null
-                                                    : () => _loadReviewsInternal(
-                                                        reset: false,
-                                                      ),
-                                                child: Text(
-                                                  _loadingMoreReviews
-                                                      ? 'جاري التحميل...'
-                                                      : 'تحميل المزيد من التقييمات',
-                                                ),
-                                              ),
-                                            ),
+                                      ),
+                                      child: Center(
+                                        child: TextButton(
+                                          onPressed:
+                                          _loadingMoreReviews
+                                              ? null
+                                              : () => _loadReviewsInternal(
+                                            reset: false,
                                           ),
-                                      ],
+                                          child: Text(
+                                              _loadingMoreReviews
+                                                  ? AppStrings.t('loading', lang)
+                                                  : AppStrings.t('loadMoreReviews', lang)
+                                          ),
+                                        ),
+                                      ),
                                     ),
+                                ],
+                              ),
                             ),
-                            SizedBox(height: 100),
+                            SizedBox(height: Responsive.spacing(context, 24)),
+
+                            _buildLabServicesAndPackagesTabs(context),
                           ],
                         ),
                       ),
-                    ),
                   ),
                 ],
               ),
+            ),
+          ],
+        ),
         bottomNavigationBar: _error == null
             ? SafeArea(
                 child: Padding(
@@ -731,7 +820,7 @@ class _LabDetailsScreenState extends State<LabDetailsScreen>
                       elevation: 0,
                     ),
                     child: Text(
-                      'احجز تحليل',
+                      AppStrings.t('bookAnalysis', lang),
                       style: TextStyle(
                         fontSize: Responsive.fontSize(context, 15),
                         fontWeight: FontWeight.w500,
@@ -746,33 +835,68 @@ class _LabDetailsScreenState extends State<LabDetailsScreen>
   }
 
   Widget _buildSection(String title, IconData icon, Widget content) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: AppTheme.primary.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(14),
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(
+        horizontal: 2,
+        vertical: 4,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              // ICON
+              Container(
+                width: 38,
+                height: 38,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: AppTheme.primary.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: AppTheme.primary.withValues(alpha: 0.10),
+                  ),
+                ),
+                child: Icon(
+                  icon,
+                  size: 19,
+                  color: AppTheme.primary,
+                ),
               ),
-              child: Icon(icon, size: 20, color: AppTheme.primary),
-            ),
-            SizedBox(width: 12),
-            Text(
-              title,
-              style: TextStyle(
-                fontSize: Responsive.fontSize(context, 16),
-                fontWeight: FontWeight.w500,
-                color: AppTheme.onSurface,
+
+              const SizedBox(width: 10),
+
+              // TITLE
+              Expanded(
+                child: Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: Responsive.fontSize(context, 16),
+                    fontWeight: FontWeight.w700,
+                    color: RastUi.primaryText(context),
+                    height: 1.2,
+                  ),
+                ),
               ),
-            ),
-          ],
-        ),
-        SizedBox(height: 14),
-        content,
-      ],
+            ],
+          ),
+
+          const SizedBox(height: 12),
+
+          Container(
+            height: 1,
+            width: double.infinity,
+            color: RastUi.softBorder(context).withValues(alpha: 0.65),
+          ),
+
+          const SizedBox(height: 14),
+
+          content,
+        ],
+      ),
     );
   }
 
@@ -929,7 +1053,12 @@ class _LabDetailsScreenState extends State<LabDetailsScreen>
           GradientFilledButtonIcon(
             onPressed: _loadData,
             icon: const Icon(Icons.refresh_rounded, size: 20),
-            label: const Text('إعادة المحاولة'),
+            label: Text(
+              AppStrings.t(
+                'retry',
+                context.read<AppSettingsProvider>().language,
+              ),
+            ),
             style: FilledButton.styleFrom(
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(18),
@@ -957,7 +1086,10 @@ class _LabDetailsScreenState extends State<LabDetailsScreen>
         ),
         SizedBox(width: 12),
         Text(
-          'لا توجد تقييمات بعد',
+          AppStrings.t(
+            'noReviewsYet',
+            context.read<AppSettingsProvider>().language,
+          ),
           style: TextStyle(
             fontSize: Responsive.fontSize(context, 14),
             color: AppTheme.onSurfaceVariant,
@@ -968,6 +1100,8 @@ class _LabDetailsScreenState extends State<LabDetailsScreen>
   );
 
   Widget _buildLabServicesAndPackagesTabs(BuildContext context) {
+    final lang =
+        context.watch<AppSettingsProvider>().language;
     final svcAll = _visibleLabServices();
     final pkgAll = _visibleLabPackages();
     final filteredCount =
@@ -981,7 +1115,10 @@ class _LabDetailsScreenState extends State<LabDetailsScreen>
             Expanded(
               child: SearchBox(
                 controller: _servicesSearchController,
-                hintText: 'ابحث داخل تحاليل أو باقات المختبر',
+                hintText: AppStrings.t(
+                  'searchLabServicesPackages',
+                  lang,
+                ),
                 onSearchTap: () {
                   if (_tabController.index == 0) {
                     unawaited(_loadServicesInternal(reset: true));
@@ -1020,13 +1157,16 @@ class _LabDetailsScreenState extends State<LabDetailsScreen>
             dividerColor: Colors.transparent,
             labelColor: Colors.white,
             unselectedLabelColor: RastUi.textPurple,
-            tabs: const [
-              Tab(text: 'التحاليل'),
-              Tab(text: 'الباقات'),
+            tabs: [
+              Tab(
+                text: AppStrings.t('analyses', lang),
+              ),
+              Tab(
+                text: AppStrings.t('packages', lang),
+              ),
             ],
           ),
         ),
-        SizedBox(height: Responsive.spacing(context, 14)),
         IndexedStack(
           index: _tabController.index,
           alignment: Alignment.topCenter,
@@ -1040,45 +1180,88 @@ class _LabDetailsScreenState extends State<LabDetailsScreen>
   }
 
   Widget _buildLabServicesGridBody(
-    BuildContext context,
-    List<dynamic> allVisible,
-  ) {
+      BuildContext context,
+      List<dynamic> allVisible,
+      ) {
     if (_services.isEmpty && _loadingMoreServices) {
       return const Padding(
-        padding: EdgeInsets.symmetric(vertical: 24),
-        child: Center(child: CircularProgressIndicator()),
+        padding: EdgeInsets.symmetric(vertical: 28),
+        child: Center(
+          child: SizedBox(
+            width: 30,
+            height: 30,
+            child: CircularProgressIndicator(
+              strokeWidth: 2.4,
+            ),
+          ),
+        ),
       );
     }
+
     if (_services.isEmpty) {
-      return _buildEmptySection('لا توجد تحاليل');
+      return _buildEmptySection(
+        AppStrings.t(
+          'noAnalyses',
+          context.read<AppSettingsProvider>().language,
+        ),
+      );
     }
+
     if (allVisible.isEmpty) {
-      return _buildEmptySection('لا توجد نتائج مطابقة للفلترة');
+      return _buildEmptySection(
+          AppStrings.t(
+            'noFilterResults',
+            context.read<AppSettingsProvider>().language,
+          )
+      );
     }
+
+    final screenWidth = MediaQuery.sizeOf(context).width;
+
+    final crossSpacing = Responsive.spacing(context, 12);
+    final mainSpacing = Responsive.spacing(context, 14);
+
+    final aspectRatio = screenWidth < 360
+        ? 0.62
+        : screenWidth < 400
+        ? 0.66
+        : 0.70;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         GridView.builder(
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
+          padding: EdgeInsets.only(top: 30),
           itemCount: allVisible.length,
           gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: 2,
-            childAspectRatio: 0.70,
-            crossAxisSpacing: Responsive.spacing(context, 10),
-            mainAxisSpacing: Responsive.spacing(context, 10),
+            childAspectRatio: aspectRatio,
+            crossAxisSpacing: crossSpacing,
+            mainAxisSpacing: mainSpacing,
           ),
-          itemBuilder: (context, index) =>
-              _buildServiceGridItem(context, allVisible[index]),
+          itemBuilder: (context, index) {
+            return _buildServiceGridItem(
+              context,
+              allVisible[index],
+            );
+          },
         ),
+
         if (_loadingMoreServices && _hasMoreServices)
           Padding(
-            padding: EdgeInsets.only(top: Responsive.spacing(context, 16)),
+            padding: EdgeInsets.only(
+              top: Responsive.spacing(context, 18),
+              bottom: Responsive.spacing(context, 6),
+            ),
             child: const Center(
               child: SizedBox(
                 width: 28,
                 height: 28,
-                child: CircularProgressIndicator(strokeWidth: 2),
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.2,
+                ),
               ),
             ),
           ),
@@ -1087,45 +1270,88 @@ class _LabDetailsScreenState extends State<LabDetailsScreen>
   }
 
   Widget _buildLabPackagesGridBody(
-    BuildContext context,
-    List<dynamic> allVisible,
-  ) {
+      BuildContext context,
+      List<dynamic> allVisible,
+      ) {
     if (_packages.isEmpty && _loadingMorePackages) {
       return const Padding(
-        padding: EdgeInsets.symmetric(vertical: 24),
-        child: Center(child: CircularProgressIndicator()),
+        padding: EdgeInsets.symmetric(vertical: 28),
+        child: Center(
+          child: SizedBox(
+            width: 30,
+            height: 30,
+            child: CircularProgressIndicator(
+              strokeWidth: 2.4,
+            ),
+          ),
+        ),
       );
     }
+
     if (_packages.isEmpty) {
-      return _buildEmptySection('لا توجد باقات');
+      return _buildEmptySection(
+        AppStrings.t(
+          'noPackages',
+          context.read<AppSettingsProvider>().language,
+        ),
+      );
     }
+
     if (allVisible.isEmpty) {
-      return _buildEmptySection('لا توجد نتائج مطابقة للبحث');
+      return _buildEmptySection(
+        AppStrings.t(
+          'noSearchResults',
+          context.read<AppSettingsProvider>().language,
+        ),
+      );
     }
+
+    final screenWidth = MediaQuery.sizeOf(context).width;
+
+    final crossSpacing = Responsive.spacing(context, 12);
+    final mainSpacing = Responsive.spacing(context, 14);
+
+    final aspectRatio = screenWidth < 360
+        ? 0.62
+        : screenWidth < 400
+        ? 0.66
+        : 0.70;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         GridView.builder(
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
+          padding: EdgeInsets.only(top: 30),
           itemCount: allVisible.length,
           gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: 2,
-            childAspectRatio: 0.70,
-            crossAxisSpacing: Responsive.spacing(context, 10),
-            mainAxisSpacing: Responsive.spacing(context, 10),
+            childAspectRatio: aspectRatio,
+            crossAxisSpacing: crossSpacing,
+            mainAxisSpacing: mainSpacing,
           ),
-          itemBuilder: (context, index) =>
-              _buildPackageGridItem(context, allVisible[index]),
+          itemBuilder: (context, index) {
+            return _buildPackageGridItem(
+              context,
+              allVisible[index],
+            );
+          },
         ),
+
         if (_loadingMorePackages && _hasMorePackages)
           Padding(
-            padding: EdgeInsets.only(top: Responsive.spacing(context, 16)),
+            padding: EdgeInsets.only(
+              top: Responsive.spacing(context, 18),
+              bottom: Responsive.spacing(context, 6),
+            ),
             child: const Center(
               child: SizedBox(
                 width: 28,
                 height: 28,
-                child: CircularProgressIndicator(strokeWidth: 2),
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.2,
+                ),
               ),
             ),
           ),
@@ -1134,6 +1360,8 @@ class _LabDetailsScreenState extends State<LabDetailsScreen>
   }
 
   Widget _buildPackageGridItem(BuildContext context, dynamic item) {
+    final lang =
+        context.watch<AppSettingsProvider>().language;
     final pkg = item is Map ? item as Map<String, dynamic> : <String, dynamic>{};
     final displayName = LocaleUtils.localizedName(
       pkg,
@@ -1159,7 +1387,21 @@ class _LabDetailsScreenState extends State<LabDetailsScreen>
         ),
         borderRadius: BorderRadius.circular(18),
         child: Container(
-          decoration: AppTheme.cardDecorationFor(context),
+          decoration: BoxDecoration(
+            color: RastUi.cardSurface(context),
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(
+              color: RastUi.softBorder(context).withValues(alpha: 0.7),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.12),
+                blurRadius: 14,
+                spreadRadius: 1,
+                offset: const Offset(0, 6),
+              ),
+            ],
+          ),
           padding: EdgeInsets.all(Responsive.spacing(context, 10)),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1195,7 +1437,7 @@ class _LabDetailsScreenState extends State<LabDetailsScreen>
               ],
               SizedBox(height: Responsive.spacing(context, 4)),
               Text(
-                '$testsCount تحليل',
+                '$testsCount ${AppStrings.t('analysisCount', lang)}',
                 style: TextStyle(
                   fontSize: Responsive.fontSize(context, 10),
                   color: AppTheme.onSurfaceVariant,
@@ -1203,7 +1445,9 @@ class _LabDetailsScreenState extends State<LabDetailsScreen>
               ),
               const Spacer(),
               Text(
-                price > 0 ? '${price.toStringAsFixed(2)} ر.س' : 'اتصل لمعرفة السعر',
+              price > 0
+              ? '${price.toStringAsFixed(2)} ${AppStrings.t('sar', lang)}'
+                  : AppStrings.t('callForPrice', lang),
                 style: TextStyle(
                   fontSize: Responsive.fontSize(context, 11),
                   color: RastUi.purple,
@@ -1242,16 +1486,21 @@ class _LabDetailsScreenState extends State<LabDetailsScreen>
   }
 
   Widget _activeServicesFilters(int count) {
+    final lang =
+        context.watch<AppSettingsProvider>().language;
     final chips = <Widget>[
-      _miniInfoChip('$count نتيجة', Icons.fact_check_outlined),
+      _miniInfoChip(
+        '$count ${AppStrings.t('result', lang)}',
+        Icons.fact_check_outlined,
+      ),
     ];
     if (_servicesHomeOnly) {
-      chips.add(_miniInfoChip('خدمة منزلية', Icons.home_rounded));
+      chips.add(_miniInfoChip(AppStrings.t('homeService', lang), Icons.home_rounded));
     }
     if (_servicesMinPrice != null || _servicesMaxPrice != null) {
       chips.add(
         _miniInfoChip(
-          '${_servicesMinPrice?.toStringAsFixed(0) ?? '0'} - ${_servicesMaxPrice?.toStringAsFixed(0) ?? '∞'} ر.س',
+          '${_servicesMinPrice?.toStringAsFixed(0) ?? '0'} - ${_servicesMaxPrice?.toStringAsFixed(0) ?? '∞'}' '${AppStrings.t('sar', lang)}',
           Icons.payments_outlined,
         ),
       );
@@ -1297,6 +1546,8 @@ class _LabDetailsScreenState extends State<LabDetailsScreen>
   }
 
   void _showServicesFilterSheet() {
+    final settings = context.read<AppSettingsProvider>();
+    final lang = settings.language;
     final minController = TextEditingController(
       text: _servicesMinPrice?.toStringAsFixed(0) ?? '',
     );
@@ -1312,27 +1563,29 @@ class _LabDetailsScreenState extends State<LabDetailsScreen>
       backgroundColor: Colors.transparent,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setSheetState) => Directionality(
-          textDirection: TextDirection.rtl,
+          textDirection: settings.textDirection,
           child: _filterSheetShell(
-            title: 'فلترة تحاليل المختبر',
+            title: AppStrings.t('filterLabAnalyses', lang),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _sheetLabel('الترتيب'),
+                _sheetLabel(
+                  AppStrings.t('sort', lang),
+                ),
                 Wrap(
                   spacing: 8,
                   runSpacing: 8,
                   children: [
-                    _sheetChoice('الافتراضي', 'default', sort, (value) {
+                    _sheetChoice(AppStrings.t('defaultSort', lang), 'default', sort, (value) {
                       setSheetState(() => sort = value);
                     }),
-                    _sheetChoice('الأقل سعراً', 'price_low', sort, (value) {
+                    _sheetChoice(AppStrings.t('priceLow', lang), 'price_low', sort, (value) {
                       setSheetState(() => sort = value);
                     }),
-                    _sheetChoice('الأعلى سعراً', 'price_high', sort, (value) {
+                    _sheetChoice(AppStrings.t('priceHigh', lang), 'price_high', sort, (value) {
                       setSheetState(() => sort = value);
                     }),
-                    _sheetChoice('الاسم', 'name', sort, (value) {
+                    _sheetChoice(AppStrings.t('nameSort', lang), 'name', sort, (value) {
                       setSheetState(() => sort = value);
                     }),
                   ],
@@ -1341,7 +1594,9 @@ class _LabDetailsScreenState extends State<LabDetailsScreen>
                 SwitchListTile(
                   value: homeOnly,
                   onChanged: (value) => setSheetState(() => homeOnly = value),
-                  title: const Text('إظهار التحاليل المتاحة منزلياً فقط'),
+                  title: Text(
+                    AppStrings.t('homeAnalysesOnly', lang),
+                  ),
                   contentPadding: EdgeInsets.zero,
                   activeThumbColor: RastUi.purple,
                 ),
@@ -1362,7 +1617,9 @@ class _LabDetailsScreenState extends State<LabDetailsScreen>
                           Navigator.pop(ctx);
                           unawaited(_loadServicesInternal(reset: true));
                         },
-                        child: const Text('مسح'),
+                        child: Text(
+                          AppStrings.t('clear', lang),
+                        ),
                       ),
                     ),
                     const SizedBox(width: 12),
@@ -1382,7 +1639,9 @@ class _LabDetailsScreenState extends State<LabDetailsScreen>
                           Navigator.pop(ctx);
                           unawaited(_loadServicesInternal(reset: true));
                         },
-                        child: const Text('تطبيق'),
+                        child: Text(
+                          AppStrings.t('apply', lang),
+                        ),
                       ),
                     ),
                   ],
@@ -1480,15 +1739,17 @@ class _LabDetailsScreenState extends State<LabDetailsScreen>
     TextEditingController minController,
     TextEditingController maxController,
   ) {
+    final lang =
+        context.watch<AppSettingsProvider>().language;
     return Row(
       children: [
         Expanded(
           child: TextField(
             controller: minController,
             keyboardType: TextInputType.number,
-            decoration: const InputDecoration(
-              labelText: 'أقل سعر',
-              prefixIcon: Icon(Icons.payments_outlined),
+            decoration: InputDecoration(
+              labelText: AppStrings.t('minPrice', lang),
+              prefixIcon: const Icon(Icons.payments_outlined),
             ),
           ),
         ),
@@ -1497,9 +1758,9 @@ class _LabDetailsScreenState extends State<LabDetailsScreen>
           child: TextField(
             controller: maxController,
             keyboardType: TextInputType.number,
-            decoration: const InputDecoration(
-              labelText: 'أعلى سعر',
-              prefixIcon: Icon(Icons.payments_outlined),
+            decoration: InputDecoration(
+              labelText: AppStrings.t('maxPrice', lang),
+              prefixIcon: const Icon(Icons.payments_outlined),
             ),
           ),
         ),
@@ -1508,6 +1769,8 @@ class _LabDetailsScreenState extends State<LabDetailsScreen>
   }
 
   Widget _buildServiceGridItem(BuildContext context, dynamic s) {
+    final lang =
+        context.watch<AppSettingsProvider>().language;
     final svc = s is Map ? s as Map<String, dynamic> : <String, dynamic>{};
     final service = svc['service'] ?? svc;
     final displayName = LocaleUtils.localizedName(
@@ -1527,7 +1790,21 @@ class _LabDetailsScreenState extends State<LabDetailsScreen>
     final imageUrl = ApiConfig.analysisImageUrl(serviceMap, svc);
 
     return Container(
-      decoration: AppTheme.cardDecorationFor(context),
+      decoration: BoxDecoration(
+        color: RastUi.cardSurface(context),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: RastUi.softBorder(context).withValues(alpha: 0.7),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.12),
+            blurRadius: 14,
+            spreadRadius: 1,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
       child: Material(
         color: Colors.transparent,
         child: InkWell(
@@ -1565,7 +1842,8 @@ class _LabDetailsScreenState extends State<LabDetailsScreen>
                 ),
                 const Spacer(),
                 Text(
-                  '${price is num ? price.toStringAsFixed(2) : price} ر.س',
+                  '${price is num ? price.toStringAsFixed(2) : price} '
+                      '${AppStrings.t('sar', lang)}',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
@@ -1584,7 +1862,13 @@ class _LabDetailsScreenState extends State<LabDetailsScreen>
 
   Widget _buildReviewItem(dynamic r) {
     final review = r is Map ? r as Map<String, dynamic> : <String, dynamic>{};
-    final userName = review['user_name'] ?? review['user']?['name'] ?? 'مستخدم';
+    final lang =
+        context.read<AppSettingsProvider>().language;
+
+    final userName =
+        review['user_name'] ??
+            review['user']?['name'] ??
+            AppStrings.t('user', lang);
     final rating = (review['rating'] is num ? review['rating'] as num : 0)
         .toDouble();
     final comment = review['comment']?.toString() ?? '';

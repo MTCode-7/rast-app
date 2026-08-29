@@ -31,9 +31,15 @@ import 'package:rast/features/lab_details/screens/lab_details_screen.dart';
 import 'package:rast/features/settings/screens/default_location_screen.dart';
 import 'package:shimmer/shimmer.dart';
 
-class LabsScreen extends StatefulWidget {
-  const LabsScreen({super.key});
+import '../../../core/constants/app_strings.dart';
 
+class LabsScreen extends StatefulWidget {
+  final bool showBackButton;
+  final String? initialSearchQuery;
+  const LabsScreen({
+    super.key,
+    this.showBackButton = false, this.initialSearchQuery,
+  });
   @override
   State<LabsScreen> createState() => _LabsScreenState();
 }
@@ -62,6 +68,11 @@ class _LabsScreenState extends State<LabsScreen> with OnboardingTourHost {
   double? _userLng;
   bool _filterHomeOnly = false;
 
+  /// Local rebuild scoping: when set, labs-data changes rebuild only these
+  /// nested StatefulBuilders instead of the whole LabsScreen.
+  StateSetter? _resultCountSetState;
+  StateSetter? _labsListSetState;
+
   /// GPS أو مركز المنطقة المختارة لحساب أقرب فرع.
   (double?, double?) get _referenceLocation {
     if (_userLat != null && _userLng != null) {
@@ -82,18 +93,29 @@ class _LabsScreenState extends State<LabsScreen> with OnboardingTourHost {
 
   @override
   List<OnboardingStep> buildOnboardingSteps() => OnboardingCatalog.labsTour(
-        searchKey: _searchKey,
-        filterKey: _filterKey,
-        sortKey: _sortKey,
-      );
+    searchKey: _searchKey,
+    filterKey: _filterKey,
+    sortKey: _sortKey,
+  );
 
   @override
   void initState() {
     super.initState();
+
+    _searchController.text = widget.initialSearchQuery ?? '';
+
     _scrollController.addListener(_onScroll);
     _ensureRegionsLoaded();
     BranchesIndexService.instance.ensureLoaded();
     _loadFromCacheThenNetwork();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+
+      if (_searchController.text.trim().isNotEmpty) {
+        setState(() {});
+      }
+    });
   }
 
   @override
@@ -114,15 +136,15 @@ class _LabsScreenState extends State<LabsScreen> with OnboardingTourHost {
 
   bool get _canUseLabsCache =>
       _selectedRegionId == null &&
-      _sortBy == 'all' &&
-      !_filterHomeOnly &&
-      _searchController.text.trim().isEmpty;
+          _sortBy == 'all' &&
+          !_filterHomeOnly &&
+          _searchController.text.trim().isEmpty;
 
   Future<void> _loadFromCacheThenNetwork() async {
     await CatalogCacheService.ensureHydrated();
     final hasCache = _canUseLabsCache && CatalogCacheService.labsPage1.isNotEmpty;
     if (hasCache && mounted) {
-      setState(() {
+      _setLabsState(() {
         _labs = List.from(CatalogCacheService.labsPage1);
         _totalAvailable ??= _labs.length;
         _isLoading = false;
@@ -181,14 +203,14 @@ class _LabsScreenState extends State<LabsScreen> with OnboardingTourHost {
     if (!reset && !_hasMore) return;
 
     if (reset) {
-      setState(() {
+      _setLabsState(() {
         if (!silent || _labs.isEmpty) _isLoading = true;
         _error = null;
         _currentPage = 1;
         _hasMore = true;
       });
     } else {
-      setState(() {
+      _setLabsState(() {
         _isLoadingMore = true;
         _error = null;
       });
@@ -253,7 +275,7 @@ class _LabsScreenState extends State<LabsScreen> with OnboardingTourHost {
       if (reset && _canUseLabsCache && nextLabs.isNotEmpty) {
         unawaited(CatalogCacheService.saveLabsPage1(nextLabs));
       }
-      setState(() {
+      _setLabsState(() {
         if (reset) {
           _labs = nextLabs;
         } else {
@@ -266,14 +288,14 @@ class _LabsScreenState extends State<LabsScreen> with OnboardingTourHost {
         _isLoadingMore = false;
       });
     } on ApiException catch (e) {
-      setState(() {
+      _setLabsState(() {
         _error = e.message;
         if (reset) _labs = [];
         _isLoading = false;
         _isLoadingMore = false;
       });
     } catch (e) {
-      setState(() {
+      _setLabsState(() {
         if (reset) _labs = [];
         _error = null;
         _isLoading = false;
@@ -323,10 +345,10 @@ class _LabsScreenState extends State<LabsScreen> with OnboardingTourHost {
   }
 
   double _distanceFromLab(
-    Map<dynamic, dynamic> lab,
-    double userLat,
-    double userLng,
-  ) {
+      Map<dynamic, dynamic> lab,
+      double userLat,
+      double userLng,
+      ) {
     final labMap = Map<String, dynamic>.from(lab);
     final branches = BranchesIndexService.instance.branchesFor(labMap) ??
         (labMap['branches'] is List ? labMap['branches'] as List<dynamic> : null);
@@ -402,10 +424,10 @@ class _LabsScreenState extends State<LabsScreen> with OnboardingTourHost {
     final dLng = _degToRad(lng2 - lng1);
     final a =
         math.sin(dLat / 2) * math.sin(dLat / 2) +
-        math.cos(_degToRad(lat1)) *
-            math.cos(_degToRad(lat2)) *
-            math.sin(dLng / 2) *
-            math.sin(dLng / 2);
+            math.cos(_degToRad(lat1)) *
+                math.cos(_degToRad(lat2)) *
+                math.sin(dLng / 2) *
+                math.sin(dLng / 2);
     return earthRadiusKm * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
   }
 
@@ -472,214 +494,372 @@ class _LabsScreenState extends State<LabsScreen> with OnboardingTourHost {
     }).toList();
   }
 
+  /// Applies a labs-data mutation ([_isLoading], [_labs], [_error], etc.)
+  /// and rebuilds only the result-count text and labs list/loading/error
+  /// area, instead of the entire LabsScreen (search bar, filter button,
+  /// sort chips stay untouched).
+  void _setLabsState(VoidCallback update) {
+    update();
+    if (!mounted) return;
+    if (_resultCountSetState != null || _labsListSetState != null) {
+      _resultCountSetState?.call(() {});
+      _labsListSetState?.call(() {});
+    } else {
+      setState(() {});
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final settings = context.watch<AppSettingsProvider>();
+    final lang = settings.language;
     final theme = Theme.of(context);
-    final visibleLabs = _visibleLabs();
-    final totalLabel = (_totalAvailable ?? _labs.length).toString();
     return Directionality(
-      textDirection: TextDirection.rtl,
+      textDirection: settings.textDirection,
       child: Container(
-        decoration: BoxDecoration(gradient: _backgroundGradient(theme)),
+        decoration: const BoxDecoration(
+          gradient: RastUi.headerGradient,
+        ),
         child: Scaffold(
           backgroundColor: Colors.transparent,
           appBar: RastTopBar(
-            title: 'المختبرات',
+            title: AppStrings.t('labs', lang),
             showCart: true,
+            showBack: widget.showBackButton,
             helpTourId: OnboardingTourIds.labs,
             helpTourSteps: buildOnboardingSteps(),
+            iconColor: Colors.white,
           ),
+
           body: ClipRRect(
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+            borderRadius: const BorderRadius.only(
+              topLeft: Radius.circular(38),
+              topRight: Radius.circular(38),
+            ),
             child: Container(
+              width: double.infinity,
               color: RastUi.screenSurface(context),
-              child: _isLoading
-                  ? _buildLoading()
-                  : _error != null && _labs.isEmpty
-                  ? _buildError()
-                  : Column(
-                      children: [
-                        Padding(
+              child: RefreshIndicator(
+                onRefresh: () => _loadData(reset: true),
+                child: CustomScrollView(
+                  controller: _scrollController,
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  slivers: [
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: EdgeInsets.fromLTRB(
+                          Responsive.spacing(context, 18),
+                          Responsive.spacing(context, 30),
+                          Responsive.spacing(context, 18),
+                          Responsive.spacing(context, 10),
+                        ),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: KeyedSubtree(
+                                key: _searchKey,
+                                child: SearchBox(
+                                  controller: _searchController,
+                                  hintText: AppStrings.t('searchLabs', lang),                                  onSearchTap: () =>
+                                    _loadData(reset: true),
+                                  onSubmitted: (_) =>
+                                      _loadData(reset: true),
+                                ),
+                              ),
+                            ),
+
+                            const SizedBox(width: 14),
+
+                            KeyedSubtree(
+                              key: _filterKey,
+                              child: _buildFilterButton(),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: EdgeInsets.symmetric(
+                          horizontal:
+                          Responsive.spacing(context, 18),
+                        ),
+                        child: StatefulBuilder(
+                          builder: (context, setResultCountState) {
+                            _resultCountSetState = setResultCountState;
+                            final resultCountLabel =
+                            (_totalAvailable ?? _labs.length).toString();
+                            return Align(
+                              alignment:
+                              AlignmentDirectional.centerStart,
+                              child: Text(
+                                '${AppStrings.t('showing', lang)} '
+                                    '${_visibleLabs().length} '
+                                    '${AppStrings.t('of', lang)} '
+                                    '$resultCountLabel',
+                                style: TextStyle(
+                                  fontSize:
+                                  Responsive.fontSize(context, 12),
+                                  color:
+                                  AppTheme.onSurfaceVariant,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    ),
+
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: EdgeInsets.symmetric(
+                          vertical: Responsive.spacing(context, 14),
+                        ),
+                        child: KeyedSubtree(
+                          key: _sortKey,
+                          child: _buildSortRow(),
+                        ),
+                      ),
+                    ),
+
+                    if (_sortBy == 'nearby' &&
+                        _userLat == null &&
+                        _userLng == null)
+                      SliverToBoxAdapter(
+                        child: Padding(
                           padding: EdgeInsets.fromLTRB(
                             Responsive.spacing(context, 18),
+                            0,
                             Responsive.spacing(context, 18),
-                            Responsive.spacing(context, 18),
-                            Responsive.spacing(context, 10),
+                            Responsive.spacing(context, 14),
                           ),
-                          child: Column(
-                            children: [
-                              Row(
+                          child: GestureDetector(
+                            onTap: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) =>
+                                const DefaultLocationScreen(),
+                              ),
+                            ).then((_) async {
+                              await _loadUserLocation();
+                              await _loadData(reset: true);
+                            }),
+                            child: Container(
+                              padding:
+                              const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 10,
+                              ),
+                              decoration: BoxDecoration(
+                                color: theme
+                                    .colorScheme.primary
+                                    .withValues(alpha: 0.08),
+                                borderRadius:
+                                BorderRadius.circular(14),
+                              ),
+                              child: Row(
                                 children: [
+                                  Icon(
+                                    Icons.location_off,
+                                    size: 18,
+                                    color: theme
+                                        .colorScheme.primary,
+                                  ),
+
+                                  const SizedBox(width: 8),
+
                                   Expanded(
-                                    child: KeyedSubtree(
-                                      key: _searchKey,
-                                      child: SearchBox(
-                                        controller: _searchController,
-                                        hintText: 'ابحث عن مختبر',
-                                        onSearchTap: () =>
-                                            _loadData(reset: true),
-                                        onSubmitted: (_) =>
-                                            _loadData(reset: true),
+                                    child: Text(
+                                      AppStrings.t(
+                                        'saveLocationFromSettings',
+                                        lang,
+                                      ),
+                                      style: TextStyle(
+                                        fontSize:
+                                        Responsive.fontSize(
+                                          context,
+                                          12,
+                                        ),
+                                        color: theme
+                                            .colorScheme.primary,
                                       ),
                                     ),
                                   ),
-                                  const SizedBox(width: 14),
-                                  KeyedSubtree(
-                                    key: _filterKey,
-                                    child: _buildFilterButton(),
-                                  ),
                                 ],
                               ),
-                              SizedBox(height: Responsive.spacing(context, 12)),
-                              Align(
-                                alignment: AlignmentDirectional.centerStart,
-                                child: Text(
-                                  'عرض ${visibleLabs.length} من $totalLabel',
-                                  style: TextStyle(
-                                    fontSize: Responsive.fontSize(context, 12),
-                                    color: AppTheme.onSurfaceVariant,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
-                              ),
-                              SizedBox(height: Responsive.spacing(context, 10)),
-                              KeyedSubtree(
-                                key: _sortKey,
-                                child: _buildSortRow(),
-                              ),
-                              if (_sortBy == 'nearby' &&
-                                  _userLat == null &&
-                                  _userLng == null) ...[
-                                SizedBox(height: 8),
-                                GestureDetector(
-                                  onTap: () => Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (_) =>
-                                          const DefaultLocationScreen(),
-                                    ),
-                                  ).then((_) async {
-                                    await _loadUserLocation();
-                                    await _loadData(reset: true);
-                                  }),
-                                  child: Container(
-                                    padding: EdgeInsets.symmetric(
-                                      horizontal: 12,
-                                      vertical: 8,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: theme.colorScheme.primary
-                                          .withValues(alpha: 0.08),
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
-                                    child: Row(
-                                      children: [
-                                        Icon(
-                                          Icons.location_off,
-                                          size: 18,
-                                          color: theme.colorScheme.primary,
-                                        ),
-                                        SizedBox(width: 8),
-                                        Expanded(
-                                          child: Text(
-                                            'احفظ موقعك من الإعدادات لعرض الأقرب',
-                                            style: TextStyle(
-                                              fontSize: 12,
-                                              color: theme.colorScheme.primary,
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ],
+                            ),
                           ),
                         ),
-                        Expanded(
-                          child: visibleLabs.isEmpty
-                              ? _buildEmpty()
-                              : RefreshIndicator(
-                                  onRefresh: () => _loadData(reset: true),
-                                  child: _buildLabsList(visibleLabs),
-                                ),
-                        ),
-                      ],
+                      ),
+
+                    SliverToBoxAdapter(
+                      child: StatefulBuilder(
+                        builder: (context, setLabsListState) {
+                          _labsListSetState = setLabsListState;
+                          final visibleLabs = _visibleLabs();
+
+                          if (_isLoading) {
+                            return _buildLoading();
+                          }
+
+                          if (_error != null && _labs.isEmpty) {
+                            return _buildError();
+                          }
+
+                          if (visibleLabs.isEmpty) {
+                            return SizedBox(
+                              height: 350,
+                              child: _buildEmpty(),
+                            );
+                          }
+
+                          return Padding(
+                            padding: EdgeInsets.fromLTRB(
+                              Responsive.spacing(context, 16),
+                              4,
+                              Responsive.spacing(context, 16),
+                              Responsive.spacing(context, 24),
+                            ),
+                            child: ListView.builder(
+                              shrinkWrap: true,
+                              physics: const NeverScrollableScrollPhysics(),
+                              itemCount:
+                              visibleLabs.length +
+                                  (_isLoadingMore ? 1 : 0),
+                              itemBuilder: (context, index) {
+                                // PAGINATION LOADER
+                                if (index >= visibleLabs.length) {
+                                  return const Padding(
+                                    padding: EdgeInsets.symmetric(
+                                      vertical: 18,
+                                    ),
+                                    child: Center(
+                                      child:
+                                      CircularProgressIndicator(),
+                                    ),
+                                  );
+                                }
+
+                                final lab =
+                                visibleLabs[index] is Map
+                                    ? visibleLabs[index]
+                                as Map<String, dynamic>
+                                    : <String, dynamic>{};
+
+                                final ref = _referenceLocation;
+
+                                return Padding(
+                                  padding: EdgeInsets.only(
+                                    bottom:
+                                    Responsive.spacing(
+                                      context,
+                                      12,
+                                    ),
+                                  ),
+                                  child: _LabCard(
+                                    lab: lab,
+                                    userLat: ref.$1,
+                                    userLng: ref.$2,
+                                    branches:
+                                    BranchesIndexService
+                                        .instance
+                                        .branchesFor(lab) ??
+                                        (lab['branches']
+                                        is List
+                                            ? lab['branches']
+                                        as List<dynamic>
+                                            : null),
+                                    onTap: () =>
+                                        Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                            builder: (_) =>
+                                                LabDetailsScreen(
+                                                  lab: lab,
+                                                ),
+                                          ),
+                                        ),
+                                  )
+                                      .animate()
+                                      .fadeIn(
+                                    duration: 400.ms,
+                                    delay: Duration(
+                                      milliseconds:
+                                      (index % 8) * 40,
+                                    ),
+                                  )
+                                      .slideY(
+                                    begin: 0.02,
+                                    end: 0,
+                                    curve:
+                                    Curves.easeOutCubic,
+                                  ),
+                                );
+                              },
+                            ),
+                          );
+                        },
+                      ),
                     ),
+
+                    SliverToBoxAdapter(
+                      child: SizedBox(
+                        height:
+                        Responsive.spacing(context, 24),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
           ),
+
         ),
       ),
     );
   }
 
-  LinearGradient _backgroundGradient(ThemeData theme) {
-    if (theme.brightness == Brightness.dark) {
-      return const LinearGradient(
-        begin: Alignment.topCenter,
-        end: Alignment.bottomCenter,
-        colors: [Color(0xFF07131A), Color(0xFF081924), Color(0xFF0B2230)],
-        stops: [0.0, 0.5, 1.0],
-      );
-    }
-    return AppTheme.backgroundGradient;
-  }
 
   Widget _buildSortRow() {
+    final settings = context.watch<AppSettingsProvider>();
+    final lang = settings.language;
+
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
+      padding: EdgeInsets.symmetric(
+        horizontal: Responsive.spacing(context, 15),
+      ),
       child: Row(
         children: [
-          _sortChip('الكل', 'all'),
-          SizedBox(width: 8),
-          _sortChip('القريب', 'nearby'),
-          SizedBox(width: 8),
-          _sortChip('الخدمة المنزلية', 'home_service'),
-          SizedBox(width: 8),
-          _sortChip('المميزة', 'featured'),
+          _sortChip(
+            AppStrings.t('allLabs', lang),
+            'all',
+          ),
+
+          const SizedBox(width: 8),
+
+          _sortChip(
+            AppStrings.t('nearbyLabs', lang),
+            'nearby',
+          ),
+
+          const SizedBox(width: 8),
+
+          _sortChip(
+            AppStrings.t('homeServiceLabs', lang),
+            'home_service',
+          ),
+
+          const SizedBox(width: 8),
+
+          _sortChip(
+            AppStrings.t('featuredLabsFilter', lang),
+            'featured',
+          ),
         ],
       ),
-    );
-  }
-
-  Widget _buildLabsList(List<dynamic> visibleLabs) {
-    return ListView.separated(
-      controller: _scrollController,
-      padding: EdgeInsets.symmetric(horizontal: Responsive.spacing(context, 16)),
-      itemCount: visibleLabs.length + (_isLoadingMore ? 1 : 0),
-      separatorBuilder: (_, __) => SizedBox(height: Responsive.spacing(context, 12)),
-      itemBuilder: (context, index) {
-        if (index >= visibleLabs.length) {
-          return const Padding(
-            padding: EdgeInsets.symmetric(vertical: 10),
-            child: Center(child: CircularProgressIndicator()),
-          );
-        }
-        final lab = visibleLabs[index] is Map
-            ? visibleLabs[index] as Map<String, dynamic>
-            : <String, dynamic>{};
-        final ref = _referenceLocation;
-        return _LabCard(
-              lab: lab,
-              userLat: ref.$1,
-              userLng: ref.$2,
-              branches: BranchesIndexService.instance.branchesFor(lab) ??
-                  (lab['branches'] is List
-                      ? lab['branches'] as List<dynamic>
-                      : null),
-              onTap: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => LabDetailsScreen(lab: lab)),
-              ),
-            )
-            .animate()
-            .fadeIn(
-              duration: 400.ms,
-              delay: Duration(milliseconds: (index % 8) * 40),
-            )
-            .slideY(begin: 0.02, end: 0, curve: Curves.easeOutCubic);
-      },
     );
   }
 
@@ -712,15 +892,16 @@ class _LabsScreenState extends State<LabsScreen> with OnboardingTourHost {
     var selectedSort = _sortBy == 'region' ? 'all' : _sortBy;
     var homeOnly = _filterHomeOnly;
     int? selectedRegionId = _selectedRegionId;
-    final isArabic = context.read<AppSettingsProvider>().isArabic;
-
+    final settings = context.read<AppSettingsProvider>();
+    final isArabic = settings.isArabic;
+    final lang = settings.language;
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setSheetState) => Directionality(
-          textDirection: TextDirection.rtl,
+          textDirection: settings.textDirection,
           child: Container(
             padding: EdgeInsets.fromLTRB(
               Responsive.spacing(context, 20),
@@ -757,7 +938,7 @@ class _LabsScreenState extends State<LabsScreen> with OnboardingTourHost {
                     ),
                     SizedBox(height: Responsive.spacing(context, 16)),
                     Text(
-                      'فلترة المختبرات',
+                      AppStrings.t('filterLabs', lang),
                       style: TextStyle(
                         color: RastUi.primaryText(context),
                         fontSize: Responsive.fontSize(context, 18),
@@ -766,7 +947,7 @@ class _LabsScreenState extends State<LabsScreen> with OnboardingTourHost {
                     ),
                     SizedBox(height: Responsive.spacing(context, 18)),
                     Text(
-                      'المنطقة',
+                      AppStrings.t('region', lang),
                       style: TextStyle(
                         color: RastUi.textPurple,
                         fontSize: Responsive.fontSize(context, 13),
@@ -784,7 +965,7 @@ class _LabsScreenState extends State<LabsScreen> with OnboardingTourHost {
                         key: ValueKey<Object>(selectedRegionId ?? '__all__'),
                         isExpanded: true,
                         initialValue: selectedRegionId != null &&
-                                _regions.any((r) => r.id == selectedRegionId)
+                            _regions.any((r) => r.id == selectedRegionId)
                             ? selectedRegionId
                             : null,
                         decoration: InputDecoration(
@@ -798,14 +979,18 @@ class _LabsScreenState extends State<LabsScreen> with OnboardingTourHost {
                             vertical: 8,
                           ),
                         ),
-                        hint: const Text('كل المناطق'),
+                        hint: Text(
+                          AppStrings.t('allRegions', lang),
+                        ),
                         items: [
-                          const DropdownMenuItem<int?>(
+                          DropdownMenuItem<int?>(
                             value: null,
-                            child: Text('كل المناطق'),
+                            child: Text(
+                              AppStrings.t('allRegions', lang),
+                            ),
                           ),
                           ..._regions.map(
-                            (r) => DropdownMenuItem<int?>(
+                                (r) => DropdownMenuItem<int?>(
                               value: r.id,
                               child: Text(r.displayName(isArabic)),
                             ),
@@ -819,27 +1004,40 @@ class _LabsScreenState extends State<LabsScreen> with OnboardingTourHost {
                       spacing: 8,
                       runSpacing: 8,
                       children: [
-                        _sheetSortChoice('الكل', 'all', selectedSort, (value) {
-                          setSheetState(() => selectedSort = value);
-                        }),
-                        _sheetSortChoice('القريب', 'nearby', selectedSort, (
-                          value,
-                        ) {
-                          setSheetState(() => selectedSort = value);
-                        }),
                         _sheetSortChoice(
-                          'الخدمة المنزلية',
-                          'home_service',
+                          AppStrings.t('allLabs', lang),
+                          'all',
                           selectedSort,
-                          (value) {
+                              (value) {
                             setSheetState(() => selectedSort = value);
                           },
                         ),
-                        _sheetSortChoice('المميزة', 'featured', selectedSort, (
-                          value,
-                        ) {
-                          setSheetState(() => selectedSort = value);
-                        }),
+                        _sheetSortChoice(
+                          AppStrings.t('nearbyLabs', lang),
+                          'nearby',
+                          selectedSort,
+                              (value) {
+                            setSheetState(() => selectedSort = value);
+                          },
+                        ),
+
+                        _sheetSortChoice(
+                          AppStrings.t('homeServiceLabs', lang),
+                          'home_service',
+                          selectedSort,
+                              (value) {
+                            setSheetState(() => selectedSort = value);
+                          },
+                        ),
+
+                        _sheetSortChoice(
+                          AppStrings.t('featuredLabsFilter', lang),
+                          'featured',
+                          selectedSort,
+                              (value) {
+                            setSheetState(() => selectedSort = value);
+                          },
+                        ),
                       ],
                     ),
                     SizedBox(height: Responsive.spacing(context, 14)),
@@ -847,7 +1045,12 @@ class _LabsScreenState extends State<LabsScreen> with OnboardingTourHost {
                       value: homeOnly,
                       onChanged: (value) =>
                           setSheetState(() => homeOnly = value),
-                      title: const Text('مختبرات توفر خدمة منزلية فقط'),
+                      title: Text(
+                        AppStrings.t(
+                          'homeServiceOnly',
+                          lang,
+                        ),
+                      ),
                       contentPadding: EdgeInsets.zero,
                       activeThumbColor: RastUi.purple,
                     ),
@@ -865,7 +1068,9 @@ class _LabsScreenState extends State<LabsScreen> with OnboardingTourHost {
                               Navigator.pop(ctx);
                               _loadData(reset: true);
                             },
-                            child: const Text('مسح'),
+                            child: Text(
+                              AppStrings.t('clear', lang),
+                            ),
                           ),
                         ),
                         const SizedBox(width: 12),
@@ -883,7 +1088,9 @@ class _LabsScreenState extends State<LabsScreen> with OnboardingTourHost {
                               Navigator.pop(ctx);
                               _loadData(reset: true);
                             },
-                            child: const Text('تطبيق'),
+                            child: Text(
+                              AppStrings.t('apply', lang),
+                            ),
                           ),
                         ),
                       ],
@@ -899,11 +1106,11 @@ class _LabsScreenState extends State<LabsScreen> with OnboardingTourHost {
   }
 
   Widget _sheetSortChoice(
-    String label,
-    String value,
-    String selected,
-    ValueChanged<String> onSelected,
-  ) {
+      String label,
+      String value,
+      String selected,
+      ValueChanged<String> onSelected,
+      ) {
     return ChoiceChip(
       label: Text(label),
       selected: selected == value,
@@ -956,7 +1163,10 @@ class _LabsScreenState extends State<LabsScreen> with OnboardingTourHost {
           ),
           SizedBox(height: 16),
           Text(
-            'لا توجد مختبرات',
+            AppStrings.t(
+              'noLabs',
+              context.watch<AppSettingsProvider>().language,
+            ),
             style: TextStyle(
               fontSize: Responsive.fontSize(context, 15),
               color: theme.colorScheme.onSurfaceVariant,
@@ -969,6 +1179,8 @@ class _LabsScreenState extends State<LabsScreen> with OnboardingTourHost {
 
   Widget _buildLoading() => ListView.builder(
     padding: EdgeInsets.all(Responsive.spacing(context, 16)),
+    shrinkWrap: true,
+    physics: const NeverScrollableScrollPhysics(),
     itemCount: 6,
     itemBuilder: (_, __) => Shimmer.fromColors(
       baseColor: Theme.of(context).colorScheme.surfaceContainerHighest,
@@ -1010,7 +1222,12 @@ class _LabsScreenState extends State<LabsScreen> with OnboardingTourHost {
             FilledButton.icon(
               onPressed: _loadData,
               icon: const Icon(Icons.refresh_rounded, size: 20),
-              label: const Text('إعادة المحاولة'),
+              label: Text(
+                AppStrings.t(
+                  'retry',
+                  context.watch<AppSettingsProvider>().language,
+                ),
+              ),
             ),
           ],
         ),
@@ -1070,12 +1287,20 @@ class _LabCardState extends State<_LabCard> {
   @override
   Widget build(BuildContext context) {
     final lab = widget.lab;
-    final logoUrl = ApiConfig.resolveImageUrl(lab['logo_url'], lab['logo']);
+
+    final settings = context.watch<AppSettingsProvider>();
+    final isArabic = settings.isArabic;
+
+    final logoUrl = ApiConfig.resolveImageUrl(
+      lab['logo_url'],
+      lab['logo'],
+    );
+
     final businessName = LocaleUtils.localizedBusinessName(
       lab,
-      context.watch<AppSettingsProvider>().isArabic,
+      isArabic,
     );
-    final isArabic = context.watch<AppSettingsProvider>().isArabic;
+
     final locationText = LabLocationUtils.displayText(
       lab: lab,
       userLat: widget.userLat,
@@ -1083,20 +1308,26 @@ class _LabCardState extends State<_LabCard> {
       branches: widget.branches,
       isArabic: isArabic,
     );
+
     final homeService = lab['home_service_available'] == true;
-    final size =
-        56.0 * (MediaQuery.of(context).size.width / 375).clamp(1.0, 1.2);
+
+    final screenWidth = MediaQuery.sizeOf(context).width;
+    final imageSize = (screenWidth * 0.17).clamp(58.0, 72.0);
 
     return Container(
+      width: double.infinity,
       decoration: BoxDecoration(
         color: RastUi.cardSurface(context),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: RastUi.softBorder(context)),
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(
+          color: RastUi.softBorder(context).withValues(alpha: 0.65),
+        ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.10),
-            blurRadius: 7,
-            offset: const Offset(0, 3),
+            color: Colors.black.withValues(alpha: 0.13),
+            blurRadius: 18,
+            spreadRadius: 1,
+            offset: const Offset(0, 7),
           ),
         ],
       ),
@@ -1104,102 +1335,202 @@ class _LabCardState extends State<_LabCard> {
         color: Colors.transparent,
         child: InkWell(
           onTap: widget.onTap,
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(22),
           child: Padding(
-            padding: EdgeInsets.all(Responsive.spacing(context, 14)),
-            child: Stack(
+            padding: EdgeInsets.all(
+              Responsive.spacing(context, 14),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                PositionedDirectional(
-                  end: 0,
-                  top: 0,
-                  child: IconButton(
-                    onPressed: _toggleFavorite,
-                    visualDensity: VisualDensity.compact,
-                    icon: Icon(
-                      _isFavorite
-                          ? Icons.favorite_rounded
-                          : Icons.favorite_border_rounded,
-                      color: const Color(0xFFFF4D61),
-                      size: Responsive.fontSize(context, 22),
-                    ),
-                  ),
+                _buildLogo(
+                  context,
+                  logoUrl,
+                  imageSize,
                 ),
-                Row(
-                  children: [
-                    _buildLogo(context, logoUrl, size),
-                    SizedBox(width: Responsive.spacing(context, 14)),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+
+                SizedBox(
+                  width: Responsive.spacing(context, 14),
+                ),
+
+                Expanded(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment:
+                    CrossAxisAlignment.start,
+                    children: [
+                      // NAME + FAVORITE
+                      Row(
+                        crossAxisAlignment:
+                        CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            businessName,
-                            style: TextStyle(
-                              fontSize: Responsive.fontSize(context, 13),
-                              color: RastUi.textPurple,
-                              fontWeight: FontWeight.w700,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          SizedBox(height: 4),
-                          Text(
-                            locationText,
-                            style: TextStyle(
-                              fontSize: Responsive.fontSize(context, 11),
-                              color: RastUi.blue,
-                              fontWeight: FontWeight.w500,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          SizedBox(height: 8),
-                          Align(
-                            alignment: AlignmentDirectional.centerStart,
-                            child: Container(
-                              constraints: const BoxConstraints(minWidth: 88),
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 14,
-                                vertical: 4,
+                          Expanded(
+                            child: Text(
+                              businessName,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize:
+                                Responsive.fontSize(
+                                  context,
+                                  14,
+                                ),
+                                height: 1.25,
+                                color:
+                                RastUi.primaryText(context),
+                                fontWeight: FontWeight.w700,
                               ),
-                              decoration: BoxDecoration(
-                                gradient: RastUi.brandGradient,
-                                borderRadius: BorderRadius.circular(18),
-                              ),
-                              child: Text(
-                                homeService ? 'خدمة منزلية' : 'في المختبر',
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                  fontSize: Responsive.fontSize(context, 10),
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w500,
+                            ),
+                          ),
+
+                          const SizedBox(width: 8),
+
+                          InkWell(
+                            onTap: _toggleFavorite,
+                            borderRadius:
+                            BorderRadius.circular(20),
+                            child: Padding(
+                              padding: const EdgeInsets.all(4),
+                              child: Icon(
+                                _isFavorite
+                                    ? Icons.favorite_rounded
+                                    : Icons
+                                    .favorite_border_rounded,
+                                color:
+                                const Color(0xFFFF5A6F),
+                                size:
+                                Responsive.fontSize(
+                                  context,
+                                  21,
                                 ),
                               ),
                             ),
                           ),
                         ],
                       ),
-                    ),
-                  ],
-                ),
-                PositionedDirectional(
-                  end: 0,
-                  bottom: 0,
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        '4.8',
-                        style: TextStyle(
-                          fontSize: Responsive.fontSize(context, 10),
-                          color: RastUi.textPurple,
-                        ),
+
+                      const SizedBox(height: 5),
+
+                      // LOCATION
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.location_on_outlined,
+                            size:
+                            Responsive.fontSize(
+                              context,
+                              15,
+                            ),
+                            color:
+                            AppTheme.onSurfaceVariant,
+                          ),
+                          const SizedBox(width: 4),
+                          Expanded(
+                            child: Text(
+                              locationText,
+                              maxLines: 1,
+                              overflow:
+                              TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize:
+                                Responsive.fontSize(
+                                  context,
+                                  11,
+                                ),
+                                color:
+                                AppTheme.onSurfaceVariant,
+                                fontWeight:
+                                FontWeight.w400,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
-                      const SizedBox(width: 4),
-                      const Icon(
-                        Icons.star_rounded,
-                        color: AppTheme.accent,
-                        size: 16,
+
+                      const SizedBox(height: 12),
+
+                      // BADGE + RATING
+                      LayoutBuilder(
+                        builder: (context, constraints) {
+                          return Row(
+                            children: [
+                              Flexible(
+                                child: Container(
+                                  padding:
+                                  const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 6,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: RastUi.purple
+                                        .withValues(
+                                      alpha: 0.08,
+                                    ),
+                                    borderRadius:
+                                    BorderRadius.circular(
+                                      10,
+                                    ),
+                                  ),
+                                  child: Text(
+                                    homeService
+                                        ? AppStrings.t(
+                                      'homeService',
+                                      settings.language,
+                                    )
+                                        : AppStrings.t(
+                                      'labService',
+                                      settings.language,
+                                    ),
+                                    maxLines: 1,
+                                    overflow:
+                                    TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontSize:
+                                      Responsive.fontSize(
+                                        context,
+                                        10,
+                                      ),
+                                      color: RastUi.purple,
+                                      fontWeight:
+                                      FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                              ),
+
+                              const SizedBox(width: 10),
+
+                              Row(
+                                mainAxisSize:
+                                MainAxisSize.min,
+                                children: [
+                                  const Icon(
+                                    Icons.star_rounded,
+                                    color: AppTheme.accent,
+                                    size: 17,
+                                  ),
+                                  const SizedBox(width: 3),
+                                  Text(
+                                    '4.8',
+                                    style: TextStyle(
+                                      fontSize:
+                                      Responsive.fontSize(
+                                        context,
+                                        11,
+                                      ),
+                                      color:
+                                      RastUi.primaryText(
+                                        context,
+                                      ),
+                                      fontWeight:
+                                      FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          );
+                        },
                       ),
                     ],
                   ),
@@ -1212,51 +1543,58 @@ class _LabCardState extends State<_LabCard> {
     );
   }
 
-  Widget _buildLogo(BuildContext context, String? url, double size) {
+  Widget _buildLogo(
+      BuildContext context,
+      String? url,
+      double size,
+      ) {
     final theme = Theme.of(context);
+
     return Container(
       width: size,
       height: size,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(16),
-        boxShadow: AppTheme.cardShadow,
-        border: Border.all(
-          color: theme.colorScheme.outline.withValues(alpha: 0.25),
-          width: 1,
-        ),
+        color: theme.colorScheme.surfaceContainerHighest,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.16),
+            blurRadius: 10,
+            spreadRadius: 1,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(16),
         child: (url != null && url.isNotEmpty)
             ? CachedNetworkImage(
-                imageUrl: url,
-                fit: BoxFit.cover,
-                placeholder: (_, __) => Container(
-                  color: theme.colorScheme.surfaceContainerHighest,
-                  child: Icon(
-                    Icons.business_rounded,
-                    size: size * 0.45,
-                    color: theme.colorScheme.primary,
-                  ),
-                ),
-                errorWidget: (_, __, ___) => Container(
-                  color: theme.colorScheme.surfaceContainerHighest,
-                  child: Icon(
-                    Icons.business_rounded,
-                    size: size * 0.45,
-                    color: theme.colorScheme.primary,
-                  ),
-                ),
-              )
-            : Container(
-                color: theme.colorScheme.surfaceContainerHighest,
-                child: Icon(
-                  Icons.business_rounded,
-                  size: size * 0.45,
-                  color: theme.colorScheme.primary,
-                ),
-              ),
+          imageUrl: url,
+          fit: BoxFit.cover,
+          placeholder: (_, __) => Center(
+            child: Icon(
+              Icons.business_rounded,
+              size: size * 0.40,
+              color: theme.colorScheme.primary,
+            ),
+          ),
+          errorWidget: (_, __, ___) => Center(
+            child: Icon(
+              Icons.business_rounded,
+              size: size * 0.40,
+              color: theme.colorScheme.primary,
+            ),
+          ),
+        )
+            : Center(
+          child: Icon(
+            Icons.business_rounded,
+            size: size * 0.40,
+            color: theme.colorScheme.primary,
+          ),
+        ),
       ),
     );
   }
+
 }

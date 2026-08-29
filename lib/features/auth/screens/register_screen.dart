@@ -11,6 +11,9 @@ import 'package:rast/core/services/cart_service.dart';
 import 'package:rast/features/auth/services/auth_service.dart';
 import 'package:rast/features/chat/screens/chat_screen.dart';
 
+import '../../../app/main_shell.dart';
+import '../../../core/constants/app_strings.dart';
+
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key, this.onSuccess});
 
@@ -100,39 +103,42 @@ class _RegisterScreenState extends State<RegisterScreen> {
   @override
   Widget build(BuildContext context) {
     final settings = context.watch<AppSettingsProvider>();
+
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Directionality(
-      textDirection: settings.textDirection,
+      textDirection: settings.language == 'en'
+          ? TextDirection.ltr
+          : TextDirection.rtl,
       child: Scaffold(
         backgroundColor: RastUi.screenSurface(context),
         body: Stack(
           children: [
             Container(
-              height: 132,
+              height: 240,
               decoration: const BoxDecoration(gradient: RastUi.headerGradient),
             ),
             SafeArea(
               child: Align(
-                alignment: Alignment.topRight,
+                alignment: AlignmentDirectional.topStart,
                 child: Padding(
-                  padding: const EdgeInsets.only(top: 12, right: 20),
+                  padding: const EdgeInsetsDirectional.only(
+                    top: 12,
+                    start: 20,
+                  ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
-                    children: const [
+                    children: [
                       Text(
-                        'حساب جديد',
-                        style: TextStyle(
+                        AppStrings.t(
+                          'registerTopTitle',
+                          settings.language,
+                        ),
+                        style: const TextStyle(
                           color: Colors.white,
                           fontSize: 17,
-                          fontWeight: FontWeight.w600,
+                          fontWeight: FontWeight.bold,
                         ),
-                      ),
-                      SizedBox(width: 8),
-                      Icon(
-                        Icons.arrow_forward_ios_rounded,
-                        color: Colors.white,
-                        size: 18,
                       ),
                     ],
                   ),
@@ -140,18 +146,32 @@ class _RegisterScreenState extends State<RegisterScreen> {
               ),
             ),
             Positioned.fill(
-              top: 108,
-              child: Container(
-                decoration: BoxDecoration(
-                  color: RastUi.screenSurface(context),
-                  borderRadius: BorderRadius.vertical(top: Radius.circular(30)),
+              top: 135,
+              child: SingleChildScrollView(
+                padding: EdgeInsets.fromLTRB(
+                  Responsive.spacing(context, 16),
+                  Responsive.spacing(context, 0),
+                  Responsive.spacing(context, 16),
+                  Responsive.spacing(context, 90),
                 ),
-                child: SingleChildScrollView(
+                child: Container(
                   padding: EdgeInsets.fromLTRB(
-                    Responsive.spacing(context, 24),
-                    Responsive.spacing(context, 12),
-                    Responsive.spacing(context, 24),
-                    Responsive.spacing(context, 90),
+                    Responsive.spacing(context, 20),
+                    Responsive.spacing(context, 20),
+                    Responsive.spacing(context, 20),
+                    Responsive.spacing(context, 18),
+                  ),
+                  decoration: BoxDecoration(
+                    color: RastUi.screenSurface(context),
+                    borderRadius: BorderRadius.circular(30),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.32),
+                        blurRadius: 30,
+                        spreadRadius: 2,
+                        offset: const Offset(0, 12),
+                      ),
+                    ],
                   ),
                   child: Column(
                     children: [
@@ -159,12 +179,20 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           .animate()
                           .fadeIn(duration: 420.ms)
                           .slideY(begin: 0.1, end: 0),
-                      SizedBox(height: Responsive.spacing(context, 20)),
+
+                      SizedBox(
+                        height: Responsive.spacing(context, 24),
+                      ),
+
                       _buildCard(context, isDark)
                           .animate()
                           .fadeIn(delay: 120.ms, duration: 420.ms)
                           .slideY(begin: 0.07, end: 0),
-                      SizedBox(height: Responsive.spacing(context, 8)),
+
+                      SizedBox(
+                        height: Responsive.spacing(context, 14),
+                      ),
+
                       _bottomLink(),
                     ],
                   ),
@@ -186,6 +214,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
   Widget _buildCard(BuildContext context, bool isDark) {
     final primary = context.watch<AppSettingsProvider>().primaryColor;
     final fill = isDark ? const Color(0xFF0F172A) : Colors.white;
+    final settings = context.watch<AppSettingsProvider>();
+    final lang = settings.language;
 
     return Container(
       padding: EdgeInsets.zero,
@@ -201,13 +231,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 fill,
                 primary: primary,
                 label: '',
-                hint: 'الاسم الكامل',
+                hint: AppStrings.t('fullName', lang),
                 icon: Icons.person_outline_rounded,
               ),
               validator: (v) =>
-                  (v == null || v.trim().isEmpty) ? 'Name is required' : null,
+              (v == null || v.trim().isEmpty)
+                  ? AppStrings.t('nameRequired', lang)
+                  : null,
             ),
-            SizedBox(height: Responsive.spacing(context, 20)),
+            SizedBox(height: Responsive.spacing(context, 15)),
             TextFormField(
               controller: _emailController,
               keyboardType: TextInputType.emailAddress,
@@ -215,16 +247,22 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 fill,
                 primary: primary,
                 label: '',
-                hint: 'البريد الإلكتروني',
+                hint: AppStrings.t('email', lang),
                 icon: Icons.email_outlined,
               ),
               validator: (v) {
-                if (v == null || v.isEmpty) return 'Email is required';
-                if (!v.contains('@')) return 'Invalid email';
+                if (v == null || v.isEmpty) {
+                  return AppStrings.t('emailRequired', lang);
+                }
+
+                if (!v.contains('@')) {
+                  return AppStrings.t('emailInvalid', lang);
+                }
+
                 return null;
               },
             ),
-            SizedBox(height: Responsive.spacing(context, 20)),
+            SizedBox(height: Responsive.spacing(context, 15)),
             TextFormField(
               controller: _phoneController,
               keyboardType: TextInputType.phone,
@@ -232,16 +270,20 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 fill,
                 primary: primary,
                 label: '',
-                hint: 'رقم الهاتف',
+                hint: AppStrings.t('phone', lang),
                 icon: Icons.phone_outlined,
               ),
               validator: (v) {
                 if (v == null || v.trim().isEmpty) return null;
-                if (v.trim().length < 9) return 'Invalid phone number';
+
+                if (v.trim().length < 9) {
+                  return AppStrings.t('phoneInvalid', lang);
+                }
+
                 return null;
               },
             ),
-            SizedBox(height: Responsive.spacing(context, 20)),
+            SizedBox(height: Responsive.spacing(context, 15)),
             TextFormField(
               controller: _passwordController,
               obscureText: _obscurePassword,
@@ -249,23 +291,25 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 fill,
                 primary: primary,
                 label: '',
-                hint: 'كلمة المرور',
+                hint: AppStrings.t('password', lang),
                 icon: Icons.lock_outline_rounded,
                 suffix: IconButton(
                   icon: Icon(
                     _obscurePassword
                         ? Icons.visibility_off_rounded
                         : Icons.visibility_rounded,
+                    size: 20,
                   ),
                   onPressed: () =>
                       setState(() => _obscurePassword = !_obscurePassword),
                 ),
               ),
-              validator: (v) => (v == null || !_isStrongPassword(v))
-                  ? 'كلمة المرور يجب أن تحتوي على حرف كبير وصغير ورقم (8 أحرف على الأقل)'
+              validator: (v) =>
+              (v == null || !_isStrongPassword(v))
+                  ? AppStrings.t('strongPasswordError', lang)
                   : null,
             ),
-            SizedBox(height: Responsive.spacing(context, 20)),
+            SizedBox(height: Responsive.spacing(context, 15)),
             TextFormField(
               controller: _confirmPasswordController,
               obscureText: _obscureConfirm,
@@ -273,28 +317,30 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 fill,
                 primary: primary,
                 label: '',
-                hint: 'تأكيد كلمة المرور',
+                hint: AppStrings.t('confirmPassword', lang),
                 icon: Icons.lock_reset_rounded,
                 suffix: IconButton(
-                  icon: Icon(
-                    _obscureConfirm
+                  icon:Icon(
+                    _obscurePassword
                         ? Icons.visibility_off_rounded
                         : Icons.visibility_rounded,
+                    size: 20,
                   ),
                   onPressed: () =>
                       setState(() => _obscureConfirm = !_obscureConfirm),
                 ),
               ),
-              validator: (v) => (v != _passwordController.text)
-                  ? 'Passwords do not match'
+              validator: (v) =>
+              v != _passwordController.text
+                  ? AppStrings.t('passwordsDoNotMatch', lang)
                   : null,
             ),
-            SizedBox(height: Responsive.spacing(context, 28)),
+            SizedBox(height: Responsive.spacing(context, 26)),
             GradientFilledButton(
               onPressed: _isLoading ? null : _submit,
               style: FilledButton.styleFrom(
                 padding: EdgeInsets.symmetric(
-                  vertical: Responsive.spacing(context, 15),
+                  vertical: Responsive.spacing(context, 12),
                 ),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(30),
@@ -310,12 +356,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       ),
                     )
                   : Text(
-                      'إنشاء الحساب',
-                      style: TextStyle(
-                        fontSize: Responsive.fontSize(context, 16),
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
+                AppStrings.t('registerButton', lang),
+                style: TextStyle(
+                  fontSize: Responsive.fontSize(context, 14),
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
             ),
           ],
         ),
@@ -334,10 +380,21 @@ class _RegisterScreenState extends State<RegisterScreen> {
     return InputDecoration(
       labelText: label.isEmpty ? null : label,
       hintText: hint,
-      prefixIcon: Icon(icon, color: primary.withValues(alpha: 0.85)),
+      prefixIcon: Icon(
+        icon,
+        color: primary.withValues(alpha: 0.85),
+        size: 19,
+      ),
       suffixIcon: suffix,
       filled: true,
       fillColor: fill,
+      hintStyle: TextStyle(
+        fontSize: Responsive.fontSize(context, 12),
+      ),
+      contentPadding: const EdgeInsets.symmetric(
+        horizontal: 20,
+        vertical: 16,
+      ),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(28),
         borderSide: const BorderSide(color: Color(0xFFD7D4DA)),
@@ -354,24 +411,34 @@ class _RegisterScreenState extends State<RegisterScreen> {
   }
 
   Widget _header() {
+    final settings = context.watch<AppSettingsProvider>();
+
     return Column(
       children: [
         Text(
-          'إنشاء حساب جديد',
+          AppStrings.t(
+            'registerTitle',
+            settings.language,
+          ),
           textAlign: TextAlign.center,
           style: TextStyle(
             color: RastUi.blue,
-            fontSize: Responsive.fontSize(context, 26),
-            fontWeight: FontWeight.w800,
+            fontSize: Responsive.fontSize(context, 21),
+            fontWeight: FontWeight.bold,
           ),
         ),
-        SizedBox(height: Responsive.spacing(context, 6)),
+        SizedBox(
+          height: Responsive.spacing(context, 4),
+        ),
         Text(
-          'أنشئ حسابك وابدأ بحجز التحاليل خلال ثواني',
+          AppStrings.t(
+            'registerSubtitle',
+            settings.language,
+          ),
           textAlign: TextAlign.center,
           style: TextStyle(
             color: RastUi.textPurple,
-            fontSize: Responsive.fontSize(context, 14),
+            fontSize: Responsive.fontSize(context, 12),
           ),
         ),
       ],
@@ -379,23 +446,75 @@ class _RegisterScreenState extends State<RegisterScreen> {
   }
 
   Widget _bottomLink() {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
+    final settings = context.watch<AppSettingsProvider>();
+
+    return Column(
       children: [
-        const Text(
-          'لديك حساب بالفعل؟',
-          style: TextStyle(color: Color(0xFFBDB9C3), fontSize: 12),
-        ),
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: Text(
-            'تسجيل الدخول',
-            style: TextStyle(
-              color: Theme.of(context).colorScheme.secondary,
-              fontWeight: FontWeight.w700,
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              AppStrings.t(
+                'alreadyHaveAccount',
+                settings.language,
+              ),
+              style: const TextStyle(
+                color: Color(0xFF535353),
+                fontSize: 12,
+              ),
             ),
-          ),
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text(
+                AppStrings.t(
+                  'loginLink',
+                  settings.language,
+                ),
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.secondary,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ],
         ),
+
+        const SizedBox(height: 2),
+
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              AppStrings.t("continueAs", settings.language),
+              style: TextStyle(
+                color: Color(0xFF535353),
+              ),
+            ),
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pushAndRemoveUntil(
+                  MaterialPageRoute(
+                    builder: (_) => const MainScaffold(),
+                  ),
+                      (route) => false,
+                );
+              },
+              child: Text(
+                AppStrings.t(
+                  'Guest',
+                  settings.language,
+                ),
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.primary,
+                  fontSize: Responsive.fontSize(context, 15),
+                  fontWeight: FontWeight.bold,
+                  decoration: TextDecoration.underline,
+                ),
+              ),
+            ),
+          ],
+        ),
+
       ],
     );
   }

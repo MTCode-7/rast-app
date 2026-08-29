@@ -12,12 +12,16 @@ class RastHelpButton extends StatelessWidget {
     this.tourSteps,
     this.showBookingGuide = true,
     this.size = 36,
+    this.color,
+
   });
 
   final String? tourId;
   final List<OnboardingStep>? tourSteps;
   final bool showBookingGuide;
   final double size;
+  final Color? color;
+
 
   @override
   Widget build(BuildContext context) {
@@ -30,9 +34,9 @@ class RastHelpButton extends StatelessWidget {
         child: SizedBox(
           width: size,
           height: size,
-          child: const Icon(
+          child: Icon(
             Icons.help_outline_rounded,
-            color: Colors.white,
+            color: color ?? Colors.black,
             size: 22,
           ),
         ),

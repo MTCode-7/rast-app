@@ -8,7 +8,7 @@ class AppTheme {
   static const Color primary = Color(0xFF6A1B68);
   static const Color primaryDark = Color(0xFF4E124F);
   static const Color primaryLight = Color(0xFF7F5FD0);
-  static const Color secondary = Color(0xFF6686D9);
+  static const Color secondary = Color(0xFF395395);
   static const Color accent = Color(0xFFFFD400);
   static const Color goldAccent = Color(0xFFFFC400);
   static const Color warmGold = Color(0xFFFBBF24);
@@ -20,7 +20,7 @@ class AppTheme {
   static const Color info = Color(0xFF0EA5E9);
   static const Color onPrimary = Colors.white;
   static const Color onSurface = Color(0xFF0F172A);
-  static const Color onSurfaceVariant = Color(0xFF475569);
+  static const Color onSurfaceVariant = Color(0xFF535353);
 
   /// تدرجات رئيسية
   static const LinearGradient primaryGradient = LinearGradient(
@@ -65,10 +65,10 @@ class AppTheme {
   /// ظلال البطاقات
   static List<BoxShadow> get cardShadow => [
     BoxShadow(
-      color: primary.withValues(alpha: 0.06),
+      color: primary.withValues(alpha: 0.08),
       blurRadius: 18,
       offset: const Offset(0, 5),
-      spreadRadius: -2,
+      spreadRadius: 2,
     ),
     BoxShadow(
       color: Colors.black.withValues(alpha: 0.04),

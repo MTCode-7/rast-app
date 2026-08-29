@@ -24,7 +24,12 @@ import 'package:rast/features/auth/screens/login_screen.dart';
 import 'package:shimmer/shimmer.dart';
 
 class BookingsScreen extends StatefulWidget {
-  const BookingsScreen({super.key});
+  final bool showBackButton;
+
+  const BookingsScreen({
+    super.key,
+    this.showBackButton = false,
+  });
 
   @override
   State<BookingsScreen> createState() => _BookingsScreenState();
@@ -76,35 +81,74 @@ class _BookingsScreenState extends State<BookingsScreen>
     super.dispose();
   }
 
-  Future<void> _loadData() async {
+  Future<void> _loadData({
+    bool showLoading = true,
+  }) async {
     if (!AuthService.isLoggedIn) {
-      setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
       return;
     }
-    setState(() {
-      _isLoading = true;
-      _error = null;
-    });
+
+    // Only show the full loading screen when we have
+    // nothing displayed yet.
+    final hasExistingData =
+        _upcoming.isNotEmpty || _past.isNotEmpty;
+
+    if (mounted) {
+      setState(() {
+        if (showLoading && !hasExistingData) {
+          _isLoading = true;
+        }
+
+        _error = null;
+      });
+    }
+
     try {
-      final upcoming = await Api.bookings.getUpcoming();
-      final pastRes = await Api.bookings.getPast();
+      final results = await Future.wait([
+        Api.bookings.getUpcoming(),
+        Api.bookings.getPast(),
+      ]);
+
+      if (!mounted) return;
+
+      final upcoming =
+      results[0] as List<dynamic>;
+
+      final pastRes =
+      results[1] as Map<String, dynamic>;
+
       final pastData = pastRes['data'];
+
       final past = pastData is List
-          ? List.from(pastData)
-          : (pastData is Map && pastData['data'] is List
-                ? List.from(pastData['data'])
-                : []);
+          ? List<dynamic>.from(pastData)
+          : (pastData is Map &&
+          pastData['data'] is List
+          ? List<dynamic>.from(
+        pastData['data'],
+      )
+          : <dynamic>[]);
+
       setState(() {
         _upcoming = upcoming;
         _past = past;
         _isLoading = false;
+        _error = null;
       });
     } on ApiException catch (e) {
+      if (!mounted) return;
+
       setState(() {
         _error = e.message;
         _isLoading = false;
       });
     } catch (e) {
+      if (!mounted) return;
+
       setState(() {
         _error = e.toString();
         _isLoading = false;
@@ -132,6 +176,9 @@ class _BookingsScreenState extends State<BookingsScreen>
           booking['booking_period_key'] ?? timeSlot['period_key'],
       'booking_period_label_ar':
           booking['booking_period_label_ar'] ?? timeSlot['period_label_ar'],
+      'booking_period_label_en':
+      booking['booking_period_label_en'] ??
+          timeSlot['period_label_en'],
       'service_type': booking['service_type'] ?? 'in_clinic',
       'service_name_ar': service is Map ? service['name_ar'] : '',
       'service_name_en': service is Map ? service['name_en'] : '',
@@ -139,111 +186,153 @@ class _BookingsScreenState extends State<BookingsScreen>
       'provider_name_en': providerMap['business_name_en'] ?? '',
       'provider_logo_url': providerMap['logo_url'] ?? providerMap['logo'],
       'total_amount': booking['total_amount'] ?? 0,
-      'branch_name':
-          booking['branch_name'] ??
-          (booking['service_type'] == 'home_service' ? 'خدمة منزلية' : 'الفرع'),
+      'branch_name': booking['branch_name'],
       ...booking,
     };
   }
 
-  String _bookingScheduleLine(Map<String, dynamic> booking) {
-    final dateStr =
-        DateFormatter.formatBookingDate(booking['booking_date']?.toString());
-    final periodAr = booking['booking_period_label_ar']?.toString().trim();
-    final timePart = (periodAr != null && periodAr.isNotEmpty)
-        ? periodAr
-        : DateFormatter.formatBookingTime(booking['booking_time']?.toString());
+  String _bookingScheduleLine(
+      Map<String, dynamic> booking,
+      ) {
+    final settings = context.read<AppSettingsProvider>();
+    final isArabic = settings.isArabic;
+
+    final dateStr = DateFormatter.formatBookingDate(
+      booking['booking_date']?.toString(),
+    );
+
+    final periodLabel = isArabic
+        ? booking['booking_period_label_ar']?.toString().trim()
+        : booking['booking_period_label_en']?.toString().trim();
+
+    final timePart =
+    periodLabel != null && periodLabel.isNotEmpty
+        ? periodLabel
+        : DateFormatter.formatBookingTime(
+      booking['booking_time']?.toString(),
+    );
+
     return '$dateStr • $timePart';
   }
 
   @override
   Widget build(BuildContext context) {
+    final settings = context.watch<AppSettingsProvider>();
+    final lang = settings.language;
+
+    Widget content;
+
     if (!AuthService.isLoggedIn) {
-      final lang = context.watch<AppSettingsProvider>().language;
-      return Directionality(
-        textDirection: context.watch<AppSettingsProvider>().textDirection,
-        child: _buildBookingShell(
-          child: Center(
-            child: Padding(
-              padding: EdgeInsets.all(Responsive.spacing(context, 24)),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  _buildEmptyBookingIcon(),
-                  SizedBox(height: Responsive.spacing(context, 24)),
-                  Text(
-                    AppStrings.t('bookingsSignInPrompt', lang),
-                    style: TextStyle(
-                      fontSize: Responsive.fontSize(context, 18),
-                      color: AppTheme.onSurfaceVariant,
-                    ),
-                    textAlign: TextAlign.center,
+      content = _buildBookingShell(
+        child: Center(
+          child: Padding(
+            padding: EdgeInsets.all(
+              Responsive.spacing(context, 24),
+            ),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                _buildEmptyBookingIcon(),
+
+                SizedBox(
+                  height: Responsive.spacing(context, 24),
+                ),
+
+                Text(
+                  AppStrings.t(
+                    'bookingsSignInPrompt',
+                    lang,
                   ),
-                  SizedBox(height: Responsive.spacing(context, 24)),
-                  GradientFilledButtonIcon(
-                    onPressed: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (_) => const LoginScreen()),
-                    ).then((_) => setState(() {})),
-                    icon: const Icon(Icons.login_rounded),
-                    label: Text(AppStrings.t('signIn', lang)),
-                    style: FilledButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 28,
-                        vertical: 14,
-                      ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14),
-                      ),
+                  style: TextStyle(
+                    fontSize:
+                    Responsive.fontSize(context, 18),
+                    color: AppTheme.onSurfaceVariant,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+
+                SizedBox(
+                  height: Responsive.spacing(context, 24),
+                ),
+
+                GradientFilledButtonIcon(
+                  onPressed: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const LoginScreen(),
+                    ),
+                  ).then((_) => setState(() {})),
+                  icon: const Icon(
+                    Icons.login_rounded,
+                  ),
+                  label: Text(
+                    AppStrings.t('signIn', lang),
+                  ),
+                  style: FilledButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 28,
+                      vertical: 14,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius:
+                      BorderRadius.circular(14),
                     ),
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
         ),
       );
-    }
-
-    if (_isLoading) {
-      return _buildLoadingState();
-    }
-    if (_error != null) {
-      return _buildErrorState();
-    }
-
-    return Directionality(
-      textDirection: context.watch<AppSettingsProvider>().textDirection,
-      child: _buildBookingShell(
+    } else if (_isLoading) {
+      content = _buildLoadingState();
+    } else if (_error != null) {
+      content = _buildErrorState();
+    } else {
+      content = _buildBookingShell(
         child: Column(
           children: [
-            SizedBox(height: Responsive.spacing(context, 34)),
+            SizedBox(
+              height: Responsive.spacing(context, 34),
+            ),
             _buildSegmentedTabs(),
             Expanded(
               child: TabBarView(
                 controller: _tabController,
                 children: [
                   _buildBookingList(_upcoming),
-                  _buildBookingList(_past),
+                  _buildBookingList(
+                    _past,
+                    isPast: true,
+                  ),
                 ],
               ),
             ),
           ],
         ),
-      ),
+      );
+    }
+
+    return Directionality(
+      textDirection: settings.textDirection,
+      child: content,
     );
   }
 
   Widget _buildBookingShell({required Widget child}) {
+    final settings = context.watch<AppSettingsProvider>();
+    final lang = settings.language;
     return Container(
       decoration: const BoxDecoration(gradient: RastUi.headerGradient),
       child: Scaffold(
         backgroundColor: Colors.transparent,
         appBar: RastTopBar(
-          title: 'الحجوزات',
+          title: AppStrings.t('bookings', lang),
           showCart: true,
           helpTourId: OnboardingTourIds.bookings,
           helpTourSteps: OnboardingCatalog.bookingsTour,
+          iconColor: Colors.white,
+          showBack: widget.showBackButton,
         ),
         body: ClipRRect(
           borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
@@ -254,65 +343,126 @@ class _BookingsScreenState extends State<BookingsScreen>
   }
 
   Widget _buildSegmentedTabs() {
-    return Container(
-      width: 174,
-      height: 48,
-      padding: const EdgeInsets.all(5),
-      decoration: BoxDecoration(
-        color: RastUi.cardSurface(context),
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: const Color(0xFFE9E8EF)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.14),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
+    final settings = context.watch<AppSettingsProvider>();
+    final lang = settings.language;
+
+    return Padding(
+      padding: EdgeInsets.symmetric(
+        horizontal: Responsive.spacing(context, 18),
       ),
-      child: TabBar(
-        controller: _tabController,
-        dividerColor: Colors.transparent,
-        indicatorSize: TabBarIndicatorSize.tab,
-        indicator: BoxDecoration(
-          gradient: RastUi.brandGradient,
-          borderRadius: BorderRadius.circular(19),
+      child: Container(
+        width: double.infinity,
+        height: 56,
+        padding: const EdgeInsets.all(5),
+        decoration: BoxDecoration(
+          color: RastUi.cardSurface(context),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(
+            color: RastUi.softBorder(context).withValues(alpha: 0.8),
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.08),
+              blurRadius: 14,
+              offset: const Offset(0, 5),
+            ),
+          ],
         ),
-        labelColor: Colors.white,
-        unselectedLabelColor: RastUi.blue,
-        labelStyle: TextStyle(
-          fontWeight: FontWeight.w700,
-          fontSize: Responsive.fontSize(context, 12),
+        child: TabBar(
+          controller: _tabController,
+          indicatorSize: TabBarIndicatorSize.tab,
+          dividerColor: Colors.transparent,
+          splashBorderRadius: BorderRadius.circular(14),
+          overlayColor: WidgetStateProperty.all(
+            Colors.transparent,
+          ),
+          indicator: BoxDecoration(
+            gradient: RastUi.brandGradient,
+            borderRadius: BorderRadius.circular(14),
+            boxShadow: [
+              BoxShadow(
+                color: RastUi.purple.withValues(alpha: 0.25),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          labelColor: Colors.white,
+          unselectedLabelColor: RastUi.textPurple,
+          labelStyle: TextStyle(
+            fontWeight: FontWeight.w700,
+            fontSize: Responsive.fontSize(context, 13),
+          ),
+          unselectedLabelStyle: TextStyle(
+            fontWeight: FontWeight.w600,
+            fontSize: Responsive.fontSize(context, 13),
+          ),
+          tabs: [
+            Tab(
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(
+                    Icons.upcoming_rounded,
+                    size: 18,
+                  ),
+                  const SizedBox(width: 7),
+                  Flexible(
+                    child: Text(
+                      AppStrings.t('upcoming', lang),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Tab(
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(
+                    Icons.history_rounded,
+                    size: 18,
+                  ),
+                  const SizedBox(width: 7),
+                  Flexible(
+                    child: Text(
+                      AppStrings.t('past', lang),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
-        unselectedLabelStyle: TextStyle(
-          fontWeight: FontWeight.w500,
-          fontSize: Responsive.fontSize(context, 12),
-        ),
-        tabs: const [
-          Tab(text: 'القادمة'),
-          Tab(text: 'السابقة'),
-        ],
       ),
     );
   }
 
   Widget _buildLoadingState() {
-    return Directionality(
-      textDirection: TextDirection.rtl,
-      child: _buildBookingShell(
-        child: ListView.builder(
-          padding: EdgeInsets.all(Responsive.spacing(context, 16)),
-          itemCount: 4,
-          itemBuilder: (_, __) => Shimmer.fromColors(
-            baseColor: Theme.of(context).colorScheme.surfaceContainerHighest,
-            highlightColor: Theme.of(context).colorScheme.surface,
-            child: Container(
-              margin: const EdgeInsets.only(bottom: 12),
-              height: 150,
-              decoration: BoxDecoration(
-                color: AppTheme.surfaceVariant,
-                borderRadius: BorderRadius.circular(24),
-              ),
+    return _buildBookingShell(
+      child: ListView.builder(
+        padding: EdgeInsets.all(
+          Responsive.spacing(context, 16),
+        ),
+        itemCount: 4,
+        itemBuilder: (_, __) => Shimmer.fromColors(
+          baseColor: Theme.of(context)
+              .colorScheme
+              .surfaceContainerHighest,
+          highlightColor:
+          Theme.of(context).colorScheme.surface,
+          child: Container(
+            margin: const EdgeInsets.only(bottom: 12),
+            height: 150,
+            decoration: BoxDecoration(
+              color: AppTheme.surfaceVariant,
+              borderRadius: BorderRadius.circular(24),
             ),
           ),
         ),
@@ -321,67 +471,76 @@ class _BookingsScreenState extends State<BookingsScreen>
   }
 
   Widget _buildErrorState() {
-    return Directionality(
-      textDirection: TextDirection.rtl,
-      child: _buildBookingShell(
-        child: Center(
-          child: Padding(
-            padding: EdgeInsets.all(Responsive.spacing(context, 24)),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  Icons.error_outline_rounded,
-                  size: 64,
-                  color: AppTheme.error,
+    final lang =
+        context.watch<AppSettingsProvider>().language;
+
+    return _buildBookingShell(
+      child: Center(
+        child: Padding(
+          padding: EdgeInsets.all(
+            Responsive.spacing(context, 24),
+          ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.error_outline_rounded,
+                size: 64,
+                color: AppTheme.error,
+              ),
+
+              SizedBox(
+                height: Responsive.spacing(context, 16),
+              ),
+
+              Text(
+                _error!,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize:
+                  Responsive.fontSize(context, 15),
                 ),
-                SizedBox(height: Responsive.spacing(context, 16)),
-                Text(
-                  _error!,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: Responsive.fontSize(context, 15)),
+              ),
+
+              SizedBox(
+                height: Responsive.spacing(context, 20),
+              ),
+
+              GradientFilledButtonIcon(
+                onPressed: _loadData,
+                icon: const Icon(
+                  Icons.refresh_rounded,
                 ),
-                SizedBox(height: Responsive.spacing(context, 20)),
-                GradientFilledButtonIcon(
-                  onPressed: _loadData,
-                  icon: const Icon(Icons.refresh_rounded),
-                  label: const Text('إعادة المحاولة'),
-                  style: FilledButton.styleFrom(
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
-                    ),
+                label: Text(
+                  AppStrings.t('retry', lang),
+                ),
+                style: FilledButton.styleFrom(
+                  shape: RoundedRectangleBorder(
+                    borderRadius:
+                    BorderRadius.circular(14),
                   ),
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),
     );
   }
 
-  Widget _buildBookingList(List<dynamic> bookings) {
+  Widget _buildBookingList(
+      List<dynamic> bookings, {
+        bool isPast = false,
+      }) {
     if (bookings.isEmpty) {
-      return Padding(
-        padding: EdgeInsets.only(top: Responsive.spacing(context, 150)),
-        child: Column(
-          children: [
-            _buildEmptyBookingIcon(),
-            SizedBox(height: Responsive.spacing(context, 42)),
-            Text(
-              'لا توجد حجوزات',
-              style: TextStyle(
-                fontSize: Responsive.fontSize(context, 22),
-                color: const Color(0xFF4F4B52),
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ],
-        ),
+      return _buildEmptyBookings(
+        isPast: isPast,
       );
     }
     return RefreshIndicator(
-      onRefresh: _loadData,
+      onRefresh: () => _loadData(
+        showLoading: false,
+      ),
       child: ListView.separated(
         padding: EdgeInsets.all(Responsive.spacing(context, 16)),
         itemCount: bookings.length,
@@ -389,17 +548,233 @@ class _BookingsScreenState extends State<BookingsScreen>
             SizedBox(height: Responsive.spacing(context, 12)),
         itemBuilder: (context, index) {
           final b = _toBookingMap(bookings[index]);
-          return _BookingCard(
+
+          final onTap = () => Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => BookingDetailScreen(
+                booking: b,
+              ),
+            ),
+          );
+
+          if (isPast) {
+            return _PastBookingCard(
+              booking: b,
+              scheduleLine: _bookingScheduleLine(b),
+              onTap: onTap,
+            );
+          }
+
+          return _UpcomingBookingCard(
             booking: b,
             scheduleLine: _bookingScheduleLine(b),
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => BookingDetailScreen(booking: b),
-              ),
-            ).then((_) => _loadData()),
+            onTap: onTap,
           );
         },
+      ),
+    );
+  }
+
+  Widget _buildEmptyBookings({
+    required bool isPast,
+  }) {
+    final settings = context.watch<AppSettingsProvider>();
+    final lang = settings.language;
+
+    final title = isPast
+        ? AppStrings.t('noPastBookings', lang)
+        : AppStrings.t('noUpcomingBookings', lang);
+
+    final description = isPast
+        ? AppStrings.t('noPastBookingsDescription', lang)
+        : AppStrings.t('noUpcomingBookingsDescription', lang);
+
+    final icon = isPast
+        ? Icons.history_rounded
+        : Icons.event_available_rounded;
+
+    return SingleChildScrollView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(
+          Responsive.spacing(context, 20),
+          Responsive.spacing(context, 70),
+          Responsive.spacing(context, 20),
+          Responsive.spacing(context, 30),
+        ),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(
+              maxWidth: 380,
+            ),
+            child: Container(
+              width: double.infinity,
+              padding: EdgeInsets.symmetric(
+                horizontal: Responsive.spacing(
+                  context,
+                  24,
+                ),
+                vertical: Responsive.spacing(
+                  context,
+                  30,
+                ),
+              ),
+              decoration: BoxDecoration(
+                color: RastUi.cardSurface(context),
+                borderRadius: BorderRadius.circular(28),
+                border: Border.all(
+                  color: RastUi.softBorder(context)
+                      .withValues(alpha: 0.75),
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(
+                      alpha: 0.07,
+                    ),
+                    blurRadius: 22,
+                    offset: const Offset(0, 8),
+                  ),
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 112,
+                    height: 112,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: LinearGradient(
+                        begin: Alignment.topRight,
+                        end: Alignment.bottomLeft,
+                        colors: [
+                          RastUi.purple.withValues(
+                            alpha: 0.12,
+                          ),
+                          RastUi.blue.withValues(
+                            alpha: 0.10,
+                          ),
+                        ],
+                      ),
+                    ),
+                    child: Center(
+                      child: Container(
+                        width: 72,
+                        height: 72,
+                        decoration: BoxDecoration(
+                          gradient: RastUi.brandGradient,
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                              color: RastUi.purple
+                                  .withValues(alpha: 0.23),
+                              blurRadius: 16,
+                              offset: const Offset(0, 6),
+                            ),
+                          ],
+                        ),
+                        child: Icon(
+                          icon,
+                          color: Colors.white,
+                          size: 34,
+                        ),
+                      ),
+                    ),
+                  ),
+
+                  SizedBox(
+                    height: Responsive.spacing(
+                      context,
+                      24,
+                    ),
+                  ),
+
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: RastUi.purple.withValues(
+                        alpha: 0.08,
+                      ),
+                      borderRadius:
+                      BorderRadius.circular(999),
+                    ),
+                    child: Text(
+                      isPast
+                          ? AppStrings.t(
+                        'pastBookings',
+                        lang,
+                      )
+                          : AppStrings.t(
+                        'upcomingBookings',
+                        lang,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: RastUi.purple,
+                        fontSize: Responsive.fontSize(
+                          context,
+                          11,
+                        ),
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+
+                  SizedBox(
+                    height: Responsive.spacing(
+                      context,
+                      14,
+                    ),
+                  ),
+
+                  // TITLE
+                  Text(
+                    title,
+                    textAlign: TextAlign.center,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: RastUi.primaryText(context),
+                      fontSize: Responsive.fontSize(
+                        context,
+                        19,
+                      ),
+                      fontWeight: FontWeight.w800,
+                      height: 1.3,
+                    ),
+                  ),
+
+                  SizedBox(
+                    height: Responsive.spacing(
+                      context,
+                      10,
+                    ),
+                  ),
+
+                  // DESCRIPTION
+                  Text(
+                    description,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: RastUi.secondaryText(context),
+                      fontSize: Responsive.fontSize(
+                        context,
+                        13,
+                      ),
+                      fontWeight: FontWeight.w400,
+                      height: 1.6,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -438,12 +813,12 @@ class _BookingsScreenState extends State<BookingsScreen>
   }
 }
 
-class _BookingCard extends StatelessWidget {
+class _PastBookingCard extends StatelessWidget {
   final Map<String, dynamic> booking;
   final String scheduleLine;
   final VoidCallback onTap;
 
-  const _BookingCard({
+  const _PastBookingCard({
     required this.booking,
     required this.scheduleLine,
     required this.onTap,
@@ -462,231 +837,382 @@ class _BookingCard extends StatelessWidget {
     }
   }
 
-  String _statusText(String status) {
+  String _statusText(
+      String status,
+      String lang,
+      ) {
     switch (status) {
       case 'confirmed':
-        return 'مؤكد';
+        return AppStrings.t(
+          'bookingStatusConfirmed',
+          lang,
+        );
+
       case 'pending':
-        return 'قيد الانتظار';
+        return AppStrings.t(
+          'bookingStatusPending',
+          lang,
+        );
+
       case 'completed':
-        return 'مكتمل';
+        return AppStrings.t(
+          'bookingStatusCompleted',
+          lang,
+        );
+
+      case 'cancelled':
+        return AppStrings.t(
+          'bookingStatusCancelled',
+          lang,
+        );
+
       default:
         return status;
     }
   }
 
-  Widget _buildBookingThumb(String? logoUrl) {
-    const double size = 56;
-    return Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: AppTheme.primary.withValues(alpha: 0.06),
-            blurRadius: 10,
-            offset: const Offset(0, 3),
-          ),
-        ],
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(16),
-        child: (logoUrl != null && logoUrl.isNotEmpty)
-            ? CachedNetworkImage(
-                imageUrl: logoUrl,
-                width: size,
-                height: size,
-                fit: BoxFit.cover,
-                placeholder: (_, __) => Container(
-                  color: AppTheme.surfaceVariant,
-                  child: Icon(
-                    Icons.business_rounded,
-                    color: AppTheme.primary,
-                    size: 28,
-                  ),
-                ),
-                errorWidget: (_, __, ___) => Container(
-                  color: AppTheme.surfaceVariant,
-                  child: Icon(
-                    Icons.business_rounded,
-                    color: AppTheme.primary,
-                    size: 28,
-                  ),
-                ),
-              )
-            : Container(
-                color: AppTheme.primary.withValues(alpha: 0.1),
-                child: Icon(
-                  Icons.medical_services_rounded,
-                  color: AppTheme.primary,
-                  size: 28,
-                ),
-              ),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
-    final isArabic = context.watch<AppSettingsProvider>().isArabic;
+    final settings =
+    context.watch<AppSettingsProvider>();
+
+    final isArabic = settings.isArabic;
+    final lang = settings.language;
+
     final serviceName = LocaleUtils.localizedName(
       booking,
       isArabic,
       arKey: 'service_name_ar',
       enKey: 'service_name_en',
     );
+
     final providerName = LocaleUtils.localizedName(
       booking,
       isArabic,
       arKey: 'provider_name_ar',
       enKey: 'provider_name_en',
     );
-    final status = (booking['status'] ?? 'pending').toString();
-    final paymentPending = (booking['payment_status'] ?? 'pending') != 'paid';
+
+    final status =
+    (booking['status'] ?? 'pending').toString();
+
+    final paymentPending =
+        (booking['payment_status'] ?? 'pending') != 'paid';
+
+    final amount = booking['total_amount'] is num
+        ? (booking['total_amount'] as num).toDouble()
+        : double.tryParse(
+      booking['total_amount']?.toString() ?? '',
+    ) ??
+        0.0;
+
     return Container(
-      decoration: AppTheme.cardDecorationFor(context),
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: RastUi.cardSurface(context),
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(
+          color: RastUi.softBorder(context)
+              .withValues(alpha: 0.7),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.075),
+            blurRadius: 18,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
       child: Material(
         color: Colors.transparent,
         child: InkWell(
           onTap: onTap,
-          borderRadius: BorderRadius.circular(24),
+          borderRadius: BorderRadius.circular(22),
           child: Padding(
-            padding: EdgeInsets.all(Responsive.spacing(context, 16)),
+            padding: EdgeInsets.all(
+              Responsive.spacing(context, 14),
+            ),
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment:
+              CrossAxisAlignment.stretch,
               children: [
+                // IMAGE + BOOKING INFORMATION
                 Row(
+                  crossAxisAlignment:
+                  CrossAxisAlignment.start,
                   children: [
-                    if (booking['booking_number'] != null)
-                      Expanded(
-                        child: Row(
-                          children: [
-                            Icon(
-                              Icons.confirmation_number_outlined,
-                              size: 16,
-                              color: AppTheme.primary,
-                            ),
-                            SizedBox(width: 6),
-                            Text(
-                              booking['booking_number'].toString(),
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                                color: AppTheme.primary,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 5,
-                      ),
-                      decoration: BoxDecoration(
-                        color: _statusColor(status).withValues(alpha: 0.15),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Text(
-                        _statusText(status),
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: _statusColor(status),
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
+                    _BookingImages(
+                      booking: booking,
                     ),
-                    if (paymentPending) ...[
-                      SizedBox(width: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 5,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.orange.withValues(alpha: 0.15),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: const Text(
-                          'غير مدفوع',
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: Colors.orange,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-                SizedBox(height: Responsive.spacing(context, 12)),
-                Row(
-                  children: [
-                    _buildBookingThumb(
-                      ApiConfig.resolveImageUrl(
-                        booking['provider_logo_url'],
-                        booking['provider_logo'],
-                      ),
+
+                    SizedBox(
+                      width:
+                      Responsive.spacing(context, 12),
                     ),
-                    SizedBox(width: Responsive.spacing(context, 14)),
+
                     Expanded(
                       child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                        crossAxisAlignment:
+                        CrossAxisAlignment.start,
                         children: [
                           Text(
-                            serviceName.isEmpty ? 'حجز' : serviceName,
+                            serviceName.isEmpty
+                                ? AppStrings.t('booking', lang)
+                                : serviceName,
+                            maxLines: 2,
+                            overflow:
+                            TextOverflow.ellipsis,
                             style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: Responsive.fontSize(context, 15),
+                              color:
+                              RastUi.primaryText(context),
+                              fontSize:
+                              Responsive.fontSize(
+                                context,
+                                14,
+                              ),
+                              fontWeight:
+                              FontWeight.w800,
+                              height: 1.25,
                             ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
                           ),
-                          SizedBox(height: 4),
-                          Text(
-                            providerName,
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: AppTheme.onSurfaceVariant,
+
+                          if (providerName.isNotEmpty) ...[
+                            const SizedBox(height: 5),
+
+                            Row(
+                              children: [
+                                Icon(
+                                  Icons
+                                      .business_outlined,
+                                  size: 14,
+                                  color:
+                                  RastUi.secondaryText(
+                                    context,
+                                  ),
+                                ),
+
+                                const SizedBox(width: 5),
+
+                                Expanded(
+                                  child: Text(
+                                    providerName,
+                                    maxLines: 1,
+                                    overflow:
+                                    TextOverflow
+                                        .ellipsis,
+                                    style: TextStyle(
+                                      color: RastUi
+                                          .secondaryText(
+                                        context,
+                                      ),
+                                      fontSize:
+                                      Responsive
+                                          .fontSize(
+                                        context,
+                                        11,
+                                      ),
+                                      fontWeight:
+                                      FontWeight.w500,
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
+                          ],
+
+                          const SizedBox(height: 9),
+
+                          // STATUS BADGES
+                          Wrap(
+                            spacing: 6,
+                            runSpacing: 6,
+                            children: [
+                              _statusBadge(
+                                context,
+                                status,
+                                lang,
+                              ),
+
+                              if (paymentPending)
+                                _paymentBadge(
+                                  context,
+                                  lang,
+                                ),
+                            ],
                           ),
                         ],
                       ),
                     ),
-                    Icon(
-                      Icons.arrow_forward_ios,
-                      size: 14,
-                      color: AppTheme.onSurfaceVariant,
+
+                    const SizedBox(width: 6),
+
+                    Container(
+                      width: 32,
+                      height: 32,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: RastUi.subtleFill(context),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(
+                        isArabic
+                            ? Icons.arrow_back_ios_new_rounded
+                            : Icons.arrow_forward_ios_rounded,
+                        textDirection: TextDirection.ltr,
+                        size: 13,
+                        color: RastUi.secondaryText(context),
+                      ),
                     ),
                   ],
                 ),
-                Divider(height: 24),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.calendar_today_rounded,
+
+                SizedBox(
+                  height:
+                  Responsive.spacing(context, 14),
+                ),
+
+                Divider(
+                  height: 1,
+                  color: RastUi.softBorder(context),
+                ),
+
+                SizedBox(
+                  height:
+                  Responsive.spacing(context, 12),
+                ),
+
+                // DATE / TIME
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 9,
+                  ),
+                  decoration: BoxDecoration(
+                    color: RastUi.subtleFill(context),
+                    borderRadius:
+                    BorderRadius.circular(12),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 30,
+                        height: 30,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: RastUi.purple
+                              .withValues(alpha: 0.09),
+                          borderRadius:
+                          BorderRadius.circular(9),
+                        ),
+                        child: const Icon(
+                          Icons.calendar_month_outlined,
                           size: 16,
-                          color: AppTheme.onSurfaceVariant,
+                          color: RastUi.purple,
                         ),
-                        SizedBox(width: 6),
-                        Text(
+                      ),
+
+                      const SizedBox(width: 8),
+
+                      Expanded(
+                        child: Text(
                           scheduleLine,
-                          style: TextStyle(fontSize: 13),
+                          maxLines: 2,
+                          overflow:
+                          TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color:
+                            RastUi.primaryText(context),
+                            fontSize:
+                            Responsive.fontSize(
+                              context,
+                              11,
+                            ),
+                            fontWeight:
+                            FontWeight.w600,
+                            height: 1.3,
+                          ),
                         ),
-                      ],
+                      ),
+                    ],
+                  ),
+                ),
+
+                SizedBox(
+                  height:
+                  Responsive.spacing(context, 12),
+                ),
+
+                // BOOKING NUMBER + PRICE
+                Row(
+                  crossAxisAlignment:
+                  CrossAxisAlignment.end,
+                  children: [
+                    Expanded(
+                      child: booking['booking_number'] !=
+                          null
+                          ? Row(
+                        children: [
+                          Icon(
+                            Icons
+                                .confirmation_number_outlined,
+                            size: 15,
+                            color: RastUi
+                                .secondaryText(
+                              context,
+                            ),
+                          ),
+
+                          const SizedBox(width: 6),
+
+                          Expanded(
+                            child: Text(
+                              booking[
+                              'booking_number']
+                                  .toString(),
+                              maxLines: 1,
+                              overflow:
+                              TextOverflow
+                                  .ellipsis,
+                              style: TextStyle(
+                                color: RastUi
+                                    .secondaryText(
+                                  context,
+                                ),
+                                fontSize:
+                                Responsive
+                                    .fontSize(
+                                  context,
+                                  10,
+                                ),
+                                fontWeight:
+                                FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ],
+                      )
+                          : const SizedBox.shrink(),
                     ),
-                    Text(
-                      '${(booking['total_amount'] is num ? (booking['total_amount'] as num).toDouble() : double.tryParse(booking['total_amount']?.toString() ?? '') ?? 0.0).toStringAsFixed(2)} ر.س',
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        color: AppTheme.primary,
-                        fontSize: 15,
+
+                    const SizedBox(width: 10),
+
+                    Flexible(
+                      child: Text(
+                        '${amount.toStringAsFixed(2)} '
+                            '${AppStrings.t('sar', lang)}',
+                        maxLines: 1,
+                        overflow:
+                        TextOverflow.ellipsis,
+                        textAlign: TextAlign.end,
+                        style: TextStyle(
+                          color: RastUi.purple,
+                          fontSize:
+                          Responsive.fontSize(
+                            context,
+                            15,
+                          ),
+                          fontWeight: FontWeight.w900,
+                        ),
                       ),
                     ),
                   ],
@@ -695,6 +1221,756 @@ class _BookingCard extends StatelessWidget {
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _statusBadge(
+      BuildContext context,
+      String status,
+      String lang,
+      ) {
+    final color = _statusColor(status);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: 9,
+        vertical: 5,
+      ),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color: color.withValues(alpha: 0.15),
+        ),
+      ),
+      child: Text(
+        _statusText(status, lang),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          color: color,
+          fontSize: Responsive.fontSize(context, 10),
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+
+  Widget _paymentBadge(
+      BuildContext context,
+      String lang,
+      ) {
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: 9,
+        vertical: 5,
+      ),
+      decoration: BoxDecoration(
+        color: Colors.orange.withValues(alpha: 0.09),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color: Colors.orange.withValues(alpha: 0.15),
+        ),
+      ),
+      child: Text(
+        AppStrings.t('unpaid', lang),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          color: Colors.orange.shade700,
+          fontSize: Responsive.fontSize(context, 10),
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+
+}
+
+class _UpcomingBookingCard extends StatelessWidget {
+
+  final Map<String, dynamic> booking;
+  final String scheduleLine;
+  final VoidCallback onTap;
+
+  const _UpcomingBookingCard({
+    required this.booking,
+    required this.scheduleLine,
+    required this.onTap,
+  });
+
+  Color _statusColor(String status) {
+    switch (status) {
+      case 'confirmed':
+        return Colors.green;
+      case 'pending':
+        return Colors.orange;
+      case 'completed':
+        return AppTheme.primary;
+      default:
+        return AppTheme.onSurfaceVariant;
+    }
+  }
+
+  String _statusText(
+      String status,
+      String lang,
+      ) {
+    switch (status) {
+      case 'confirmed':
+        return AppStrings.t(
+          'bookingStatusConfirmed',
+          lang,
+        );
+
+      case 'pending':
+        return AppStrings.t(
+          'bookingStatusPending',
+          lang,
+        );
+
+      case 'completed':
+        return AppStrings.t(
+          'bookingStatusCompleted',
+          lang,
+        );
+
+      case 'cancelled':
+        return AppStrings.t(
+          'bookingStatusCancelled',
+          lang,
+        );
+
+      default:
+        return status;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final settings =
+    context.watch<AppSettingsProvider>();
+
+    final isArabic = settings.isArabic;
+    final lang = settings.language;
+
+    final serviceName = LocaleUtils.localizedName(
+      booking,
+      isArabic,
+      arKey: 'service_name_ar',
+      enKey: 'service_name_en',
+    );
+
+    final providerName = LocaleUtils.localizedName(
+      booking,
+      isArabic,
+      arKey: 'provider_name_ar',
+      enKey: 'provider_name_en',
+    );
+
+    final status =
+    (booking['status'] ?? 'pending').toString();
+
+    final paymentPending =
+        (booking['payment_status'] ?? 'pending') != 'paid';
+
+    final amount = booking['total_amount'] is num
+        ? (booking['total_amount'] as num).toDouble()
+        : double.tryParse(
+      booking['total_amount']?.toString() ?? '',
+    ) ??
+        0.0;
+
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: RastUi.cardSurface(context),
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(
+          color: RastUi.purple.withValues(alpha: 0.13),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: RastUi.purple.withValues(alpha: 0.10),
+            blurRadius: 20,
+            offset: const Offset(0, 7),
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(22),
+          child: Padding(
+            padding: EdgeInsets.all(
+              Responsive.spacing(context, 14),
+            ),
+            child: Column(
+              crossAxisAlignment:
+              CrossAxisAlignment.stretch,
+              children: [
+                // TOP
+                Row(
+                  crossAxisAlignment:
+                  CrossAxisAlignment.start,
+                  children: [
+                    _BookingImages(
+                      booking: booking,
+                    ),
+
+                    SizedBox(
+                      width: Responsive.spacing(
+                        context,
+                        12,
+                      ),
+                    ),
+
+                    // MAIN INFORMATION
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment:
+                        CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            serviceName.isEmpty
+                                ? AppStrings.t('booking', lang)
+                                : serviceName,
+                            maxLines: 2,
+                            overflow:
+                            TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color:
+                              RastUi.primaryText(context),
+                              fontSize:
+                              Responsive.fontSize(
+                                context,
+                                14,
+                              ),
+                              fontWeight:
+                              FontWeight.w800,
+                              height: 1.25,
+                            ),
+                          ),
+
+                          if (providerName.isNotEmpty) ...[
+                            const SizedBox(height: 5),
+
+                            Row(
+                              children: [
+                                Icon(
+                                  Icons.business_outlined,
+                                  size: 14,
+                                  color:
+                                  RastUi.secondaryText(
+                                    context,
+                                  ),
+                                ),
+                                const SizedBox(width: 5),
+                                Expanded(
+                                  child: Text(
+                                    providerName,
+                                    maxLines: 1,
+                                    overflow:
+                                    TextOverflow
+                                        .ellipsis,
+                                    style: TextStyle(
+                                      color: RastUi
+                                          .secondaryText(
+                                        context,
+                                      ),
+                                      fontSize:
+                                      Responsive
+                                          .fontSize(
+                                        context,
+                                        11,
+                                      ),
+                                      fontWeight:
+                                      FontWeight.w500,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+
+                          const SizedBox(height: 9),
+
+                          // STATUS
+                          Wrap(
+                            spacing: 6,
+                            runSpacing: 6,
+                            children: [
+                              _statusBadge(
+                                context,
+                                status,
+                                lang,
+                              ),
+
+                              if (paymentPending)
+                                _paymentBadge(
+                                  context,
+                                  lang,
+                                ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    const SizedBox(width: 6),
+
+                    // OPEN DETAILS
+                    Container(
+                      width: 34,
+                      height: 34,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: RastUi.purple
+                            .withValues(alpha: 0.08),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(
+                        isArabic
+                            ? Icons.arrow_back_ios_new_rounded
+                            : Icons.arrow_forward_ios_rounded,
+                        textDirection: TextDirection.ltr,
+                        size: 13,
+                        color: RastUi.purple,
+                      ),
+                    ),
+                  ],
+                ),
+
+                SizedBox(
+                  height:
+                  Responsive.spacing(context, 14),
+                ),
+
+                // UPCOMING DATE HIGHLIGHT
+                Container(
+                  padding: EdgeInsets.symmetric(
+                    horizontal:
+                    Responsive.spacing(context, 12),
+                    vertical:
+                    Responsive.spacing(context, 11),
+                  ),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        RastUi.purple
+                            .withValues(alpha: 0.08),
+                        RastUi.blue
+                            .withValues(alpha: 0.06),
+                      ],
+                    ),
+                    borderRadius:
+                    BorderRadius.circular(14),
+                    border: Border.all(
+                      color: RastUi.purple
+                          .withValues(alpha: 0.10),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 36,
+                        height: 36,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          gradient: RastUi.brandGradient,
+                          borderRadius:
+                          BorderRadius.circular(11),
+                        ),
+                        child: const Icon(
+                          Icons.event_available_rounded,
+                          size: 19,
+                          color: Colors.white,
+                        ),
+                      ),
+
+                      const SizedBox(width: 10),
+
+                      Expanded(
+                        child: Text(
+                          scheduleLine,
+                          maxLines: 2,
+                          overflow:
+                          TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color:
+                            RastUi.primaryText(context),
+                            fontSize:
+                            Responsive.fontSize(
+                              context,
+                              12,
+                            ),
+                            fontWeight:
+                            FontWeight.w700,
+                            height: 1.35,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                SizedBox(
+                  height:
+                  Responsive.spacing(context, 12),
+                ),
+
+                Divider(
+                  height: 1,
+                  color: RastUi.softBorder(context),
+                ),
+
+                SizedBox(
+                  height:
+                  Responsive.spacing(context, 11),
+                ),
+
+                // NUMBER + PRICE
+                Row(
+                  children: [
+                    Expanded(
+                      child:
+                      booking['booking_number'] != null
+                          ? Row(
+                        children: [
+                          Icon(
+                            Icons
+                                .confirmation_number_outlined,
+                            size: 15,
+                            color: RastUi
+                                .secondaryText(
+                              context,
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              booking[
+                              'booking_number']
+                                  .toString(),
+                              maxLines: 1,
+                              overflow:
+                              TextOverflow
+                                  .ellipsis,
+                              style: TextStyle(
+                                color: RastUi
+                                    .secondaryText(
+                                  context,
+                                ),
+                                fontSize:
+                                Responsive
+                                    .fontSize(
+                                  context,
+                                  10,
+                                ),
+                                fontWeight:
+                                FontWeight
+                                    .w600,
+                              ),
+                            ),
+                          ),
+                        ],
+                      )
+                          : const SizedBox
+                          .shrink(),
+                    ),
+
+                    const SizedBox(width: 10),
+
+                    Flexible(
+                      child: Text(
+                        '${amount.toStringAsFixed(2)} '
+                        '${AppStrings.t('sar', lang)}',
+                        maxLines: 1,
+                        overflow:
+                        TextOverflow.ellipsis,
+                        textAlign: TextAlign.end,
+                        style: TextStyle(
+                          color: RastUi.purple,
+                          fontSize:
+                          Responsive.fontSize(
+                            context,
+                            15,
+                          ),
+                          fontWeight:
+                          FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _statusBadge(
+      BuildContext context,
+      String status,
+      String lang,
+      ) {
+    final color = _statusColor(status);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: 9,
+        vertical: 5,
+      ),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color: color.withValues(alpha: 0.15),
+        ),
+      ),
+      child: Text(
+        _statusText(status, lang),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          color: color,
+          fontSize:
+          Responsive.fontSize(context, 10),
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+
+  Widget _paymentBadge(BuildContext context,  String lang,) {
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: 9,
+        vertical: 5,
+      ),
+      decoration: BoxDecoration(
+        color: Colors.orange.withValues(alpha: 0.09),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color: Colors.orange.withValues(alpha: 0.15),
+        ),
+      ),
+      child: Text(
+        AppStrings.t(
+          'unpaid',
+          lang,
+        ),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          color: Colors.orange.shade700,
+          fontSize:
+          Responsive.fontSize(context, 10),
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+}
+
+class _BookingImages extends StatelessWidget {
+  final Map<String, dynamic> booking;
+
+  const _BookingImages({
+    required this.booking,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final providerService =
+    booking['provider_service'] is Map
+        ? Map<String, dynamic>.from(
+      booking['provider_service'] as Map,
+    )
+        : <String, dynamic>{};
+
+    final rawService =
+        providerService['service'] ??
+            providerService;
+
+    final service = rawService is Map
+        ? Map<String, dynamic>.from(
+      rawService,
+    )
+        : <String, dynamic>{};
+
+    final testImageUrl =
+    ApiConfig.analysisImageUrl(
+      service,
+      providerService,
+    );
+
+    final labImageUrl =
+    ApiConfig.resolveImageUrl(
+      booking['provider_logo_url'],
+      booking['provider_logo'],
+    );
+
+    return SizedBox(
+      width: 78,
+      height: 78,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          // TEST IMAGE
+          Container(
+            width: 70,
+            height: 70,
+            decoration: BoxDecoration(
+              borderRadius:
+              BorderRadius.circular(18),
+              color: AppTheme.primary
+                  .withValues(alpha: 0.08),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black
+                      .withValues(alpha: 0.08),
+                  blurRadius: 10,
+                  offset:
+                  const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: ClipRRect(
+              borderRadius:
+              BorderRadius.circular(18),
+              child: testImageUrl != null &&
+                  testImageUrl.isNotEmpty
+                  ? CachedNetworkImage(
+                imageUrl:
+                testImageUrl,
+                width: 70,
+                height: 70,
+                fit: BoxFit.cover,
+                placeholder: (_, __) =>
+                    _testFallback(labImageUrl),
+
+                errorWidget: (_, __, ___) =>
+                    _testFallback(labImageUrl),
+              )
+                  : _testFallback(labImageUrl),
+            ),
+          ),
+
+          // LAB IMAGE
+          PositionedDirectional(
+            end: 0,
+            bottom: 0,
+            child: Container(
+              width: 34,
+              height: 34,
+              padding:
+              const EdgeInsets.all(2),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: Colors.white,
+                  width: 2,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black
+                        .withValues(
+                      alpha: 0.16,
+                    ),
+                    blurRadius: 7,
+                    offset:
+                    const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: ClipOval(
+                child: labImageUrl != null &&
+                    labImageUrl.isNotEmpty
+                    ? CachedNetworkImage(
+                  imageUrl:
+                  labImageUrl,
+                  width: 30,
+                  height: 30,
+                  fit: BoxFit.cover,
+
+                  placeholder:
+                      (_, __) =>
+                      _labFallback(),
+
+                  errorWidget:
+                      (_, __, ___) =>
+                      _labFallback(),
+                )
+                    : _labFallback(),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _testFallback(String? labImageUrl) {
+    return Container(
+      width: double.infinity,
+      height: double.infinity,
+      color: AppTheme.primary.withValues(
+        alpha: 0.08,
+      ),
+      child: labImageUrl != null &&
+          labImageUrl.isNotEmpty
+          ? CachedNetworkImage(
+        imageUrl: labImageUrl,
+        width: double.infinity,
+        height: double.infinity,
+        fit: BoxFit.cover,
+        placeholder: (_, __) => Container(
+          alignment: Alignment.center,
+          color: AppTheme.primary.withValues(
+            alpha: 0.08,
+          ),
+          child: const CircularProgressIndicator(
+            strokeWidth: 2,
+          ),
+        ),
+        errorWidget: (_, __, ___) => Container(
+          alignment: Alignment.center,
+          color: AppTheme.primary.withValues(
+            alpha: 0.08,
+          ),
+          child: const Icon(
+            Icons.business_rounded,
+            size: 30,
+            color: AppTheme.primary,
+          ),
+        ),
+      )
+          : const Center(
+        child: Icon(
+          Icons.business_rounded,
+          size: 30,
+          color: AppTheme.primary,
+        ),
+      ),
+    );
+  }
+
+  Widget _labFallback() {
+    return Container(
+      width: double.infinity,
+      height: double.infinity,
+      alignment: Alignment.center,
+      color: AppTheme.surfaceVariant,
+      child: const Icon(
+        Icons.business_rounded,
+        size: 16,
+        color: AppTheme.primary,
       ),
     );
   }

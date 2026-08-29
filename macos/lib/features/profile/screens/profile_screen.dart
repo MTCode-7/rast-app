@@ -500,7 +500,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         _buildActionTile(
           icon: Icons.event_note_rounded,
           title: AppStrings.t('myBookings', lang),
-          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const BookingsScreen())),
+          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const BookingsScreen(showBackButton: true,))),
           cardColor: cardColor,
         ),
         SizedBox(height: 10),

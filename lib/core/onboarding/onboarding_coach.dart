@@ -3,6 +3,8 @@ import 'package:rast/core/onboarding/onboarding_step.dart';
 import 'package:rast/core/services/onboarding_service.dart';
 import 'package:rast/core/widgets/rast_ui.dart';
 
+import 'onboarding_tour_ids.dart';
+
 /// جولة إرشادية تفاعلية (تسليط الضوء + شرح).
 class OnboardingCoach {
   OnboardingCoach._();
@@ -120,10 +122,46 @@ class _OnboardingCoachDialogState extends State<_OnboardingCoachDialog> {
     );
   }
 
-  Widget _buildTooltipCard(BuildContext context, Size size, Rect? rect) {
+  Widget _buildTooltipCard(
+      BuildContext context,
+      Size size,
+      Rect? rect,
+      ) {
     const margin = 20.0;
     const cardMaxW = 340.0;
 
+    // HOME TOUR ONLY:
+    // Keep the same tour, same steps, same highlighted targets,
+    // but place the tooltip card in the middle of the screen.
+    if (
+    widget.tourId == OnboardingTourIds.home ||
+        widget.tourId == OnboardingTourIds.appMain
+    ) {
+      return Positioned.fill(
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: margin,
+            ),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(
+                maxWidth: cardMaxW,
+              ),
+              child: _TooltipContent(
+                step: _step,
+                index: _index,
+                total: widget.steps.length,
+                isLast: _isLast,
+                onNext: _next,
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    // EVERYTHING BELOW IS YOUR ORIGINAL LOGIC
+    // FOR ALL OTHER TOURS.
     if (rect == null) {
       return Center(
         child: Padding(
@@ -140,28 +178,45 @@ class _OnboardingCoachDialogState extends State<_OnboardingCoachDialog> {
     }
 
     final align = _step.align;
+
     double top;
+
     if (align == OnboardingTooltipAlign.above) {
       top = rect.top - 12;
     } else if (align == OnboardingTooltipAlign.below) {
       top = rect.bottom + 12;
     } else {
-      final below = rect.bottom + 200 < size.height;
-      top = below ? rect.bottom + 12 : rect.top - 12;
+      final below =
+          rect.bottom + 200 < size.height;
+
+      top = below
+          ? rect.bottom + 12
+          : rect.top - 12;
     }
 
-    final preferAbove = top > size.height * 0.55;
-    if (preferAbove && align == OnboardingTooltipAlign.auto) {
-      top = (rect.top - 200).clamp(margin, size.height - margin);
+    final preferAbove =
+        top > size.height * 0.55;
+
+    if (preferAbove &&
+        align == OnboardingTooltipAlign.auto) {
+      top = (rect.top - 200).clamp(
+        margin,
+        size.height - margin,
+      );
     }
 
     return Positioned(
       left: margin,
       right: margin,
-      top: top.clamp(margin, size.height - margin - 180),
+      top: top.clamp(
+        margin,
+        size.height - margin - 180,
+      ),
       child: Center(
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: cardMaxW),
+          constraints: const BoxConstraints(
+            maxWidth: cardMaxW,
+          ),
           child: _TooltipContent(
             step: _step,
             index: _index,
@@ -173,6 +228,7 @@ class _OnboardingCoachDialogState extends State<_OnboardingCoachDialog> {
       ),
     );
   }
+
 }
 
 class _TooltipContent extends StatelessWidget {

@@ -1,5 +1,6 @@
 import 'dart:ui' as ui show TextDirection;
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:rast/core/api/api_client.dart';
@@ -15,6 +16,9 @@ import 'package:rast/core/widgets/rast_ui.dart';
 import 'package:rast/features/auth/screens/login_screen.dart';
 import 'package:rast/features/auth/services/auth_service.dart';
 import 'package:rast/features/bookings/screens/payment_webview_screen.dart';
+
+import '../../../core/constants/api_config.dart';
+import '../../../core/constants/app_strings.dart';
 
 class CartScreen extends StatefulWidget {
   const CartScreen({super.key});
@@ -127,29 +131,50 @@ class _CartScreenState extends State<CartScreen> {
   }
 
   Future<void> _clearCart() async {
+    final settings = context.read<AppSettingsProvider>();
+    final lang = settings.language;
+
     final ok = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('إفراغ السلة؟'),
-        content: const Text('سيتم حذف جميع التحاليل من السلة.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('إلغاء'),
+      builder: (ctx) {
+        return Directionality(
+          textDirection: settings.textDirection,
+          child: AlertDialog(
+            title: Text(
+              AppStrings.t('clearCartQuestion', lang),
+            ),
+            content: Text(
+              AppStrings.t('clearCartMessage', lang),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: Text(
+                  AppStrings.t('cancel', lang),
+                ),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: Text(
+                  AppStrings.t('clear', lang),
+                ),
+              ),
+            ],
           ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('إفراغ'),
-          ),
-        ],
-      ),
+        );
+      },
     );
+
     if (ok != true || !mounted) return;
+
     await context.read<CartService>().clearCart();
   }
 
   @override
   Widget build(BuildContext context) {
+    final settings = context.watch<AppSettingsProvider>();
+    final lang = settings.language;
+    final isArabic = settings.isArabic;
     if (!AuthService.isLoggedIn) {
       return Directionality(
         textDirection: ui.TextDirection.rtl,
@@ -170,7 +195,9 @@ class _CartScreenState extends State<CartScreen> {
                       children: [
                         const Icon(Icons.login_rounded, size: 64, color: AppTheme.primary),
                         const SizedBox(height: 16),
-                        const Text('سجّل الدخول لعرض السلة'),
+                        Text(
+                          AppStrings.t('cartSignInPrompt', lang),
+                        ),
                         const SizedBox(height: 20),
                         GradientFilledButtonIcon(
                           onPressed: () async {
@@ -181,7 +208,9 @@ class _CartScreenState extends State<CartScreen> {
                             if (logged == true && mounted) setState(() {});
                           },
                           icon: const Icon(Icons.login),
-                          label: const Text('تسجيل الدخول'),
+                          label: Text(
+                            AppStrings.t('signIn', lang),
+                          ),
                         ),
                       ],
                     ),
@@ -195,19 +224,18 @@ class _CartScreenState extends State<CartScreen> {
     }
 
     final cart = context.watch<CartService>();
-    final isArabic = context.watch<AppSettingsProvider>().isArabic;
     final items = cart.items;
     final summary = cart.summary;
     final provider = cart.provider;
 
     return Directionality(
-      textDirection: ui.TextDirection.rtl,
+      textDirection: settings.textDirection,
       child: Container(
         decoration: const BoxDecoration(gradient: RastUi.headerGradient),
         child: Scaffold(
           backgroundColor: Colors.transparent,
           appBar: RastTopBar(
-            title: 'السلة',
+            title: AppStrings.t('cart', lang),
             onBack: () => Navigator.pop(context),
           ),
           body: ClipRRect(
@@ -268,6 +296,8 @@ class _CartScreenState extends State<CartScreen> {
   }
 
   Widget _buildEmpty(BuildContext context) {
+    final lang =
+        context.watch<AppSettingsProvider>().language;
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(32),
@@ -281,7 +311,7 @@ class _CartScreenState extends State<CartScreen> {
             ),
             const SizedBox(height: 16),
             Text(
-              'السلة فارغة',
+              AppStrings.t('cartEmpty', lang),
               style: TextStyle(
                 fontSize: Responsive.fontSize(context, 18),
                 fontWeight: FontWeight.w600,
@@ -289,7 +319,7 @@ class _CartScreenState extends State<CartScreen> {
             ),
             const SizedBox(height: 8),
             Text(
-              'أضف تحاليل من صفحة المختبر ثم أكمل الدفع مرة واحدة',
+              AppStrings.t('cartEmptyDescription', lang),
               textAlign: TextAlign.center,
               style: TextStyle(color: AppTheme.onSurfaceVariant),
             ),
@@ -299,35 +329,115 @@ class _CartScreenState extends State<CartScreen> {
     );
   }
 
-  Widget _buildProviderHeader(Map<String, dynamic> provider, bool isArabic) {
+  Widget _buildProviderHeader(
+      Map<String, dynamic> provider,
+      bool isArabic,
+      ) {
+    final lang =
+        context.watch<AppSettingsProvider>().language;
     final name = LocaleUtils.localizedName(
       provider,
       isArabic,
       arKey: 'business_name_ar',
       enKey: 'business_name_en',
     );
+
+    final imageUrl = ApiConfig.resolveImageUrl(
+      provider['logo_url'],
+      provider['logo'],
+    );
+
     return Container(
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: RastUi.cardSurface(context),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: RastUi.softBorder(context)),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: RastUi.softBorder(context),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.1),
+            blurRadius: 18,
+            spreadRadius: 0,
+            offset: const Offset(0, 6),
+          ),
+        ],
       ),
       child: Row(
         children: [
-          const Icon(Icons.business_rounded, color: AppTheme.primary),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              name,
-              style: const TextStyle(fontWeight: FontWeight.w600),
+          // LAB IMAGE
+          Container(
+            width: 58,
+            height: 58,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(16),
+              color: AppTheme.primary.withValues(alpha: 0.08),
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(16),
+              child: imageUrl != null && imageUrl.isNotEmpty
+                  ? CachedNetworkImage(
+                imageUrl: imageUrl,
+                width: double.infinity,
+                height: double.infinity,
+                fit: BoxFit.cover,
+                placeholder: (_, __) => const Center(
+                  child: Icon(
+                    Icons.business_rounded,
+                    color: AppTheme.primary,
+                    size: 28,
+                  ),
+                ),
+                errorWidget: (_, __, ___) => const Center(
+                  child: Icon(
+                    Icons.business_rounded,
+                    color: AppTheme.primary,
+                    size: 28,
+                  ),
+                ),
+              )
+                  : const Center(
+                child: Icon(
+                  Icons.business_rounded,
+                  color: AppTheme.primary,
+                  size: 28,
+                ),
+              ),
             ),
           ),
-          Text(
-            'مختبر واحد للسلة',
-            style: TextStyle(
-              fontSize: 11,
-              color: AppTheme.onSurfaceVariant,
+
+          const SizedBox(width: 12),
+
+          // LAB INFO
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  name,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: RastUi.primaryText(context),
+                    fontSize: Responsive.fontSize(context, 14),
+                    fontWeight: FontWeight.w700,
+                    height: 1.25,
+                  ),
+                ),
+
+                const SizedBox(height: 5),
+
+                Text(
+                  AppStrings.t('singleLabCart', lang),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: Responsive.fontSize(context, 11),
+                    color: AppTheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -340,6 +450,8 @@ class _CartScreenState extends State<CartScreen> {
     Map<String, dynamic>? summary,
     CartService cart,
   ) {
+    final lang =
+        context.watch<AppSettingsProvider>().language;
     final discount = _parseNum(summary?['discount_amount']);
     final vat = _parseNum(summary?['vat_amount']);
     final homeFee = _parseNum(summary?['home_service_fee']);
@@ -368,14 +480,33 @@ class _CartScreenState extends State<CartScreen> {
         mainAxisSize: MainAxisSize.min,
         children: [
           if (discount > 0)
-            _summaryRow('خصم المنصة', '- ${discount.toStringAsFixed(2)} ر.س'),
+            _summaryRow(
+              AppStrings.t('platformDiscount', lang),
+              '- ${discount.toStringAsFixed(2)} '
+                  '${AppStrings.t('sar', lang)}',
+            ),
           if (homeFee > 0)
-            _summaryRow('رسوم المنزل', '+ ${homeFee.toStringAsFixed(2)} ر.س'),
+            _summaryRow(
+              AppStrings.t('homeServiceFee', lang),
+              '+ ${homeFee.toStringAsFixed(2)} '
+                  '${AppStrings.t('sar', lang)}',
+            ),
           if (vat > 0)
-            _summaryRow('الضريبة', '+ ${vat.toStringAsFixed(2)} ر.س'),
+            _summaryRow(
+              AppStrings.t('vat', lang),
+              '+ ${vat.toStringAsFixed(2)} '
+                  '${AppStrings.t('sar', lang)}',
+            ),
           _summaryRow(
-            'المجموع (${cart.itemsCount} تحليل)',
-            '${total.toStringAsFixed(2)} ${currency == 'SAR' ? 'ر.س' : currency}',
+            AppStrings.t(
+            'cartTotal',
+            lang,
+            ).replaceFirst(
+            '%d',
+            cart.itemsCount.toString(),
+            ),
+            '${total.toStringAsFixed(2)} '
+                '${currency == 'SAR' ? AppStrings.t('sar', lang) : currency}',
             bold: true,
           ),
           if (_checkoutError != null) ...[
@@ -389,24 +520,106 @@ class _CartScreenState extends State<CartScreen> {
           SizedBox(height: Responsive.spacing(context, 10)),
           Row(
             children: [
-              IconButton(
-                onPressed: cart.isLoading ? null : _clearCart,
-                icon: const Icon(Icons.delete_outline),
-                tooltip: 'إفراغ السلة',
+              Container(
+                width: 54,
+                height: 54,
+                decoration: BoxDecoration(
+                  color: AppTheme.error.withValues(alpha: 0.07),
+                  borderRadius: BorderRadius.circular(17),
+                  border: Border.all(
+                    color: AppTheme.error.withValues(alpha: 0.12),
+                  ),
+                ),
+                child: IconButton(
+                  onPressed: cart.isLoading ? null : _clearCart,
+                  tooltip: AppStrings.t('clearCart', lang),
+                  icon: const Icon(
+                    Icons.delete_outline_rounded,
+                    color: AppTheme.error,
+                    size: 22,
+                  ),
+                ),
               ),
+              const SizedBox(width: 10),
               Expanded(
-                child: GradientFilledButton(
-                  onPressed: _checkingOut || cart.isLoading ? null : _checkout,
-                  child: _checkingOut
-                      ? const SizedBox(
-                          height: 22,
-                          width: 22,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.white,
+                child: Container(
+                  height: 54,
+                  decoration: BoxDecoration(
+                    gradient: _checkingOut || cart.isLoading
+                        ? null
+                        : RastUi.brandGradient,
+                    color: _checkingOut || cart.isLoading
+                        ? AppTheme.onSurfaceVariant.withValues(alpha: 0.25)
+                        : null,
+                    borderRadius: BorderRadius.circular(17),
+                    boxShadow: _checkingOut || cart.isLoading
+                        ? null
+                        : [
+                      BoxShadow(
+                        color: AppTheme.primary.withValues(alpha: 0.28),
+                        blurRadius: 16,
+                        offset: const Offset(0, 7),
+                      ),
+                    ],
+                  ),
+                  child: Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      onTap:
+                      _checkingOut || cart.isLoading ? null : _checkout,
+                      borderRadius: BorderRadius.circular(17),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 18,
+                        ),
+                        child: Center(
+                          child: _checkingOut
+                              ? const SizedBox(
+                            width: 22,
+                            height: 22,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2.3,
+                              color: Colors.white,
+                            ),
+                          )
+                              : Row(
+                            mainAxisAlignment:
+                            MainAxisAlignment.center,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(
+                                Icons.lock_outline_rounded,
+                                color: Colors.white,
+                                size: 19,
+                              ),
+                              const SizedBox(width: 8),
+                              Flexible(
+                                child: Text(
+                                  AppStrings.t('checkoutAndPay', lang),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: Responsive.fontSize(
+                                      context,
+                                      14,
+                                    ),
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              const Icon(
+                                Icons.arrow_forward_rounded,
+                                color: Colors.white,
+                                size: 18,
+                              ),
+                            ],
                           ),
-                        )
-                      : const Text('إتمام الطلب والدفع'),
+                        ),
+                      ),
+                    ),
+                  ),
                 ),
               ),
             ],
@@ -455,9 +668,21 @@ class _CartItemTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final settings =
+    context.watch<AppSettingsProvider>();
+    final lang = settings.language;
     final service = item['service'] is Map
         ? item['service'] as Map<String, dynamic>
         : <String, dynamic>{};
+    final providerService = item['provider_service'] is Map
+        ? Map<String, dynamic>.from(
+      item['provider_service'] as Map,
+    )
+        : <String, dynamic>{};
+    final imageUrl = ApiConfig.analysisImageUrl(
+      service,
+      providerService,
+    );
     final timeSlot = item['time_slot'] is Map
         ? item['time_slot'] as Map<String, dynamic>
         : <String, dynamic>{};
@@ -472,27 +697,91 @@ class _CartItemTile extends StatelessWidget {
         ? lineTotal.toDouble()
         : double.tryParse(lineTotal?.toString() ?? '') ?? 0;
     final date = timeSlot['date']?.toString() ?? '';
-    final period = timeSlot['period_label_ar']?.toString().trim();
-    final serviceType = item['service_type']?.toString() == 'home_service'
-        ? 'منزلية'
-        : 'في المختبر';
+    final period = isArabic
+        ? timeSlot['period_label_ar']
+        ?.toString()
+        .trim()
+        : (timeSlot['period_label_en'] ??
+        timeSlot['period_label_ar'])
+        ?.toString()
+        .trim();
+    final serviceType =
+    item['service_type']?.toString() == 'home_service'
+        ? AppStrings.t('homeService', lang)
+        : AppStrings.t('labService', lang);
 
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: RastUi.cardSurface(context),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: RastUi.softBorder(context)),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: RastUi.softBorder(context).withValues(alpha: 0.65),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.065),
+            blurRadius: 18,
+            spreadRadius: 0,
+            offset: const Offset(0, 6),
+          ),
+        ],
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+
+          // TEST / PACKAGE IMAGE
+          Container(
+            width: 72,
+            height: 72,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(14),
+              color: AppTheme.primary.withValues(alpha: 0.08),
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(14),
+              child: imageUrl != null && imageUrl.isNotEmpty
+                  ? CachedNetworkImage(
+                imageUrl: imageUrl,
+                width: double.infinity,
+                height: double.infinity,
+                fit: BoxFit.cover,
+                placeholder: (_, __) => const Center(
+                  child: Icon(
+                    Icons.medical_services_rounded,
+                    color: AppTheme.primary,
+                    size: 28,
+                  ),
+                ),
+                errorWidget: (_, __, ___) => const Center(
+                  child: Icon(
+                    Icons.medical_services_rounded,
+                    color: AppTheme.primary,
+                    size: 28,
+                  ),
+                ),
+              )
+                  : const Center(
+                child: Icon(
+                  Icons.medical_services_rounded,
+                  color: AppTheme.primary,
+                  size: 28,
+                ),
+              ),
+            ),
+          ),
+
+          const SizedBox(width: 12),
+
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  name.isEmpty ? 'تحليل' : name,
+                  name.isEmpty
+                      ? AppStrings.t('analysis', lang)
+                      : name,
                   style: const TextStyle(fontWeight: FontWeight.w600),
                 ),
                 const SizedBox(height: 4),
@@ -505,7 +794,8 @@ class _CartItemTile extends StatelessWidget {
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  '${total.toStringAsFixed(2)} ر.س',
+                  '${total.toStringAsFixed(2)} '
+                  '${AppStrings.t('sar', lang)}',
                   style: const TextStyle(
                     color: AppTheme.primary,
                     fontWeight: FontWeight.w700,
@@ -514,10 +804,26 @@ class _CartItemTile extends StatelessWidget {
               ],
             ),
           ),
-          IconButton(
-            onPressed: onRemove,
-            icon: const Icon(Icons.close_rounded, size: 20),
-            color: AppTheme.error,
+          InkWell(
+            onTap: onRemove,
+            borderRadius: BorderRadius.circular(50),
+            child: Container(
+              width: 36,
+              height: 36,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: AppTheme.error.withValues(alpha: 0.08),
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: AppTheme.error.withValues(alpha: 0.12),
+                ),
+              ),
+              child: const Icon(
+                Icons.delete_outline_rounded,
+                size: 19,
+                color: AppTheme.error,
+              ),
+            ),
           ),
         ],
       ),

@@ -17,6 +17,9 @@ import 'package:rast/features/labs/screens/labs_screen.dart';
 import 'package:rast/app/main_tab_index_scope.dart';
 import 'package:rast/features/profile/screens/profile_screen.dart';
 
+import '../core/theme/app_theme.dart';
+import 'elastic_bottom_nav_bar.dart';
+
 class MainScaffold extends StatefulWidget {
   const MainScaffold({super.key});
 
@@ -123,7 +126,22 @@ class _MainScaffoldState extends State<MainScaffold> with OnboardingTourHost {
             colors: [Color(0xFF07131A), Color(0xFF081924), Color(0xFF091B27)],
             stops: [0.0, 0.45, 1.0],
           )
-        : const LinearGradient(colors: [Colors.white, Colors.white]);
+        : LinearGradient(
+      begin: Alignment.topCenter,
+      end: Alignment.bottomCenter,
+      colors: [
+        Colors.white,
+        Color.alphaBlend(
+          primary.withValues(alpha: 0.025),
+          Colors.white,
+        ),
+        Color.alphaBlend(
+          secondary.withValues(alpha: 0.035),
+          Colors.white,
+        ),
+      ],
+      stops: const [0.0, 0.55, 1.0],
+    );
 
     return Container(
       decoration: BoxDecoration(gradient: gradient),
@@ -238,78 +256,37 @@ class _MainScaffoldState extends State<MainScaffold> with OnboardingTourHost {
     final settings = context.watch<AppSettingsProvider>();
     final navItems = _navItems(settings.language);
 
-    return SafeArea(
-      top: false,
-      child: Container(
-        height: 82,
-        decoration: const BoxDecoration(
-          gradient: RastUi.brandGradient,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+    return ElasticBottomNavBar(
+      currentIndex: _currentIndex,
+      onTap: _onNavTap,
+      selectedColor: AppTheme.accent,
+      activeAccentColor: AppTheme.goldAccent,
+      unselectedColor: Colors.white,
+      backgroundColor: Theme.of(context).colorScheme.surface.withValues(alpha: 0.88),
+      items: [
+        ElasticNavItem(
+          key: _navHomeKey,
+          icon: navItems[0].icon,
+          label: navItems[0].label,
         ),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(6, 7, 6, 8),
-          child: Row(
-            children: List.generate(navItems.length, (i) {
-              final selected = i == _currentIndex;
-              final navKey = i == 0
-                  ? _navHomeKey
-                  : i == 1
-                  ? _navBookingsKey
-                  : i == 2
-                  ? _navLabsKey
-                  : null;
-              return Expanded(
-                child: KeyedSubtree(
-                  key: navKey,
-                  child: Material(
-                    color: Colors.transparent,
-                    child: InkWell(
-                      borderRadius: BorderRadius.circular(18),
-                      onTap: () => _onNavTap(i),
-                      child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 220),
-                      curve: Curves.easeOutCubic,
-                      padding: const EdgeInsets.symmetric(vertical: 6),
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(18),
-                      ),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            navItems[i].icon,
-                            size: 23,
-                            color: selected
-                                ? Colors.white
-                                : Colors.white.withValues(alpha: 0.58),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            navItems[i].label,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: selected
-                                  ? FontWeight.w700
-                                  : FontWeight.w500,
-                              color: selected
-                                  ? Colors.white
-                                  : Colors.white.withValues(alpha: 0.58),
-                            ),
-                          ),
-                        ],
-                      ),
-                      ),
-                    ),
-                  ),
-                ),
-              );
-            }),
-          ),
+
+        ElasticNavItem(
+          key: _navBookingsKey,
+          icon: navItems[1].icon,
+          label: navItems[1].label,
         ),
-      ),
+
+        ElasticNavItem(
+          key: _navLabsKey,
+          icon: navItems[2].icon,
+          label: navItems[2].label,
+        ),
+
+        ElasticNavItem(
+          icon: navItems[3].icon,
+          label: navItems[3].label,
+        ),
+      ],
     );
   }
 }

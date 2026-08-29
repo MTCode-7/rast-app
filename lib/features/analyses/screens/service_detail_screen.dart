@@ -9,7 +9,6 @@ import 'package:provider/provider.dart';
 import 'package:rast/core/theme/app_theme.dart';
 import 'package:rast/core/utils/responsive.dart';
 import 'package:rast/core/widgets/gradient_button.dart';
-import 'package:rast/core/widgets/rating_badge.dart';
 import 'package:rast/core/widgets/rast_ui.dart';
 import 'package:rast/core/widgets/search_box.dart';
 import 'package:rast/core/widgets/zoomable_image_viewer.dart';
@@ -52,6 +51,13 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
   @override
   void initState() {
     super.initState();
+
+    _service = Map<String, dynamic>.from(
+      widget.service,
+    );
+
+    _isLoading = false;
+
     _loadFavorite(widget.service);
     _loadData();
   }
@@ -75,69 +81,113 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
 
   Future<void> _loadData() async {
     final id = widget.service['id'];
+
     if (id == null) {
-      setState(() {
-        _service = _serviceForSelectedLab(
-          widget.service,
-          const <Map<String, dynamic>>[],
-        );
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _service = _serviceForSelectedLab(
+            widget.service,
+            const <Map<String, dynamic>>[],
+          );
+          _isLoading = false;
+        });
+      }
       return;
     }
-    setState(() => _isLoading = true);
+
     try {
       final service = await Api.services.getService(
-        id is int ? id : int.parse(id.toString()),
+        id is int
+            ? id
+            : int.parse(id.toString()),
       );
-      final raw = service['provider_services'] as List? ?? [];
+
+      final raw =
+          service['provider_services'] as List? ??
+              [];
+
       final providerServices = raw
-          .map((ps) => ps is Map ? Map<String, dynamic>.from(ps) : null)
+          .map(
+            (ps) => ps is Map
+            ? Map<String, dynamic>.from(ps)
+            : null,
+      )
           .whereType<Map<String, dynamic>>()
           .toList();
-      final svc = Map<String, dynamic>.from(service);
-      final selectedProviderService = _selectedProviderServiceForLab(
+
+      final svc =
+      Map<String, dynamic>.from(service);
+
+      final selectedProviderService =
+      _selectedProviderServiceForLab(
         providerServices,
         svc,
       );
-      final visibleProviderServices = widget.labId != null
-          ? [if (selectedProviderService != null) selectedProviderService]
+
+      final visibleProviderServices =
+      widget.labId != null
+          ? [
+        if (selectedProviderService != null)
+          selectedProviderService,
+      ]
           : providerServices;
-      final displayService = _serviceForSelectedLab(
+
+      final displayService =
+      _serviceForSelectedLab(
         svc,
         visibleProviderServices,
       );
+
       if (displayService['image'] == null ||
-          displayService['image'].toString().trim().isEmpty) {
-        for (final ps in visibleProviderServices) {
-          final img = ps['image']?.toString().trim();
+          displayService['image']
+              .toString()
+              .trim()
+              .isEmpty) {
+        for (final ps
+        in visibleProviderServices) {
+          final img =
+          ps['image']?.toString().trim();
+
           if (img != null && img.isNotEmpty) {
             displayService['image'] = img;
             break;
           }
         }
       }
+
+      if (!mounted) return;
+
       setState(() {
         _service = displayService;
-        _providerServices = visibleProviderServices;
+        _providerServices =
+            visibleProviderServices;
         _isLoading = false;
       });
+
       _loadFavorite(displayService);
     } on ApiException catch (_) {
+      if (!mounted) return;
+
       setState(() {
         _isLoading = false;
-        _service = _serviceForSelectedLab(
-          widget.service,
-          const <Map<String, dynamic>>[],
-        );
+
+        _service ??=
+            _serviceForSelectedLab(
+              widget.service,
+              const <Map<String, dynamic>>[],
+            );
       });
     } catch (_) {
+      if (!mounted) return;
+
       setState(() {
         _isLoading = false;
-        _service = _serviceForSelectedLab(
-          widget.service,
-          const <Map<String, dynamic>>[],
-        );
+
+        _service ??=
+            _serviceForSelectedLab(
+              widget.service,
+              const <Map<String, dynamic>>[],
+            );
       });
     }
   }
@@ -318,6 +368,9 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final settings = context.watch<AppSettingsProvider>();
+    final isArabic = settings.isArabic;
+    final lang = settings.language;
     final service = _service ?? widget.service;
     final category = service['category'] is Map
         ? service['category'] as Map<String, dynamic>
@@ -343,7 +396,7 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
     final providersCount = _providerServices.length;
 
     return Directionality(
-      textDirection: TextDirection.rtl,
+      textDirection: settings.textDirection,
       child: Container(
         decoration: const BoxDecoration(gradient: RastUi.headerGradient),
         child: Scaffold(
@@ -354,110 +407,196 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
           body: _isLoading && _service == null
               ? _buildLoading()
               : CustomScrollView(
-                  slivers: [
-                    SliverAppBar(
-                      expandedHeight: imageUrl != null && imageUrl.isNotEmpty
-                          ? 260
-                          : 200,
-                      pinned: true,
-                      stretch: true,
-                      backgroundColor: RastUi.purple,
-                      leading: IconButton(
-                        icon: Container(
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(
-                            color: Colors.black.withValues(alpha: 0.30),
-                            shape: BoxShape.circle,
-                          ),
-                          child: Icon(
-                            Icons.arrow_back_ios,
-                            color: RastUi.screenSurface(context),
-                            size: 18,
+            slivers: [
+              // HEADER
+              SliverAppBar(
+                pinned: true,
+                floating: false,
+                automaticallyImplyLeading: false,
+
+                elevation: 7,
+                scrolledUnderElevation: 7,
+                shadowColor: Colors.black.withValues(alpha: 0.36),
+
+                backgroundColor: Colors.white,
+                surfaceTintColor: Colors.white,
+                toolbarHeight: 72,
+
+                flexibleSpace: Directionality(
+                  textDirection: TextDirection.ltr,
+                  child: SafeArea(
+                    bottom: false,
+                    child: Stack(
+                      children: [
+                        // BACK
+                        Positioned(
+                          left: isArabic ? null : 7,
+                          right: isArabic ? 7 : null,
+                          top: 0,
+                          bottom: 0,
+                          child: Center(
+                            child: Material(
+                              color: Colors.transparent,
+                              child: InkWell(
+                                onTap: () => Navigator.pop(context),
+                                borderRadius: BorderRadius.circular(30),
+                                child: SizedBox(
+                                  width: 44,
+                                  height: 44,
+                                  child: Center(
+                                    child: Icon(
+                                      isArabic
+                                          ? Icons.arrow_forward_ios_rounded
+                                          : Icons.arrow_back_ios_new_rounded,
+                                      textDirection: TextDirection.ltr,
+                                      color: const Color(0xFF171717),
+                                      size: 20,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
                           ),
                         ),
-                        onPressed: () => Navigator.pop(context),
-                      ),
-                      actions: [
-                        IconButton(
-                          onPressed: () => _toggleFavorite(service),
-                          icon: Container(
-                            padding: const EdgeInsets.all(8),
-                            decoration: BoxDecoration(
-                              color: Colors.black.withValues(alpha: 0.30),
-                              shape: BoxShape.circle,
-                            ),
-                            child: Icon(
-                              _isFavorite
-                                  ? Icons.favorite_rounded
-                                  : Icons.favorite_border_rounded,
-                              color: const Color(0xFFFF4D61),
-                              size: 18,
+
+                        // FAVORITE
+                        Positioned(
+                          left: isArabic ? 10 : null,
+                          right: isArabic ? null : 10,
+                          top: 0,
+                          bottom: 0,
+                          child: Center(
+                            child: Material(
+                              color: Colors.transparent,
+                              child: InkWell(
+                                onTap: () => _toggleFavorite(service),
+                                borderRadius: BorderRadius.circular(30),
+                                child: Container(
+                                  width: 44,
+                                  height: 44,
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFE4F3FF),
+                                    shape: BoxShape.circle,
+                                    border: Border.all(
+                                      color: const Color(0xFFD3E9F8),
+                                    ),
+                                  ),
+                                  child: Center(
+                                    child: Icon(
+                                      _isFavorite
+                                          ? Icons.favorite_rounded
+                                          : Icons.favorite_border_rounded,
+                                      color: _isFavorite
+                                          ? const Color(0xFFFF4D61)
+                                          : const Color(0xFF172033),
+                                      size: 22,
+                                    ),
+                                  ),
+                                ),
+                              ),
                             ),
                           ),
                         ),
                       ],
-                      flexibleSpace: FlexibleSpaceBar(
-                        background: _buildHeroBackground(context, imageUrl),
-                      ),
                     ),
-                    SliverToBoxAdapter(
-                      child: Transform.translate(
-                        offset: Offset(
-                          0,
-                          imageUrl != null && imageUrl.isNotEmpty ? -24 : -34,
+                  ),
+                ),
+              ),
+
+              // BODY
+              SliverToBoxAdapter(
+                child: Directionality(
+                  textDirection:
+                  context.watch<AppSettingsProvider>().textDirection,
+                  child: Column(
+                    children: [
+                      // IMAGE
+                      SizedBox(
+                        height: imageUrl != null && imageUrl.isNotEmpty
+                            ? 240
+                            : 190,
+                        width: double.infinity,
+                        child: _buildHeroBackground(
+                          context,
+                          imageUrl,
                         ),
-                        child: Container(
-                          decoration: BoxDecoration(
-                            color: RastUi.screenSurface(context),
-                            borderRadius: const BorderRadius.vertical(
-                              top: Radius.circular(32),
-                            ),
+                      ),
+
+                      // CONTENT
+                      Transform.translate(
+                        offset: const Offset(0, -45),
+                        child: Padding(
+                          padding: EdgeInsets.symmetric(
+                            horizontal:
+                            Responsive.spacing(context, 20),
                           ),
-                          child: Padding(
-                            padding: EdgeInsets.all(
-                              Responsive.spacing(context, 20),
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                _buildTitleSection(
+                          child: Column(
+                            crossAxisAlignment:
+                            CrossAxisAlignment.start,
+                            children: [
+                              // FLOATING TITLE CARD
+                              _buildTitleSection(
+                                context,
+                                service,
+                                categoryName,
+                                price,
+                              ),
+
+                              SizedBox(
+                                height:
+                                Responsive.spacing(context, 20),
+                              ),
+
+                              // QUICK FACTS
+                              _buildQuickFactsRow(
+                                context,
+                                price,
+                                categoryName,
+                                providersCount,
+                              ),
+
+                              SizedBox(
+                                height:
+                                Responsive.spacing(context, 24),
+                              ),
+
+                              // DESCRIPTION
+                              _buildDescriptionCard(
+                                context,
+                                description,
+                              ),
+
+                              SizedBox(
+                                height:
+                                Responsive.spacing(context, 24),
+                              ),
+
+                              // LAB
+                              if (widget.labId != null &&
+                                  widget.labName != null)
+                                _buildLabChip(
+                                  widget.labName!,
+                                )
+                              else
+                                _buildLabsSection(
                                   context,
                                   service,
-                                  categoryName,
-                                  price,
                                 ),
-                                SizedBox(
-                                  height: Responsive.spacing(context, 14),
-                                ),
-                                _buildQuickFactsRow(
-                                  context,
-                                  price,
-                                  categoryName,
-                                  providersCount,
-                                ),
-                                SizedBox(
-                                  height: Responsive.spacing(context, 24),
-                                ),
-                                _buildDescriptionCard(context, description),
-                                SizedBox(
-                                  height: Responsive.spacing(context, 24),
-                                ),
-                                if (widget.labId != null &&
-                                    widget.labName != null)
-                                  _buildLabChip(widget.labName!)
-                                else
-                                  _buildLabsSection(context, service),
-                                SizedBox(
-                                  height: Responsive.spacing(context, 24),
-                                ),
-                              ],
-                            ),
+
+                              SizedBox(
+                                height:
+                                Responsive.spacing(context, 24),
+                              ),
+                            ],
                           ),
                         ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -469,6 +608,8 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
     String categoryName,
     double price,
   ) {
+    final lang =
+        context.watch<AppSettingsProvider>().language;
     return Container(
       padding: EdgeInsets.all(Responsive.spacing(context, 16)),
       decoration: BoxDecoration(
@@ -477,9 +618,10 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
         border: Border.all(color: RastUi.softBorder(context)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.06),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
+            color: Colors.black.withValues(alpha: 0.14),
+            blurRadius: 24,
+            spreadRadius: 1,
+            offset: const Offset(0, 10),
           ),
         ],
       ),
@@ -533,7 +675,9 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
               boxShadow: RastUi.softShadow,
             ),
             child: Text(
-              price > 0 ? '${price.toStringAsFixed(2)} ر.س' : 'اتصل للمعرفة',
+              price > 0
+                  ? '${price.toStringAsFixed(2)} ${AppStrings.t('sar', lang)}'
+                  : AppStrings.t('contactForPrice', lang),
               style: TextStyle(
                 fontSize: Responsive.fontSize(context, 16),
                 color: Colors.white,
@@ -547,82 +691,147 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
   }
 
   Widget _buildQuickFactsRow(
-    BuildContext context,
-    double price,
-    String categoryName,
-    int providersCount,
-  ) {
-    return Row(
-      children: [
-        Expanded(
-          child: _buildFactTile(
-            context,
-            icon: Icons.payments_outlined,
-            title: 'السعر',
-            value: price > 0
-                ? '${price.toStringAsFixed(0)} ر.س'
-                : 'حسب المختبر',
-          ),
-        ),
-        SizedBox(width: Responsive.spacing(context, 10)),
-        Expanded(
-          child: _buildFactTile(
-            context,
-            icon: Icons.category_outlined,
-            title: 'التصنيف',
-            value: categoryName,
-          ),
-        ),
-        SizedBox(width: Responsive.spacing(context, 10)),
-        Expanded(
-          child: _buildFactTile(
-            context,
-            icon: Icons.business_outlined,
-            title: 'المختبرات',
-            value: providersCount > 0 ? providersCount.toString() : 'غير متاح',
-          ),
-        ),
-      ],
+      BuildContext context,
+      double price,
+      String categoryName,
+      int providersCount,
+      ) {
+    final lang =
+        context.watch<AppSettingsProvider>().language;
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final spacing = Responsive.spacing(context, 10);
+
+        final isNarrow = constraints.maxWidth < 350;
+
+        final itemWidth = isNarrow
+            ? (constraints.maxWidth - spacing) / 2
+            : (constraints.maxWidth - (spacing * 2)) / 3;
+
+        return Wrap(
+          spacing: spacing,
+          runSpacing: spacing,
+          alignment: WrapAlignment.center,
+          children: [
+            SizedBox(
+              width: itemWidth,
+              child: _buildFactTile(
+                context,
+                icon: Icons.payments_outlined,
+                title: AppStrings.t('price', lang),
+                value: price > 0
+                    ? '${price.toStringAsFixed(0)} ${AppStrings.t('sar', lang)}'
+                    : AppStrings.t('dependsOnLab', lang),
+              ),
+            ),
+
+            SizedBox(
+              width: itemWidth,
+              child: _buildFactTile(
+                context,
+                icon: Icons.category_outlined,
+                title: AppStrings.t('category', lang),
+                value: categoryName,
+              ),
+            ),
+
+            SizedBox(
+              width: itemWidth,
+              child: _buildFactTile(
+                context,
+                icon: Icons.business_outlined,
+                title: AppStrings.t('laboratories', lang),
+                value: providersCount > 0
+                    ? providersCount.toString()
+                    : AppStrings.t('notAvailable', lang),
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 
   Widget _buildFactTile(
-    BuildContext context, {
-    required IconData icon,
-    required String title,
-    required String value,
-  }) {
+      BuildContext context, {
+        required IconData icon,
+        required String title,
+        required String value,
+      }) {
     return Container(
-      padding: EdgeInsets.all(Responsive.spacing(context, 12)),
+      constraints: const BoxConstraints(
+        minHeight: 105,
+      ),
+      padding: EdgeInsets.symmetric(
+        vertical: Responsive.spacing(context, 10),
+        horizontal: Responsive.spacing(context, 7),
+      ),
       decoration: BoxDecoration(
         color: RastUi.panelSurface(context),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: RastUi.softBorder(context)),
+        border: Border.all(
+          color: RastUi.softBorder(context),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.06),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Icon(icon, size: 18, color: RastUi.purple),
-          SizedBox(height: Responsive.spacing(context, 8)),
+          Container(
+            width: 32,
+            height: 32,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: RastUi.purple.withValues(alpha: 0.08),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              icon,
+              size: 18,
+              color: RastUi.purple,
+            ),
+          ),
+
+          SizedBox(
+            height: Responsive.spacing(context, 6),
+          ),
+
           Text(
             title,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
             style: TextStyle(
-              fontSize: Responsive.fontSize(context, 11),
-              color: RastUi.mutedText,
-              fontWeight: FontWeight.w600,
+              fontSize: Responsive.fontSize(context, 10.5),
+              color: const Color(0xFF5B5561),
+              fontWeight: FontWeight.w700,
+              height: 1.15,
             ),
           ),
-          SizedBox(height: Responsive.spacing(context, 2)),
+
+          SizedBox(
+            height: Responsive.spacing(context, 3),
+          ),
+
           Text(
             value,
-            maxLines: 1,
+            maxLines: 2,
             overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: Responsive.fontSize(context, 12),
-              color: RastUi.primaryText(context),
-              fontWeight: FontWeight.w700,
+              color: const Color(0xFF171717),
+              fontWeight: FontWeight.w800,
+              height: 1.15,
             ),
           ),
         ],
@@ -631,6 +840,8 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
   }
 
   Widget _buildDescriptionCard(BuildContext context, String description) {
+    final lang =
+        context.watch<AppSettingsProvider>().language;
     return Container(
       width: double.infinity,
       padding: EdgeInsets.all(Responsive.spacing(context, 18)),
@@ -659,7 +870,7 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
               ),
               SizedBox(width: Responsive.spacing(context, 10)),
               Text(
-                'الوصف',
+                AppStrings.t('description', lang),
                 style: TextStyle(
                   fontSize: Responsive.fontSize(context, 15),
                   fontWeight: FontWeight.w600,
@@ -673,7 +884,7 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
             description,
             style: TextStyle(
               fontSize: Responsive.fontSize(context, 14),
-              color: const Color(0xFF6F6A75),
+              color: const Color(0xFF535353),
               height: 1.65,
               fontWeight: FontWeight.w400,
             ),
@@ -684,6 +895,10 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
   }
 
   Widget _buildLabsSection(BuildContext context, Map<String, dynamic> service) {
+    final settings =
+    context.watch<AppSettingsProvider>();
+
+    final lang = settings.language;
     final visible = _visibleProviderServices();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -700,7 +915,7 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
             ),
             SizedBox(width: Responsive.spacing(context, 10)),
             Text(
-              'المختبرات المتوفرة',
+              AppStrings.t('availableLabs', lang),
               style: TextStyle(
                 fontSize: Responsive.fontSize(context, 16),
                 fontWeight: FontWeight.w600,
@@ -715,7 +930,10 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
             Expanded(
               child: SearchBox(
                 controller: _providersSearchController,
-                hintText: 'ابحث عن مختبر أو منطقة',
+                hintText: AppStrings.t(
+                  'searchLabOrArea',
+                  lang,
+                ),
                 onSearchTap: () => setState(() {}),
                 onSubmitted: (_) => setState(() {}),
               ),
@@ -735,7 +953,12 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
             ),
           )
         else if (visible.isEmpty)
-          _emptyProviders('لا توجد مختبرات مطابقة للفلترة')
+          _emptyProviders(
+            AppStrings.t(
+              'noLabsMatchFilters',
+              lang,
+            ),
+          )
         else
           ...visible.map(
             (ps) => Padding(
@@ -816,30 +1039,51 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
   }
 
   Widget _providerFilterSummary(int count) {
+    final lang =
+        context.watch<AppSettingsProvider>().language;
+
     final chips = <Widget>[
-      _providerMiniChip('$count مختبر', Icons.business_rounded),
+      _providerMiniChip(
+        '$count ${AppStrings.t('laboratory', lang)}',
+        Icons.business_rounded,
+      ),
     ];
+
     if (_providersHomeOnly) {
-      chips.add(_providerMiniChip('خدمة منزلية', Icons.home_rounded));
-    }
-    if (_providersMinPrice != null || _providersMaxPrice != null) {
       chips.add(
         _providerMiniChip(
-          '${_providersMinPrice?.toStringAsFixed(0) ?? '0'} - ${_providersMaxPrice?.toStringAsFixed(0) ?? '∞'} ر.س',
+          AppStrings.t('homeService', lang),
+          Icons.home_rounded,
+        ),
+      );
+    }
+
+    if (_providersMinPrice != null ||
+        _providersMaxPrice != null) {
+      chips.add(
+        _providerMiniChip(
+          '${_providersMinPrice?.toStringAsFixed(0) ?? '0'}'
+              ' - '
+              '${_providersMaxPrice?.toStringAsFixed(0) ?? '∞'} '
+              '${AppStrings.t('sar', lang)}',
           Icons.payments_outlined,
         ),
       );
     }
+
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       child: Row(
         children: chips
             .map(
               (chip) => Padding(
-                padding: const EdgeInsetsDirectional.only(end: 8),
-                child: chip,
-              ),
-            )
+            padding:
+            const EdgeInsetsDirectional.only(
+              end: 8,
+            ),
+            child: chip,
+          ),
+        )
             .toList(),
       ),
     );
@@ -871,12 +1115,21 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
   }
 
   void _showProvidersFilterSheet() {
+    final settings =
+    context.read<AppSettingsProvider>();
+
+    final lang = settings.language;
+
     final minController = TextEditingController(
-      text: _providersMinPrice?.toStringAsFixed(0) ?? '',
+      text:
+      _providersMinPrice?.toStringAsFixed(0) ?? '',
     );
+
     final maxController = TextEditingController(
-      text: _providersMaxPrice?.toStringAsFixed(0) ?? '',
+      text:
+      _providersMaxPrice?.toStringAsFixed(0) ?? '',
     );
+
     var sort = _providersSort;
     var homeOnly = _providersHomeOnly;
 
@@ -885,164 +1138,346 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setSheetState) => Directionality(
-          textDirection: TextDirection.rtl,
-          child: Container(
-            padding: EdgeInsets.fromLTRB(
-              Responsive.spacing(context, 20),
-              10,
-              Responsive.spacing(context, 20),
-              Responsive.spacing(context, 20) +
-                  MediaQuery.of(context).padding.bottom,
-            ),
-            decoration: BoxDecoration(
-              color: RastUi.cardSurface(context),
-              borderRadius: const BorderRadius.vertical(
-                top: Radius.circular(26),
-              ),
-              boxShadow: AppTheme.cardShadowElevated,
-            ),
-            child: SafeArea(
-              top: false,
-              child: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Center(
-                      child: Container(
-                        width: 42,
-                        height: 4,
-                        decoration: BoxDecoration(
-                          color: AppTheme.onSurfaceVariant.withValues(
-                            alpha: 0.35,
-                          ),
-                          borderRadius: BorderRadius.circular(2),
-                        ),
-                      ),
-                    ),
-                    SizedBox(height: Responsive.spacing(context, 16)),
-                    Text(
-                      'فلترة المختبرات المتاحة',
-                      style: TextStyle(
-                        color: RastUi.primaryText(context),
-                        fontSize: Responsive.fontSize(context, 18),
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    SizedBox(height: Responsive.spacing(context, 18)),
-                    Text(
-                      'الترتيب',
-                      style: TextStyle(
-                        color: RastUi.textPurple,
-                        fontSize: Responsive.fontSize(context, 13),
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
+        builder: (ctx, setSheetState) =>
+            Directionality(
+              textDirection: settings.textDirection,
+              child: Container(
+                padding: EdgeInsets.fromLTRB(
+                  Responsive.spacing(context, 20),
+                  10,
+                  Responsive.spacing(context, 20),
+                  Responsive.spacing(context, 20) +
+                      MediaQuery.of(context).padding.bottom,
+                ),
+                decoration: BoxDecoration(
+                  color: RastUi.cardSurface(context),
+                  borderRadius:
+                  const BorderRadius.vertical(
+                    top: Radius.circular(26),
+                  ),
+                  boxShadow:
+                  AppTheme.cardShadowElevated,
+                ),
+                child: SafeArea(
+                  top: false,
+                  child: SingleChildScrollView(
+                    child: Column(
+                      mainAxisSize:
+                      MainAxisSize.min,
+                      crossAxisAlignment:
+                      CrossAxisAlignment.start,
                       children: [
-                        _providerChoice('الأعلى تقييماً', 'rating', sort, (
-                          value,
-                        ) {
-                          setSheetState(() => sort = value);
-                        }),
-                        _providerChoice('الأقل سعراً', 'price_low', sort, (
-                          value,
-                        ) {
-                          setSheetState(() => sort = value);
-                        }),
-                        _providerChoice('الأعلى سعراً', 'price_high', sort, (
-                          value,
-                        ) {
-                          setSheetState(() => sort = value);
-                        }),
-                        _providerChoice('الاسم', 'name', sort, (value) {
-                          setSheetState(() => sort = value);
-                        }),
-                      ],
-                    ),
-                    SizedBox(height: Responsive.spacing(context, 18)),
-                    SwitchListTile(
-                      value: homeOnly,
-                      onChanged: (value) =>
-                          setSheetState(() => homeOnly = value),
-                      title: const Text('مختبرات توفر زيارة منزلية فقط'),
-                      contentPadding: EdgeInsets.zero,
-                      activeThumbColor: RastUi.purple,
-                    ),
-                    SizedBox(height: Responsive.spacing(context, 10)),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: TextField(
-                            controller: minController,
-                            keyboardType: TextInputType.number,
-                            decoration: const InputDecoration(
-                              labelText: 'أقل سعر',
-                              prefixIcon: Icon(Icons.payments_outlined),
+                        Center(
+                          child: Container(
+                            width: 42,
+                            height: 4,
+                            decoration:
+                            BoxDecoration(
+                              color: AppTheme
+                                  .onSurfaceVariant
+                                  .withValues(
+                                alpha: 0.35,
+                              ),
+                              borderRadius:
+                              BorderRadius.circular(
+                                2,
+                              ),
                             ),
                           ),
                         ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: TextField(
-                            controller: maxController,
-                            keyboardType: TextInputType.number,
-                            decoration: const InputDecoration(
-                              labelText: 'أعلى سعر',
-                              prefixIcon: Icon(Icons.payments_outlined),
+
+                        SizedBox(
+                          height:
+                          Responsive.spacing(
+                            context,
+                            16,
+                          ),
+                        ),
+
+                        Text(
+                          AppStrings.t(
+                            'filterAvailableLabs',
+                            lang,
+                          ),
+                          style: TextStyle(
+                            color:
+                            RastUi.primaryText(
+                              context,
+                            ),
+                            fontSize:
+                            Responsive.fontSize(
+                              context,
+                              18,
+                            ),
+                            fontWeight:
+                            FontWeight.w800,
+                          ),
+                        ),
+
+                        SizedBox(
+                          height:
+                          Responsive.spacing(
+                            context,
+                            18,
+                          ),
+                        ),
+
+                        Text(
+                          AppStrings.t(
+                            'sortBy',
+                            lang,
+                          ),
+                          style: TextStyle(
+                            color:
+                            RastUi.textPurple,
+                            fontSize:
+                            Responsive.fontSize(
+                              context,
+                              13,
+                            ),
+                            fontWeight:
+                            FontWeight.w700,
+                          ),
+                        ),
+
+                        const SizedBox(height: 8),
+
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            _providerChoice(
+                              AppStrings.t(
+                                'highestRated',
+                                lang,
+                              ),
+                              'rating',
+                              sort,
+                                  (value) {
+                                setSheetState(
+                                      () => sort = value,
+                                );
+                              },
+                            ),
+
+                            _providerChoice(
+                              AppStrings.t(
+                                'priceLowToHigh',
+                                lang,
+                              ),
+                              'price_low',
+                              sort,
+                                  (value) {
+                                setSheetState(
+                                      () => sort = value,
+                                );
+                              },
+                            ),
+
+                            _providerChoice(
+                              AppStrings.t(
+                                'priceHighToLow',
+                                lang,
+                              ),
+                              'price_high',
+                              sort,
+                                  (value) {
+                                setSheetState(
+                                      () => sort = value,
+                                );
+                              },
+                            ),
+
+                            _providerChoice(
+                              AppStrings.t(
+                                'sortByName',
+                                lang,
+                              ),
+                              'name',
+                              sort,
+                                  (value) {
+                                setSheetState(
+                                      () => sort = value,
+                                );
+                              },
+                            ),
+                          ],
+                        ),
+
+                        SizedBox(
+                          height:
+                          Responsive.spacing(
+                            context,
+                            18,
+                          ),
+                        ),
+
+                        SwitchListTile(
+                          value: homeOnly,
+                          onChanged: (value) =>
+                              setSheetState(
+                                    () => homeOnly = value,
+                              ),
+                          title: Text(
+                            AppStrings.t(
+                              'homeVisitLabsOnly',
+                              lang,
                             ),
                           ),
+                          contentPadding:
+                          EdgeInsets.zero,
+                          activeThumbColor:
+                          RastUi.purple,
+                        ),
+
+                        SizedBox(
+                          height:
+                          Responsive.spacing(
+                            context,
+                            10,
+                          ),
+                        ),
+
+                        Row(
+                          children: [
+                            Expanded(
+                              child: TextField(
+                                controller:
+                                minController,
+                                keyboardType:
+                                TextInputType
+                                    .number,
+                                decoration:
+                                InputDecoration(
+                                  labelText:
+                                  AppStrings.t(
+                                    'minimumPrice',
+                                    lang,
+                                  ),
+                                  prefixIcon:
+                                  const Icon(
+                                    Icons
+                                        .payments_outlined,
+                                  ),
+                                ),
+                              ),
+                            ),
+
+                            const SizedBox(
+                              width: 12,
+                            ),
+
+                            Expanded(
+                              child: TextField(
+                                controller:
+                                maxController,
+                                keyboardType:
+                                TextInputType
+                                    .number,
+                                decoration:
+                                InputDecoration(
+                                  labelText:
+                                  AppStrings.t(
+                                    'maximumPrice',
+                                    lang,
+                                  ),
+                                  prefixIcon:
+                                  const Icon(
+                                    Icons
+                                        .payments_outlined,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+
+                        SizedBox(
+                          height:
+                          Responsive.spacing(
+                            context,
+                            20,
+                          ),
+                        ),
+
+                        Row(
+                          children: [
+                            Expanded(
+                              child:
+                              OutlinedButton(
+                                onPressed: () {
+                                  setState(() {
+                                    _providersSort =
+                                    'rating';
+
+                                    _providersHomeOnly =
+                                    false;
+
+                                    _providersMinPrice =
+                                    null;
+
+                                    _providersMaxPrice =
+                                    null;
+                                  });
+
+                                  Navigator.pop(ctx);
+                                },
+                                child: Text(
+                                  AppStrings.t(
+                                    'clear',
+                                    lang,
+                                  ),
+                                ),
+                              ),
+                            ),
+
+                            const SizedBox(
+                              width: 12,
+                            ),
+
+                            Expanded(
+                              child: FilledButton(
+                                onPressed: () {
+                                  setState(() {
+                                    _providersSort =
+                                        sort;
+
+                                    _providersHomeOnly =
+                                        homeOnly;
+
+                                    _providersMinPrice =
+                                        double.tryParse(
+                                          minController
+                                              .text
+                                              .trim(),
+                                        );
+
+                                    _providersMaxPrice =
+                                        double.tryParse(
+                                          maxController
+                                              .text
+                                              .trim(),
+                                        );
+                                  });
+
+                                  Navigator.pop(ctx);
+                                },
+                                child: Text(
+                                  AppStrings.t(
+                                    'apply',
+                                    lang,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ],
                     ),
-                    SizedBox(height: Responsive.spacing(context, 20)),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton(
-                            onPressed: () {
-                              setState(() {
-                                _providersSort = 'rating';
-                                _providersHomeOnly = false;
-                                _providersMinPrice = null;
-                                _providersMaxPrice = null;
-                              });
-                              Navigator.pop(ctx);
-                            },
-                            child: const Text('مسح'),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: FilledButton(
-                            onPressed: () {
-                              setState(() {
-                                _providersSort = sort;
-                                _providersHomeOnly = homeOnly;
-                                _providersMinPrice = double.tryParse(
-                                  minController.text.trim(),
-                                );
-                                _providersMaxPrice = double.tryParse(
-                                  maxController.text.trim(),
-                                );
-                              });
-                              Navigator.pop(ctx);
-                            },
-                            child: const Text('تطبيق'),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
+                  ),
                 ),
               ),
             ),
-          ),
-        ),
       ),
     );
   }
@@ -1143,7 +1578,10 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
                 const Icon(Icons.calendar_today_rounded, size: 22),
                 const SizedBox(width: 10),
                 Text(
-                  'احجز الآن',
+                  AppStrings.t(
+                    'bookNow',
+                    context.watch<AppSettingsProvider>().language,
+                  ),
                   style: TextStyle(
                     fontSize: Responsive.fontSize(context, 16),
                     fontWeight: FontWeight.w600,
@@ -1218,7 +1656,10 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
                 ),
                 SizedBox(height: 2),
                 Text(
-                  'مختبر معتمد',
+                  AppStrings.t(
+                  'certifiedLaboratory',
+                  context.watch<AppSettingsProvider>().language,
+                  ),
                   style: TextStyle(
                     fontSize: Responsive.fontSize(context, 12),
                     color: AppTheme.onSurfaceVariant,
@@ -1515,106 +1956,131 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
   }
 
   void _showLabPickerSheet(BuildContext context, Map<String, dynamic> service) {
-    final isArabic = context.read<AppSettingsProvider>().isArabic;
+    final settings =
+    context.read<AppSettingsProvider>();
+
+    final isArabic = settings.isArabic;
+    final lang = settings.language;
     final serviceName = LocaleUtils.localizedName(service, isArabic);
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (ctx) => Container(
-        decoration: BoxDecoration(
-          color: Theme.of(ctx).colorScheme.surface,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-          boxShadow: AppTheme.cardShadowElevated,
-        ),
-        constraints: BoxConstraints(
-          maxHeight: MediaQuery.of(context).size.height * 0.6,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            SizedBox(height: 6),
-            Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: AppTheme.onSurfaceVariant.withValues(alpha: 0.4),
-                borderRadius: BorderRadius.circular(2),
-              ),
+      builder: (ctx) => Directionality(
+          textDirection: settings.textDirection,
+          child: Container(
+            decoration: BoxDecoration(
+              color: Theme.of(ctx).colorScheme.surface,
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+              boxShadow: AppTheme.cardShadowElevated,
             ),
-            Padding(
-              padding: EdgeInsets.all(Responsive.spacing(context, 20)),
-              child: Row(
-                children: [
-                  Icon(
-                    Icons.business_rounded,
-                    color: AppTheme.primary,
-                    size: 28,
-                  ),
-                  SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'اختر المختبر للحجز',
-                          style: TextStyle(
-                            fontSize: Responsive.fontSize(context, 18),
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        Text(
-                          'اختر المختبر الذي تفضل إجراء التحليل فيه',
-                          style: TextStyle(
-                            fontSize: Responsive.fontSize(context, 12),
-                            color: AppTheme.onSurfaceVariant,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.of(context).size.height * 0.6,
             ),
-            Flexible(
-              child: ListView.separated(
-                shrinkWrap: true,
-                padding: EdgeInsets.fromLTRB(16, 0, 16, 24),
-                itemCount: _providerServices.length,
-                separatorBuilder: (_, __) => SizedBox(height: 10),
-                itemBuilder: (ctx, i) {
-                  final ps = _providerServices[i];
-                  final provider = ps['provider'] is Map
-                      ? ps['provider'] as Map<String, dynamic>
-                      : <String, dynamic>{};
-                  final labIdVal = provider['id'] is int
-                      ? provider['id'] as int
-                      : int.tryParse(provider['id']?.toString() ?? '0') ?? 0;
-                  final labName = LocaleUtils.localizedBusinessName(
-                    provider,
-                    isArabic,
-                  );
-                  return _LabPickerTile(
-                    labName: labName,
-                    city: provider['city']?.toString() ?? '',
-                    price: _priceForProviderService(ps),
-                    onTap: () {
-                      Navigator.pop(ctx);
-                      _openBookFlow(
-                        context,
-                        service,
-                        labIdVal,
-                        labName,
-                        _psToProviderServiceMap(ps, serviceName),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SizedBox(height: 6),
+                Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: AppTheme.onSurfaceVariant.withValues(alpha: 0.4),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                Padding(
+                  padding: EdgeInsets.all(Responsive.spacing(context, 20)),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.business_rounded,
+                        color: AppTheme.primary,
+                        size: 28,
+                      ),
+                      SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              AppStrings.t(
+                              'chooseLabForBooking',
+                                lang,
+                              ),
+                              style: TextStyle(
+                                fontSize: Responsive.fontSize(context, 18),
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            Text(
+                              AppStrings.t(
+                                'choosePreferredLab',
+                                lang,
+                              ),
+                              style: TextStyle(
+                                fontSize: Responsive.fontSize(context, 12),
+                                color: AppTheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Flexible(
+                  child: ListView.separated(
+                    shrinkWrap: true,
+                    padding: EdgeInsets.fromLTRB(16, 0, 16, 24),
+                    itemCount: _providerServices.length,
+                    separatorBuilder: (_, __) => SizedBox(height: 10),
+                    itemBuilder: (ctx, i) {
+                      final ps = _providerServices[i];
+                      final provider = ps['provider'] is Map
+                          ? ps['provider'] as Map<String, dynamic>
+                          : <String, dynamic>{};
+                      final labIdVal = provider['id'] is int
+                          ? provider['id'] as int
+                          : int.tryParse(provider['id']?.toString() ?? '0') ?? 0;
+                      final labName = LocaleUtils.localizedBusinessName(
+                        provider,
+                        isArabic,
+                      );
+                      final labImageUrl =
+                          ApiConfig.imageFromMap(provider) ??
+                              ApiConfig.resolveImageUrl(
+                                provider['logo_url'],
+                                provider['logo'],
+                              );
+
+                      return _LabPickerTile(
+                        labName: labName,
+                        city: provider['city']?.toString() ?? '',
+                        price: _priceForProviderService(ps),
+                        labImageUrl: labImageUrl,
+                        onTap: () {
+                          Navigator.pop(ctx);
+
+                          _openBookFlow(
+                            context,
+                            service,
+                            labIdVal,
+                            labName,
+                            _psToProviderServiceMap(
+                              ps,
+                              serviceName,
+                            ),
+                          );
+                        },
                       );
                     },
-                  );
-                },
-              ),
+                  ),
+                ),
+              ],
             ),
-          ],
-        ),
-      ),
+          ),
+      )
     );
   }
 }
@@ -1623,85 +2089,182 @@ class _LabPickerTile extends StatelessWidget {
   final String labName;
   final String city;
   final double price;
+  final String? labImageUrl;
   final VoidCallback onTap;
 
   const _LabPickerTile({
     required this.labName,
     required this.city,
     required this.price,
+    required this.labImageUrl,
     required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
+    final lang =
+        context.watch<AppSettingsProvider>().language;
+
     return Material(
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(16),
         child: Container(
-          padding: EdgeInsets.all(Responsive.spacing(context, 14)),
-          decoration: AppTheme.cardDecorationFor(context),
+          padding: EdgeInsets.all(
+            Responsive.spacing(context, 14),
+          ),
+          decoration:
+          AppTheme.cardDecorationFor(context),
           child: Row(
             children: [
+              // LAB IMAGE
               Container(
-                padding: const EdgeInsets.all(10),
+                width: 48,
+                height: 48,
                 decoration: BoxDecoration(
-                  color: AppTheme.primary.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius:
+                  BorderRadius.circular(12),
+                  color: AppTheme.surfaceVariant,
+                  border: Border.all(
+                    color: AppTheme.primary
+                        .withValues(alpha: 0.10),
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black
+                          .withValues(alpha: 0.07),
+                      blurRadius: 8,
+                      offset:
+                      const Offset(0, 3),
+                    ),
+                  ],
                 ),
-                child: Icon(
-                  Icons.business_rounded,
-                  color: AppTheme.primary,
-                  size: 24,
+                child: ClipRRect(
+                  borderRadius:
+                  BorderRadius.circular(12),
+                  child: labImageUrl != null &&
+                      labImageUrl!.isNotEmpty
+                      ? CachedNetworkImage(
+                    imageUrl:
+                    labImageUrl!,
+                    width: 48,
+                    height: 48,
+                    fit: BoxFit.cover,
+                    placeholder:
+                        (_, __) =>
+                        _labFallback(),
+                    errorWidget:
+                        (_, __, ___) =>
+                        _labFallback(),
+                  )
+                      : _labFallback(),
                 ),
               ),
-              SizedBox(width: 14),
+
+              SizedBox(
+                width:
+                Responsive.spacing(context, 14),
+              ),
+
               Expanded(
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                  crossAxisAlignment:
+                  CrossAxisAlignment.start,
                   children: [
                     Text(
                       labName,
+                      maxLines: 1,
+                      overflow:
+                      TextOverflow.ellipsis,
                       style: TextStyle(
-                        fontSize: Responsive.fontSize(context, 14),
-                        fontWeight: FontWeight.w500,
+                        fontSize:
+                        Responsive.fontSize(
+                          context,
+                          14,
+                        ),
+                        fontWeight:
+                        FontWeight.w600,
                       ),
                     ),
-                    if (city.isNotEmpty)
+
+                    if (city.isNotEmpty) ...[
+                      const SizedBox(height: 3),
                       Text(
                         city,
+                        maxLines: 1,
+                        overflow:
+                        TextOverflow.ellipsis,
                         style: TextStyle(
-                          fontSize: Responsive.fontSize(context, 11),
-                          color: AppTheme.onSurfaceVariant,
+                          fontSize:
+                          Responsive.fontSize(
+                            context,
+                            11,
+                          ),
+                          color: AppTheme
+                              .onSurfaceVariant,
                         ),
                       ),
+                    ],
                   ],
                 ),
               ),
+
+              const SizedBox(width: 8),
+
               Container(
-                padding: const EdgeInsets.symmetric(
+                padding:
+                const EdgeInsets.symmetric(
                   horizontal: 10,
                   vertical: 6,
                 ),
                 decoration: BoxDecoration(
-                  gradient: AppTheme.auroraGradient,
-                  borderRadius: BorderRadius.circular(10),
+                  gradient:
+                  AppTheme.auroraGradient,
+                  borderRadius:
+                  BorderRadius.circular(10),
                 ),
                 child: Text(
-                  '${price.toStringAsFixed(2)} ر.س',
+                  '${price.toStringAsFixed(2)} '
+                      '${AppStrings.t('sar', lang)}',
+                  maxLines: 1,
                   style: TextStyle(
-                    fontSize: Responsive.fontSize(context, 12),
+                    fontSize:
+                    Responsive.fontSize(
+                      context,
+                      12,
+                    ),
                     color: Colors.white,
-                    fontWeight: FontWeight.w500,
+                    fontWeight:
+                    FontWeight.w500,
                   ),
                 ),
               ),
-              SizedBox(width: 8),
-              Icon(Icons.arrow_forward_ios, size: 14, color: AppTheme.primary),
+
+              const SizedBox(width: 8),
+
+              Icon(
+                Icons.arrow_forward_ios,
+                size: 14,
+                color: AppTheme.primary,
+              ),
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _labFallback() {
+    return Container(
+      width: double.infinity,
+      height: double.infinity,
+      alignment: Alignment.center,
+      color: AppTheme.surfaceVariant,
+      child: const Icon(
+        Icons.business_rounded,
+        color: AppTheme.primary,
+        size: 22,
       ),
     );
   }
@@ -1724,6 +2287,8 @@ class _ProviderCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final lang =
+        context.watch<AppSettingsProvider>().language;
     final lab = providerService['provider'] is Map
         ? providerService['provider'] as Map<String, dynamic>
         : <String, dynamic>{};
@@ -1788,33 +2353,103 @@ class _ProviderCard extends StatelessWidget {
                             ),
                           ),
                           SizedBox(height: Responsive.spacing(context, 7)),
-                          RatingBadge(
-                            rating: avgRating,
-                            reviewCount: totalReviews,
-                            size: RatingBadgeSize.small,
-                            showLabel: true,
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 6,
+                            ),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFFFF7E6),
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(
+                                color: const Color(0xFFFFE0A3),
+                                width: 1,
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(
+                                  Icons.star_rounded,
+                                  color: Color(0xFFFFB000),
+                                  size: 16,
+                                ),
+
+                                const SizedBox(width: 5),
+
+                                Text(
+                                  avgRating.toStringAsFixed(1),
+                                  style: TextStyle(
+                                    color: const Color(0xFF27272A),
+                                    fontSize: Responsive.fontSize(
+                                      context,
+                                      11,
+                                    ),
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+
+                                if (totalReviews > 0) ...[
+                                  const SizedBox(width: 4),
+
+                                  Text(
+                                    '($totalReviews)',
+                                    style: TextStyle(
+                                      color: const Color(0xFF71717A),
+                                      fontSize: Responsive.fontSize(
+                                        context,
+                                        9.5,
+                                      ),
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
                           ),
                         ],
                       ),
                     ),
                     Container(
                       padding: const EdgeInsets.symmetric(
-                        horizontal: 11,
-                        vertical: 7,
+                        horizontal: 12,
+                        vertical: 8,
                       ),
                       decoration: BoxDecoration(
-                        gradient: RastUi.brandGradient,
+                        color: RastUi.purple.withValues(alpha: 0.10),
                         borderRadius: BorderRadius.circular(14),
-                      ),
-                      child: Text(
-                        price > 0
-                            ? '${price.toStringAsFixed(0)} ر.س'
-                            : 'السعر لاحقاً',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: Responsive.fontSize(context, 12),
-                          fontWeight: FontWeight.w800,
+                        border: Border.all(
+                          color: RastUi.purple.withValues(alpha: 0.20),
                         ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.payments_rounded,
+                            color: RastUi.purple,
+                            size: 16,
+                          ),
+
+                          const SizedBox(width: 6),
+
+                          Text(
+                            price > 0
+                                ? '${price.toStringAsFixed(0)} ${AppStrings.t('sar', lang)}'
+                                : AppStrings.t('priceAvailableLater', lang),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: RastUi.purple,
+                              fontSize: Responsive.fontSize(
+                                context,
+                                12,
+                              ),
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ],
@@ -1833,9 +2468,14 @@ class _ProviderCard extends StatelessWidget {
                     _providerMetaChip(
                       context,
                       Icons.home_rounded,
-                      homePrice > 0
-                          ? '${homePrice.toStringAsFixed(0)} ر.س · خدمة منزلية'
-                          : 'بدون خدمة منزلية',
+                        homePrice > 0
+                            ? '${homePrice.toStringAsFixed(0)} '
+                            '${AppStrings.t('sar', lang)} · '
+                            '${AppStrings.t('homeService', lang)}'
+                            : AppStrings.t(
+                          'noHomeService',
+                          lang,
+                        ),
                     ),
                     const SizedBox(width: 8),
                     Icon(

@@ -1,5 +1,4 @@
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:carousel_slider/carousel_slider.dart';
 import 'package:flutter/material.dart';
 import 'package:rast/core/constants/api_config.dart';
 import 'package:rast/core/constants/app_strings.dart';
@@ -587,170 +586,1088 @@ class _HomeScreenState extends State<HomeScreen> with OnboardingTourHost {
     );
   }
 
-  // ignore: unused_element
-  Widget _buildShowcaseHero() {
+  SliverAppBar _buildAppBar(double topPadding) {
+    final settings = context.watch<AppSettingsProvider>();
     final theme = Theme.of(context);
-    return Padding(
-      padding: EdgeInsets.symmetric(
-        horizontal: Responsive.spacing(context, 16),
-      ),
-      child: Container(
-        padding: EdgeInsets.all(Responsive.spacing(context, 14)),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(28),
-          gradient: LinearGradient(
-            begin: Alignment.topRight,
-            end: Alignment.bottomLeft,
-            colors: [
-              theme.colorScheme.primary.withValues(alpha: 0.18),
-              theme.colorScheme.secondary.withValues(alpha: 0.10),
-              theme.colorScheme.surface.withValues(alpha: 0.92),
+
+    final userName = (AuthService.currentUser?.name ?? '').trim();
+    final parts = userName
+        .split(RegExp(r'\s+'))
+        .where((e) => e.isNotEmpty)
+        .toList();
+
+    final firstName = parts.isNotEmpty ? parts.first : '';
+
+    String initials = '';
+    if (parts.isNotEmpty) {
+      initials = parts.first[0].toUpperCase();
+
+      if (parts.length > 1) {
+        initials += parts.last[0].toUpperCase();
+      }
+    }
+
+    return SliverAppBar(
+      toolbarHeight: 0,
+      pinned: false,
+      floating: true,
+      snap: true,
+      expandedHeight: topPadding + 58,
+      backgroundColor: Colors.transparent,
+      elevation: 0,
+      flexibleSpace: FlexibleSpaceBar(
+        background: Padding(
+          padding: EdgeInsets.fromLTRB(
+            Responsive.spacing(context, 12),
+            topPadding,
+            Responsive.spacing(context, 12),
+            0,
+          ),
+          child: Row(
+            children: [
+              // Help
+              RastHelpButton(
+                tourId: OnboardingTourIds.home,
+                tourSteps: buildOnboardingSteps(),
+              ),
+
+              const SizedBox(width: 4),
+
+              // Cart
+              const CartIconButton(),
+
+              const SizedBox(width: 4),
+
+              // Favorites
+              _buildHeaderAction(
+                icon: Icons.favorite_border_rounded,
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const FavoritesScreen(),
+                    ),
+                  );
+                },
+              ),
+
+              const SizedBox(width: 12),
+
+              // Greeting + user name
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      AppStrings.t('welcomeBack', settings.language),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: Responsive.fontSize(context, 11),
+                        fontWeight: FontWeight.w400,
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+
+                    const SizedBox(height: 1),
+
+                    Text(
+                      firstName.isNotEmpty
+                          ? firstName
+                          : AppStrings.t('guest', settings.language),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: Responsive.fontSize(context, 16),
+                        fontWeight: FontWeight.w700,
+                        color: theme.colorScheme.onSurface,
+                        height: 1.2,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(width: 12),
+
+              // User avatar
+              Container(
+                width: 42,
+                height: 42,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE8E9ED),
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.9),
+                    width: 1,
+                  ),
+                ),
+                child: Text(
+                  initials.isNotEmpty ? initials : 'R',
+                  style: TextStyle(
+                    fontSize: Responsive.fontSize(context, 12),
+                    fontWeight: FontWeight.w600,
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
             ],
           ),
-          border: Border.all(
-            color: theme.colorScheme.outline.withValues(alpha: 0.16),
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: theme.colorScheme.primary.withValues(alpha: 0.10),
-              blurRadius: 24,
-              offset: const Offset(0, 14),
-            ),
-          ],
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              AppStrings.t(
-                'bookNowInMinute',
-                context.watch<AppSettingsProvider>().language,
-              ),
-              style: TextStyle(
-                fontSize: Responsive.fontSize(context, 17),
-                fontWeight: FontWeight.w700,
-                color: theme.colorScheme.onSurface,
-              ),
-            ),
-            SizedBox(height: Responsive.spacing(context, 10)),
-            _buildCarousel(),
-            SizedBox(height: Responsive.spacing(context, 12)),
-            _buildHeroMetricsStrip(),
-            SizedBox(height: Responsive.spacing(context, 10)),
-            Row(
-              children: [
-                Expanded(
-                  child: GradientFilledButton(
-                    onPressed: _navigateToAnalyses,
-                    child: Text(
-                      AppStrings.t(
-                        'bookTest',
-                        context.watch<AppSettingsProvider>().language,
-                      ),
-                    ),
-                  ),
-                ),
-                SizedBox(width: Responsive.spacing(context, 10)),
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: _navigateToPackages,
-                    child: Text(
-                      AppStrings.t(
-                        'browsePackages',
-                        context.watch<AppSettingsProvider>().language,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ],
         ),
       ),
     );
   }
 
-  Widget _buildHeroMetricsStrip() {
-    final theme = Theme.of(context);
-    return Row(
+  Widget _buildBannerBar() {
+    final banner = _banner!;
+    final message = banner['message']?.toString();
+    if (message == null || message.isEmpty) {
+      return const SliverToBoxAdapter(child: SizedBox.shrink());
+    }
+    Color bgColor;
+    try {
+      final hex = (banner['bg_color'] ?? '#ffc107').toString().replaceFirst(
+        '#',
+        '',
+      );
+      bgColor = Color(int.parse(hex.length == 6 ? 'FF$hex' : hex, radix: 16));
+    } catch (_) {
+      bgColor = AppTheme.warning;
+    }
+    Color textColor;
+    try {
+      final hex = (banner['text_color'] ?? '#212529').toString().replaceFirst(
+        '#',
+        '',
+      );
+      textColor = Color(int.parse(hex.length == 6 ? 'FF$hex' : hex, radix: 16));
+    } catch (_) {
+      textColor = AppTheme.onSurface;
+    }
+    return SliverToBoxAdapter(
+      child: Container(
+        width: double.infinity,
+        padding: EdgeInsets.symmetric(
+          horizontal: Responsive.spacing(context, 16),
+          vertical: Responsive.spacing(context, 10),
+        ),
+        color: bgColor,
+        child: Text(
+          message,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: textColor,
+            fontSize: Responsive.fontSize(context, 14),
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSearchBar() {
+    return Padding(
+      key: _searchKey,
+      padding: EdgeInsets.symmetric(
+        horizontal: Responsive.spacing(context, 16),
+      ),
+      child: SearchBox(
+        controller: _searchController,
+        hintText: AppStrings.t(
+          'searchHint',
+          context.watch<AppSettingsProvider>().language,
+        ),
+        onSearchTap: _submitHomeSearch,
+        onSubmitted: (_) => _submitHomeSearch(),
+        onFilterTap: _showFilterBottomSheet,
+      ),
+    );
+  }
+
+  Widget _buildOffers() {
+    final offers = _offers;
+    if (offers.isEmpty) return const SizedBox.shrink();
+    final cardWidth = Responsive.packageCardWidth(context) * 0.95;
+    final cardHeight = (cardWidth * 0.85).clamp(120.0, 160.0);
+    return SizedBox(
+      height: cardHeight,
+      child: ListView.builder(
+        scrollDirection: Axis.horizontal,
+        padding: EdgeInsets.symmetric(
+          horizontal: Responsive.spacing(context, 16),
+        ),
+        itemCount: offers.length,
+        itemBuilder: (context, index) {
+          final offer = offers[index] is Map
+              ? offers[index] as Map<String, dynamic>
+              : <String, dynamic>{};
+          final displayName = LocaleUtils.localizedName(
+            offer,
+            context.watch<AppSettingsProvider>().isArabic,
+          );
+          final imageUrl = ApiConfig.resolveImageUrl(
+            offer['image_url'],
+            offer['image'],
+          );
+          final discount = offer['discount_percent'] ?? offer['discount'];
+          final discountStr = discount != null
+              ? '${discount is num ? discount.toInt() : discount}%'
+              : null;
+          return SizedBox(
+            width: cardWidth,
+            child: Padding(
+              padding: EdgeInsets.only(left: Responsive.spacing(context, 12)),
+              child: Container(
+                decoration: AppTheme.cardDecorationFor(context),
+                clipBehavior: Clip.antiAlias,
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: () => _navigateToAnalyses(),
+                    borderRadius: BorderRadius.circular(AppTheme.radiusCard),
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        if (imageUrl != null && imageUrl.isNotEmpty)
+                          CachedNetworkImage(
+                            imageUrl: imageUrl,
+                            fit: BoxFit.cover,
+                            width: double.infinity,
+                            placeholder: (_, __) =>
+                                Container(color: AppTheme.surfaceVariant),
+                            errorWidget: (_, __, ___) => Container(
+                              color: AppTheme.primary.withValues(alpha: 0.12),
+                              child: Icon(
+                                Icons.local_offer_rounded,
+                                size: 40,
+                                color: AppTheme.primary,
+                              ),
+                            ),
+                          )
+                        else
+                          Container(
+                            color: AppTheme.accent.withValues(alpha: 0.15),
+                            child: Icon(
+                              Icons.local_offer_rounded,
+                              size: 40,
+                              color: AppTheme.accent,
+                            ),
+                          ),
+                        Positioned(
+                          left: 0,
+                          right: 0,
+                          bottom: 0,
+                          child: Container(
+                            padding: EdgeInsets.all(
+                              Responsive.spacing(context, 10),
+                            ),
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.topCenter,
+                                end: Alignment.bottomCenter,
+                                colors: [
+                                  Colors.transparent,
+                                  Colors.black.withValues(alpha: 0.8),
+                                ],
+                              ),
+                            ),
+                            child: Text(
+                              displayName,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: Responsive.fontSize(context, 12),
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ),
+                        if (discountStr != null)
+                          Positioned(
+                            top: 8,
+                            right: 8,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                gradient: AppTheme.accentGradient,
+                                borderRadius: BorderRadius.circular(10),
+                                boxShadow: AppTheme.goldGlow,
+                              ),
+                              child: Text(
+                                AppStrings.tParam(
+                                  'discountPercent',
+                                  context.watch<AppSettingsProvider>().language,
+                                  discountStr,
+                                ),
+                                style: TextStyle(
+                                  fontSize: Responsive.fontSize(context, 10),
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildCategories() {
+    final categories = _categories;
+    final screenWidth = MediaQuery.sizeOf(context).width;
+    final hPadding = Responsive.spacing(context, 10);
+    final gaps = Responsive.spacing(context, 10) * 2;
+    final itemWidth = (screenWidth - hPadding - gaps) / 3;
+    final iconSize = (itemWidth).clamp(80.0, 100.0);
+    final textScale = MediaQuery.textScalerOf(context)
+        .scale(1.0)
+        .clamp(1.0, 1.5);
+
+    final textAreaHeight = 38.0 * textScale;
+
+    final rowHeight =
+        iconSize +
+            Responsive.spacing(context, 6) +
+            textAreaHeight;
+    const categoriesPerPage = 6;
+    final pageCount = (categories.length / categoriesPerPage).ceil();
+    return Column(
+      mainAxisSize: MainAxisSize.min,
       children: [
-        Expanded(
-          child: _buildMetricTile(
-            label: AppStrings.t(
-              'offers',
-              context.watch<AppSettingsProvider>().language,
-            ),
-            value: _statCount(_totalOffers, _offers.length).toString(),
-            icon: Icons.local_offer_rounded,
-            color: theme.colorScheme.secondary,
+        SizedBox(
+          height: rowHeight * 2 + Responsive.spacing(context, 10),
+          child: PageView.builder(
+            controller: _categoriesPageController,
+            onPageChanged: (i) => setState(() => _categoriesPageIndex = i),
+            padEnds: false,
+            itemCount: pageCount,
+            itemBuilder: (context, pageIndex) {
+              final start = pageIndex * categoriesPerPage;
+              return Padding(
+                padding: EdgeInsets.symmetric(
+                  horizontal: Responsive.spacing(context, 10),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: List.generate(3, (col) {
+                    return Expanded(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: List.generate(2, (row) {
+                          final index = start + col + row * 3;
+                          if (index >= categories.length) {
+                            return SizedBox(height: rowHeight);
+                          }
+                          final cat = categories[index] is Map
+                              ? categories[index] as Map<String, dynamic>
+                              : <String, dynamic>{};
+                          final isSelected = _selectedCategoryIndex == index;
+                          final iconUrl = cat['icon_url']?.toString();
+                          final icon = cat['icon']?.toString() ?? '🩸';
+                          final displayName = LocaleUtils.localizedName(
+                            cat,
+                            context.watch<AppSettingsProvider>().isArabic,
+                          );
+                          final id = cat['id'] is int
+                              ? cat['id'] as int
+                              : cat['id'] is num
+                              ? (cat['id'] as num).toInt()
+                              : null;
+                          final url =
+                              ApiConfig.resolveImageUrl(
+                                cat['image_url'],
+                                cat['image'],
+                              ) ??
+                                  iconUrl;
+                          return Padding(
+                            padding: EdgeInsets.only(
+                              left: col > 0
+                                  ? Responsive.spacing(context, 5)
+                                  : 0,
+                              right: col < 2
+                                  ? Responsive.spacing(context, 5)
+                                  : 0,
+                              bottom: row < 1
+                                  ? Responsive.spacing(context, 10)
+                                  : 0,
+                            ),
+                            child: SizedBox(
+                              height: rowHeight,
+                              child: GestureDetector(
+                                onTap: () {
+                                  setState(
+                                        () => _selectedCategoryIndex = index,
+                                  );
+                                  if (id != null) {
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (_) =>
+                                            AnalysesScreen(categoryId: id),
+                                      ),
+                                    );
+                                  } else {
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (_) => const AnalysesScreen(),
+                                      ),
+                                    );
+                                  }
+                                },
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  mainAxisAlignment: MainAxisAlignment.start,
+                                  crossAxisAlignment: CrossAxisAlignment.center,
+                                  children: [
+                                    Container(
+                                      width: iconSize,
+                                      height: iconSize,
+                                      decoration: BoxDecoration(
+                                        borderRadius: BorderRadius.circular(14),
+                                        color: const Color(0xFFE8E9FB),
+                                        border: Border.all(
+                                          color: isSelected
+                                              ? AppTheme.primary
+                                              : Colors.transparent,
+                                          width: 2.5,
+                                        ),
+                                        boxShadow: [
+                                          if (isSelected) ...AppTheme.softGlow,
+
+                                          BoxShadow(
+                                            color: isSelected
+                                                ? AppTheme.primary.withValues(alpha: 0.25)
+                                                : Colors.black.withValues(alpha: 0.18),
+                                            blurRadius: isSelected ? 10 : 12,
+                                            offset: const Offset(0, 4),
+                                          ),
+                                        ],
+                                      ),
+                                      child: ClipRRect(
+                                        borderRadius: BorderRadius.circular(14),
+                                        child: (url != null && url.isNotEmpty)
+                                            ? CachedNetworkImage(
+                                          imageUrl: url,
+                                          fit: BoxFit.cover,
+                                          width: iconSize,
+                                          height: iconSize,
+                                          placeholder: (_, __) => Container(
+                                            color:
+                                            AppTheme.surfaceVariant,
+                                            child: Icon(
+                                              Icons
+                                                  .medical_services_outlined,
+                                              color: AppTheme.primary,
+                                              size: iconSize * 0.5,
+                                            ),
+                                          ),
+                                          errorWidget: (_, __, ___) =>
+                                              _buildCategoryIconFallback(
+                                                icon,
+                                                iconSize,
+                                                isSelected,
+                                              ),
+                                        )
+                                            : _buildCategoryIconFallback(
+                                          icon,
+                                          iconSize,
+                                          isSelected,
+                                        ),
+                                      ),
+                                    ),
+                                    SizedBox(
+                                      height: Responsive.spacing(context, 6),
+                                    ),
+                                    SizedBox(
+                                      height: textAreaHeight,
+                                      width: itemWidth,
+                                      child: Center(
+                                        child: Text(
+                                          displayName,
+                                          textAlign: TextAlign.center,
+                                          maxLines: 2,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                            fontSize: Responsive.fontSize(
+                                              context,
+                                              11.5,
+                                            ),
+                                            color: isSelected
+                                                ? AppTheme.primary
+                                                : AppTheme.onSurfaceVariant,
+                                            fontWeight: FontWeight.w400,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          );
+                        }),
+                      ),
+                    );
+                  }),
+                ),
+              );
+            },
           ),
         ),
-        SizedBox(width: Responsive.spacing(context, 8)),
-        Expanded(
-          child: _buildMetricTile(
-            label: AppStrings.t(
-              'packages',
-              context.watch<AppSettingsProvider>().language,
+        if (pageCount > 1) ...[
+          SizedBox(height: Responsive.spacing(context, 8)),
+          AnimatedSmoothIndicator(
+            activeIndex: _categoriesPageIndex,
+            count: pageCount,
+            effect: WormEffect(
+              dotWidth: 6,
+              dotHeight: 6,
+              activeDotColor: AppTheme.primary,
+              dotColor: AppTheme.onSurfaceVariant.withValues(alpha: 0.3),
             ),
-            value: _statCount(_totalPackages, _packages.length).toString(),
-            icon: Icons.inventory_2_rounded,
-            color: theme.colorScheme.primary,
           ),
-        ),
-        SizedBox(width: Responsive.spacing(context, 8)),
-        Expanded(
-          child: _buildMetricTile(
-            label: AppStrings.t(
-              'labs',
-              context.watch<AppSettingsProvider>().language,
-            ),
-            value: _statCount(_totalLabs, _labs.length).toString(),
-            icon: Icons.verified_user_rounded,
-            color: AppTheme.success,
-          ),
-        ),
+        ],
       ],
     );
   }
 
-  Widget _buildMetricTile({
-    required String label,
-    required String value,
-    required IconData icon,
-    required Color color,
-  }) {
-    final theme = Theme.of(context);
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surface.withValues(alpha: 0.88),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: color.withValues(alpha: 0.20)),
+  Widget _buildPackages() {
+    final packages = _packages.isEmpty ? DummyData.packages : _packages;
+    final cardWidth = MediaQuery.sizeOf(context).width * 0.75;
+    final textScale = MediaQuery.textScalerOf(context)
+        .scale(1.0)
+        .clamp(1.0, 1.4);
+
+    final cardHeight =
+    ((cardWidth * 0.48) * textScale)
+        .clamp(140.0, 210.0);
+    final settings = context.watch<AppSettingsProvider>();
+
+    return SizedBox(
+      height: cardHeight,
+      child: ListView.builder(
+        scrollDirection: Axis.horizontal,
+        padding: EdgeInsets.symmetric(
+          horizontal: Responsive.spacing(context, 16),
+        ),
+        itemCount: packages.length,
+        itemBuilder: (context, index) {
+          final pkg = packages[index] is Map
+              ? packages[index] as Map<String, dynamic>
+              : <String, dynamic>{};
+
+          final displayName = LocaleUtils.localizedName(
+            pkg,
+            settings.isArabic,
+          );
+
+          double price = ApiConfig.priceFromMap(pkg);
+
+          if (price == 0.0) {
+            final psList =
+                pkg['provider_services'] ?? pkg['providerServices'];
+
+            if (psList is List && psList.isNotEmpty) {
+              final first = psList.first;
+
+              if (first is Map<String, dynamic>) {
+                price = ApiConfig.priceFromMap(first);
+              }
+            }
+          }
+
+          final orig = pkg['original_price'];
+
+          final originalPrice = (orig is num)
+              ? orig.toDouble()
+              : ((orig is String) ? double.tryParse(orig) : null);
+
+          final imageUrl = ApiConfig.packageImageUrl(pkg);
+
+          final testsCount =
+              pkg['tests_count'] ??
+                  (pkg['package_items'] is List
+                      ? (pkg['package_items'] as List).length
+                      : 0);
+
+          return SizedBox(
+            width: cardWidth,
+            child: Padding(
+              padding: EdgeInsetsDirectional.only(
+                end: Responsive.spacing(context, 12),
+              ),
+              child: Container(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(18),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.16),
+                      blurRadius: 12,
+                      offset: const Offset(0, 5),
+                    ),
+                  ],
+                ),
+                clipBehavior: Clip.antiAlias,
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => PackageDetailScreen(
+                          package: pkg,
+                        ),
+                      ),
+                    ),
+                    borderRadius: BorderRadius.circular(18),
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        if (imageUrl != null && imageUrl.isNotEmpty)
+                          CachedNetworkImage(
+                            imageUrl: imageUrl,
+                            fit: BoxFit.cover,
+                            placeholder: (_, __) => Container(
+                              color: AppTheme.surfaceVariant,
+                            ),
+                            errorWidget: (_, __, ___) => Container(
+                              decoration: const BoxDecoration(
+                                gradient: AppTheme.primaryGradient,
+                              ),
+                            ),
+                          )
+                        else
+                          Container(
+                            decoration: const BoxDecoration(
+                              gradient: AppTheme.primaryGradient,
+                            ),
+                          ),
+
+                        Container(
+                          color: Colors.black.withValues(alpha: 0.60),
+                        ),
+
+                        Padding(
+                          padding: const EdgeInsets.all(14),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              // Package name
+                              Text(
+                                displayName,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: Responsive.fontSize(
+                                    context,
+                                    15,
+                                  ),
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+
+                              const SizedBox(height: 6),
+
+                              // Number of tests
+                              Row(
+                                children: [
+                                  const Icon(
+                                    Icons.science_outlined,
+                                    size: 15,
+                                    color: Colors.white,
+                                  ),
+
+                                  const SizedBox(width: 5),
+
+                                  Expanded(
+                                    child: Text(
+                                      testsCount > 0
+                                          ? '$testsCount ${AppStrings.t(
+                                        'testsCount',
+                                        settings.language,
+                                      )}'
+                                          : AppStrings.t(
+                                        'testsShownInImage',
+                                        settings.language,
+                                      ),
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      textAlign: TextAlign.start,
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize:
+                                        Responsive.fontSize(context, 11),
+                                        fontWeight: FontWeight.w700,
+                                        height: 1.3,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+
+                              const Spacer(),
+
+                              Row(
+                                crossAxisAlignment:
+                                CrossAxisAlignment.end,
+                                children: [
+                                  // Price
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                      CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          price > 0
+                                              ? '${price.toStringAsFixed(0)} ${AppStrings.t(
+                                            'sar',
+                                            settings.language,
+                                          )}'
+                                              : AppStrings.t(
+                                            'contactForPrice',
+                                            settings.language,
+                                          ),
+                                          softWrap: true,
+                                          maxLines: 2,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                            color: Colors.white,
+                                            fontSize: Responsive.fontSize(context, 17),
+                                            fontWeight: FontWeight.w800,
+                                          ),
+                                        ),
+
+                                        if (originalPrice != null && originalPrice > price)
+                                          Text(
+                                            '${originalPrice.toStringAsFixed(0)} ${AppStrings.t(
+                                              'sar',
+                                              settings.language,
+                                            )}',
+                                            softWrap: true,
+                                            maxLines: 2,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: TextStyle(
+                                              color: Colors.white70,
+                                              fontSize: Responsive.fontSize(context, 9),
+                                              decoration: TextDecoration.lineThrough,
+                                              decorationColor: Colors.white70,
+                                            ),
+                                          ),
+                                      ],
+                                    ),
+                                  ),
+
+                                  const Spacer(),
+
+                                  // Rating
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 4,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: Colors.black.withValues(
+                                        alpha: 0.28,
+                                      ),
+                                      borderRadius:
+                                      BorderRadius.circular(14),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Text(
+                                          '4.8',
+                                          style: TextStyle(
+                                            color: Colors.white,
+                                            fontSize:
+                                            Responsive.fontSize(
+                                              context,
+                                              10,
+                                            ),
+                                            fontWeight:
+                                            FontWeight.w600,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 3),
+                                        const Icon(
+                                          Icons.star_rounded,
+                                          color: AppTheme.accent,
+                                          size: 15,
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
       ),
-      child: Column(
-        children: [
-          Icon(icon, size: 18, color: color),
-          const SizedBox(height: 4),
-          Text(
-            value,
-            style: TextStyle(
-              fontSize: Responsive.fontSize(context, 14),
-              fontWeight: FontWeight.w800,
-              color: theme.colorScheme.onSurface,
+    );
+  }
+
+  Widget _buildLabs() {
+    final labs = _labs;
+
+    return ListView.separated(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      padding: EdgeInsets.symmetric(
+        horizontal: Responsive.spacing(context, 16),
+      ),
+      itemCount: labs.length,
+      separatorBuilder: (_, __) =>
+          SizedBox(height: Responsive.spacing(context, 12)),
+      itemBuilder: (context, index) {
+        final lab = labs[index] is Map
+            ? labs[index] as Map<String, dynamic>
+            : <String, dynamic>{};
+
+        final avatarSize =
+            60.0 *
+                (MediaQuery.of(context).size.width / 375).clamp(1.0, 1.2);
+
+        final settings = context.watch<AppSettingsProvider>();
+        final isArabic = settings.isArabic;
+
+        final businessName = LocaleUtils.localizedBusinessName(
+          lab,
+          isArabic,
+        );
+
+        final locationText = LabLocationUtils.displayText(
+          lab: lab,
+          userLat: _userLat,
+          userLng: _userLng,
+          branches:
+          BranchesIndexService.instance.branchesFor(lab) ??
+              (lab['branches'] is List
+                  ? lab['branches'] as List<dynamic>
+                  : null),
+          isArabic: isArabic,
+        );
+
+        final logoUrl =
+            ApiConfig.imageFromMap(lab) ??
+                ApiConfig.resolveImageUrl(
+                  lab['logo_url'],
+                  lab['logo'],
+                );
+
+        final avgRating =
+        (lab['avg_rating'] is num
+            ? lab['avg_rating'] as num
+            : 0)
+            .toDouble();
+
+        final homeService = lab['home_service_available'] == true;
+
+        return Container(
+          padding: EdgeInsets.only(bottom: 10),
+          decoration: BoxDecoration(
+            color: RastUi.cardSurface(context),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: RastUi.softBorder(context),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.10),
+                blurRadius: 7,
+                offset: const Offset(0, 3),
+              ),
+            ],
+          ),
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: () => _navigateToLabDetails(lab),
+              borderRadius: BorderRadius.circular(12),
+              child: Padding(
+                padding: EdgeInsets.all(
+                  Responsive.spacing(context, 12),
+                ),
+                child: Stack(
+                  children: [
+                    // MAIN CONTENT
+                    Padding(
+                      padding: const EdgeInsetsDirectional.only(
+                        end: 38,
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _buildLabAvatar(logoUrl, avatarSize),
+
+                          SizedBox(
+                            width: Responsive.spacing(context, 14),
+                          ),
+
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  businessName,
+                                  softWrap: true,
+                                  style: TextStyle(
+                                    fontSize: Responsive.fontSize(context, 12),
+                                    color: RastUi.textPurple,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+
+                                SizedBox(
+                                  height: Responsive.spacing(context, 4),
+                                ),
+
+                                Text(
+                                  locationText,
+                                  softWrap: true,
+                                  style: TextStyle(
+                                    fontSize: Responsive.fontSize(context, 10),
+                                    color: RastUi.blue,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+
+                                SizedBox(
+                                  height: Responsive.spacing(context, 8),
+                                ),
+
+                                Align(
+                                  alignment: AlignmentDirectional.centerStart,
+                                  child: Container(
+                                    constraints: const BoxConstraints(
+                                      minWidth: 84,
+                                    ),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 14,
+                                      vertical: 4,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      gradient: RastUi.brandGradient,
+                                      borderRadius: BorderRadius.circular(18),
+                                    ),
+                                    child: Text(
+                                      homeService
+                                          ? AppStrings.t(
+                                        'homeService',
+                                        settings.language,
+                                      )
+                                          : AppStrings.t(
+                                        'labService',
+                                        settings.language,
+                                      ),
+                                      softWrap: true,
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: Responsive.fontSize(context, 10),
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    // HEART
+                    PositionedDirectional(
+                      end: 0,
+                      top: 0,
+                      child: FutureBuilder<bool>(
+                        future: FavoritesService.isLabFavorite(lab),
+                        builder: (context, snapshot) {
+                          final isFavorite = snapshot.data ?? false;
+
+                          return SizedBox(
+                            width: 32,
+                            height: 32,
+                            child: IconButton(
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(),
+                              onPressed: () async {
+                                await FavoritesService.toggleLab(lab);
+
+                                if (mounted) {
+                                  setState(() {});
+                                }
+                              },
+                              icon: Icon(
+                                isFavorite
+                                    ? Icons.favorite_rounded
+                                    : Icons.favorite_border_rounded,
+                                color: const Color(0xFFFF4D61),
+                                size: Responsive.fontSize(context, 22),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+
+                    // RATING
+                    PositionedDirectional(
+                      end: 0,
+                      bottom: 0,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            avgRating > 0
+                                ? avgRating.toStringAsFixed(1)
+                                : '4.8',
+                            style: TextStyle(
+                              color: RastUi.textPurple,
+                              fontSize: Responsive.fontSize(context, 10),
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          const Icon(
+                            Icons.star_rounded,
+                            size: 16,
+                            color: AppTheme.accent,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
           ),
-          Text(
-            label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              fontSize: Responsive.fontSize(context, 10),
-              fontWeight: FontWeight.w600,
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 
@@ -762,7 +1679,7 @@ class _HomeScreenState extends State<HomeScreen> with OnboardingTourHost {
   }) {
     return Padding(
       padding: EdgeInsets.symmetric(
-        horizontal: Responsive.spacing(context, 16),
+        horizontal: Responsive.spacing(context, 10),
       ),
       child: Container(
         padding: EdgeInsets.only(
@@ -916,131 +1833,6 @@ class _HomeScreenState extends State<HomeScreen> with OnboardingTourHost {
     );
   }
 
-  Widget _buildBannerBar() {
-    final banner = _banner!;
-    final message = banner['message']?.toString();
-    if (message == null || message.isEmpty) {
-      return const SliverToBoxAdapter(child: SizedBox.shrink());
-    }
-    Color bgColor;
-    try {
-      final hex = (banner['bg_color'] ?? '#ffc107').toString().replaceFirst(
-        '#',
-        '',
-      );
-      bgColor = Color(int.parse(hex.length == 6 ? 'FF$hex' : hex, radix: 16));
-    } catch (_) {
-      bgColor = AppTheme.warning;
-    }
-    Color textColor;
-    try {
-      final hex = (banner['text_color'] ?? '#212529').toString().replaceFirst(
-        '#',
-        '',
-      );
-      textColor = Color(int.parse(hex.length == 6 ? 'FF$hex' : hex, radix: 16));
-    } catch (_) {
-      textColor = AppTheme.onSurface;
-    }
-    return SliverToBoxAdapter(
-      child: Container(
-        width: double.infinity,
-        padding: EdgeInsets.symmetric(
-          horizontal: Responsive.spacing(context, 16),
-          vertical: Responsive.spacing(context, 10),
-        ),
-        color: bgColor,
-        child: Text(
-          message,
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            color: textColor,
-            fontSize: Responsive.fontSize(context, 14),
-            fontWeight: FontWeight.w500,
-          ),
-        ),
-      ),
-    );
-  }
-
-  SliverAppBar _buildAppBar(double topPadding) {
-    final userName = (AuthService.currentUser?.name ?? '').trim();
-    final parts = userName.split(RegExp(r'\s+'));
-    final firstName = userName.isNotEmpty && parts.isNotEmpty
-        ? parts.first
-        : '';
-
-    return SliverAppBar(
-      toolbarHeight: 0,
-      pinned: false,
-      floating: true,
-      snap: true,
-      expandedHeight: topPadding + 86,
-      backgroundColor: Colors.transparent,
-      flexibleSpace: FlexibleSpaceBar(
-        background: Padding(
-          padding: EdgeInsets.fromLTRB(20, topPadding + 8, 20, 4),
-          child: Row(
-            children: [
-              RastHelpButton(
-                tourId: OnboardingTourIds.home,
-                tourSteps: buildOnboardingSteps(),
-              ),
-              const SizedBox(width: 8),
-              const CartIconButton(),
-              const SizedBox(width: 8),
-              _buildHeaderAction(
-                icon: Icons.favorite_border_rounded,
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const FavoritesScreen()),
-                ),
-              ),
-              const Spacer(),
-              Expanded(
-                flex: 4,
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Text(
-                      AuthService.isLoggedIn ? 'أهلاً بعودتك' : 'أهلاً بك',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: Responsive.fontSize(context, 20),
-                        fontWeight: FontWeight.w700,
-                        color: const Color(0xFFDDD7E4),
-                        letterSpacing: -0.2,
-                      ),
-                    ),
-                    SizedBox(height: Responsive.spacing(context, 4)),
-                    if (firstName.isNotEmpty)
-                      Text(
-                        firstName,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: Responsive.fontSize(context, 12),
-                          color: RastUi.textPurple,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 10),
-              const CircleAvatar(
-                radius: 24,
-                backgroundColor: Color(0xFFECECF3),
-                child: Icon(Icons.person, color: RastUi.purple),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
 
   Widget _buildHeaderAction({
     required IconData icon,
@@ -1054,178 +1846,89 @@ class _HomeScreenState extends State<HomeScreen> with OnboardingTourHost {
         child: Container(
           padding: const EdgeInsets.all(10),
           decoration: BoxDecoration(color: Colors.transparent),
-          child: Icon(icon, size: 28, color: RastUi.purple),
+          child: Icon(icon, size: 24, color: Colors.black),
         ),
       ),
     );
   }
 
-  Widget _buildCarousel() {
-    final height = Responsive.carouselHeight(context);
-    final slides = _slides;
-    if (slides.isEmpty) return const SizedBox.shrink();
-    return Column(
-      children: [
-        CarouselSlider.builder(
-          itemCount: slides.length,
-          itemBuilder: (context, index, realIndex) {
-            final slide = slides[index] is Map
-                ? slides[index] as Map<String, dynamic>
-                : <String, dynamic>{};
-            final imageUrl = ApiConfig.resolveImageUrl(
-              slide['image_url'],
-              slide['image'],
-            );
-            return Padding(
-              padding: EdgeInsets.symmetric(
-                horizontal: Responsive.spacing(context, 10),
-              ),
-              child: Container(
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.surface,
-                  borderRadius: BorderRadius.circular(24),
-                  boxShadow: AppTheme.cardShadowElevated,
-                  border: Border.all(
-                    color: Theme.of(context).brightness == Brightness.dark
-                        ? Theme.of(
-                            context,
-                          ).colorScheme.outline.withValues(alpha: 0.2)
-                        : Colors.white.withValues(alpha: 0.98),
-                    width: 1.5,
-                  ),
-                ),
-                clipBehavior: Clip.antiAlias,
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    if (imageUrl != null && imageUrl.isNotEmpty)
-                      CachedNetworkImage(
-                        imageUrl: imageUrl,
-                        fit: BoxFit.cover,
-                        placeholder: (_, __) =>
-                            Container(color: AppTheme.surfaceVariant),
-                        errorWidget: (_, __, ___) => Container(
-                          color: AppTheme.primary.withValues(alpha: 0.2),
-                          child: Icon(
-                            Icons.image_not_supported,
-                            size: 48,
-                            color: AppTheme.primary,
-                          ),
-                        ),
-                      )
-                    else
-                      Container(
-                        color: AppTheme.primary.withValues(alpha: 0.2),
-                        child: Icon(
-                          Icons.image,
-                          size: 48,
-                          color: AppTheme.primary,
-                        ),
-                      ),
-                    Positioned(
-                      left: 0,
-                      right: 0,
-                      bottom: 0,
-                      child: Container(
-                        padding: EdgeInsets.all(
-                          Responsive.spacing(context, 14),
-                        ),
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
-                            colors: [
-                              Colors.transparent,
-                              Colors.black.withValues(alpha: 0.75),
-                            ],
-                          ),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              slide['title']?.toString() ?? '',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: Responsive.fontSize(context, 12),
-                                fontWeight: FontWeight.w500,
-                              ),
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            if (slide['subtitle'] != null)
-                              Text(
-                                slide['subtitle'].toString(),
-                                style: TextStyle(
-                                  color: Colors.white.withValues(alpha: 0.9),
-                                  fontSize: Responsive.fontSize(context, 10),
-                                ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          },
-          options: CarouselOptions(
-            height: height,
-            viewportFraction: 0.88,
-            enlargeCenterPage: true,
-            autoPlay: slides.length > 1,
-            autoPlayInterval: const Duration(seconds: 4),
-            onPageChanged: (index, _) => setState(() => _carouselIndex = index),
-          ),
-        ),
-        SizedBox(height: Responsive.spacing(context, 10)),
-        AnimatedSmoothIndicator(
-          activeIndex: _carouselIndex,
-          count: slides.length,
-          effect: WormEffect(
-            dotWidth: 12,
-            dotHeight: 12,
-            activeDotColor: AppTheme.primary,
-            dotColor: AppTheme.onSurfaceVariant.withValues(alpha: 0.3),
-          ),
-        ),
-      ],
-    );
-  }
 
-  Widget _buildSearchBar() {
-    return Padding(
-      key: _searchKey,
-      padding: EdgeInsets.symmetric(
-        horizontal: Responsive.spacing(context, 16),
-      ),
-      child: SearchBox(
-        controller: _searchController,
-        hintText: AppStrings.t(
-          'searchHint',
-          context.watch<AppSettingsProvider>().language,
-        ),
-        onSearchTap: _submitHomeSearch,
-        onSubmitted: (_) => _submitHomeSearch(),
-        onFilterTap: _showFilterBottomSheet,
-      ),
-    );
-  }
-
-  void _submitHomeSearch() {
+  Future<void> _submitHomeSearch() async {
     final query = _searchController.text.trim();
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => AnalysesScreen(
-          initialSearchQuery: query.isEmpty ? null : query,
+
+    if (query.isEmpty) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => const AnalysesScreen(),
         ),
-      ),
-    );
+      );
+      return;
+    }
+
+    try {
+      final type = await Api.services.globalSearch(query);
+
+      if (!mounted) return;
+
+      switch (type) {
+        case 'lab':
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => LabsScreen(
+                showBackButton: true,
+                initialSearchQuery: query,
+              ),
+            ),
+          );
+          break;
+
+        case 'package':
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => PackagesScreen(
+                initialSearchQuery: query,
+              ),
+            ),
+          );
+          break;
+
+        case 'test':
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => AnalysesScreen(
+                initialSearchQuery: query,
+              ),
+            ),
+          );
+          break;
+
+        default:
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => AnalysesScreen(
+                initialSearchQuery: query,
+              ),
+            ),
+          );
+          break;
+      }
+    } catch (_) {
+      if (!mounted) return;
+
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => AnalysesScreen(
+            initialSearchQuery: query,
+          ),
+        ),
+      );
+    }
   }
 
   void _showFilterBottomSheet() {
@@ -1346,7 +2049,7 @@ class _HomeScreenState extends State<HomeScreen> with OnboardingTourHost {
   void _navigateToLabs() {
     Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => const LabsScreen()),
+      MaterialPageRoute(builder: (_) => const LabsScreen(showBackButton: true,)),
     );
   }
 
@@ -1364,8 +2067,15 @@ class _HomeScreenState extends State<HomeScreen> with OnboardingTourHost {
       height: size,
       decoration: BoxDecoration(
         color: theme.colorScheme.surface,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: AppTheme.cardShadow,
+        borderRadius: BorderRadius.circular(13),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.22),
+            blurRadius: 14,
+            spreadRadius: 1,
+            offset: const Offset(0, 5),
+          ),
+        ],
         border: Border.all(
           color: theme.brightness == Brightness.dark
               ? theme.colorScheme.outline.withValues(alpha: 0.25)
@@ -1411,18 +2121,18 @@ class _HomeScreenState extends State<HomeScreen> with OnboardingTourHost {
   }
 
   Widget _buildSectionTitle(
-    String title,
-    String? action, {
-    VoidCallback? onActionTap,
-  }) {
+      String title,
+      String? action, {
+        VoidCallback? onActionTap,
+      }) {
     final theme = Theme.of(context);
     final primary = theme.colorScheme.primary;
+
     return Padding(
       padding: EdgeInsets.symmetric(
         horizontal: Responsive.spacing(context, 16),
       ),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           Expanded(
@@ -1436,269 +2146,94 @@ class _HomeScreenState extends State<HomeScreen> with OnboardingTourHost {
                     color: primary,
                     boxShadow: [
                       BoxShadow(
-                        color: primary.withValues(alpha: 0.35),
+                        color: primary.withValues(
+                          alpha: 0.35,
+                        ),
                         blurRadius: 10,
                       ),
                     ],
                   ),
                 ),
-                SizedBox(width: Responsive.spacing(context, 10)),
+
+                SizedBox(
+                  width: Responsive.spacing(context, 10),
+                ),
+
                 Expanded(
                   child: Text(
                     title,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
-                      fontSize: Responsive.fontSize(context, 18),
+                      fontSize:
+                      Responsive.fontSize(context, 18),
                       fontWeight: FontWeight.w700,
-                      color: theme.colorScheme.onSurface,
+                      color:
+                      theme.colorScheme.onSurface,
                     ),
                   ),
                 ),
               ],
             ),
           ),
-          if (action != null)
-            TextButton.icon(
-              onPressed: onActionTap,
-              style: TextButton.styleFrom(
-                foregroundColor: theme.colorScheme.primary,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 8,
+
+          if (action != null) ...[
+            const SizedBox(width: 8),
+
+            ConstrainedBox(
+              constraints: BoxConstraints(
+                maxWidth:
+                MediaQuery.sizeOf(context).width *
+                    0.30,
+              ),
+              child: TextButton(
+                onPressed: onActionTap,
+                style: TextButton.styleFrom(
+                  foregroundColor: primary,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 8,
+                  ),
                 ),
-              ),
-              icon: Icon(
-                Icons.chevron_right_rounded,
-                size: 18,
-                color: theme.colorScheme.primary,
-              ),
-              label: Text(
-                action,
-                style: TextStyle(
-                  fontSize: Responsive.fontSize(context, 13),
-                  fontWeight: FontWeight.w700,
-                  color: theme.colorScheme.primary,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Flexible(
+                      child: Text(
+                        action,
+                        maxLines: 1,
+                        overflow:
+                        TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize:
+                          Responsive.fontSize(
+                            context,
+                            13,
+                          ),
+                          fontWeight:
+                          FontWeight.w700,
+                          color: primary,
+                        ),
+                      ),
+                    ),
+
+                    const SizedBox(width: 3),
+
+                    Icon(
+                      Icons.chevron_right_rounded,
+                      size: 18,
+                      color: primary,
+                    ),
+                  ],
                 ),
               ),
             ),
+          ],
         ],
       ),
     );
   }
 
-  Widget _buildCategories() {
-    final categories = _categories;
-    final screenWidth = MediaQuery.sizeOf(context).width;
-    final hPadding = Responsive.spacing(context, 16) * 2;
-    final gaps = Responsive.spacing(context, 10) * 2;
-    final itemWidth = (screenWidth - hPadding - gaps) / 3;
-    final iconSize = (itemWidth * 0.82).clamp(52.0, 68.0);
-    const textAreaHeight = 38.0;
-    final rowHeight =
-        iconSize + Responsive.spacing(context, 6) + textAreaHeight;
-    const categoriesPerPage = 6;
-    final pageCount = (categories.length / categoriesPerPage).ceil();
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        SizedBox(
-          height: rowHeight * 2 + Responsive.spacing(context, 10),
-          child: PageView.builder(
-            controller: _categoriesPageController,
-            onPageChanged: (i) => setState(() => _categoriesPageIndex = i),
-            padEnds: false,
-            itemCount: pageCount,
-            itemBuilder: (context, pageIndex) {
-              final start = pageIndex * categoriesPerPage;
-              return Padding(
-                padding: EdgeInsets.symmetric(
-                  horizontal: Responsive.spacing(context, 16),
-                ),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: List.generate(3, (col) {
-                    return Expanded(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.center,
-                        children: List.generate(2, (row) {
-                          final index = start + col + row * 3;
-                          if (index >= categories.length) {
-                            return SizedBox(height: rowHeight);
-                          }
-                          final cat = categories[index] is Map
-                              ? categories[index] as Map<String, dynamic>
-                              : <String, dynamic>{};
-                          final isSelected = _selectedCategoryIndex == index;
-                          final iconUrl = cat['icon_url']?.toString();
-                          final icon = cat['icon']?.toString() ?? '🩸';
-                          final displayName = LocaleUtils.localizedName(
-                            cat,
-                            context.watch<AppSettingsProvider>().isArabic,
-                          );
-                          final id = cat['id'] is int
-                              ? cat['id'] as int
-                              : cat['id'] is num
-                              ? (cat['id'] as num).toInt()
-                              : null;
-                          final url =
-                              ApiConfig.resolveImageUrl(
-                                cat['image_url'],
-                                cat['image'],
-                              ) ??
-                              iconUrl;
-                          return Padding(
-                            padding: EdgeInsets.only(
-                              left: col > 0
-                                  ? Responsive.spacing(context, 5)
-                                  : 0,
-                              right: col < 2
-                                  ? Responsive.spacing(context, 5)
-                                  : 0,
-                              bottom: row < 1
-                                  ? Responsive.spacing(context, 10)
-                                  : 0,
-                            ),
-                            child: SizedBox(
-                              height: rowHeight,
-                              child: GestureDetector(
-                                onTap: () {
-                                  setState(
-                                    () => _selectedCategoryIndex = index,
-                                  );
-                                  if (id != null) {
-                                    Navigator.push(
-                                      context,
-                                      MaterialPageRoute(
-                                        builder: (_) =>
-                                            AnalysesScreen(categoryId: id),
-                                      ),
-                                    );
-                                  } else {
-                                    Navigator.push(
-                                      context,
-                                      MaterialPageRoute(
-                                        builder: (_) => const AnalysesScreen(),
-                                      ),
-                                    );
-                                  }
-                                },
-                                child: Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  mainAxisAlignment: MainAxisAlignment.start,
-                                  crossAxisAlignment: CrossAxisAlignment.center,
-                                  children: [
-                                    Container(
-                                      width: iconSize,
-                                      height: iconSize,
-                                      decoration: BoxDecoration(
-                                        borderRadius: BorderRadius.circular(14),
-                                        color: const Color(0xFFE8E9FB),
-                                        border: Border.all(
-                                          color: isSelected
-                                              ? AppTheme.primary
-                                              : Colors.transparent,
-                                          width: 2.5,
-                                        ),
-                                        boxShadow: [
-                                          if (isSelected) ...AppTheme.softGlow,
-                                          BoxShadow(
-                                            color: AppTheme.primary.withValues(
-                                              alpha: isSelected ? 0.15 : 0.04,
-                                            ),
-                                            blurRadius: 10,
-                                            offset: const Offset(0, 3),
-                                          ),
-                                        ],
-                                      ),
-                                      child: ClipRRect(
-                                        borderRadius: BorderRadius.circular(14),
-                                        child: (url != null && url.isNotEmpty)
-                                            ? CachedNetworkImage(
-                                                imageUrl: url,
-                                                fit: BoxFit.cover,
-                                                width: iconSize,
-                                                height: iconSize,
-                                                placeholder: (_, __) => Container(
-                                                  color:
-                                                      AppTheme.surfaceVariant,
-                                                  child: Icon(
-                                                    Icons
-                                                        .medical_services_outlined,
-                                                    color: AppTheme.primary,
-                                                    size: iconSize * 0.5,
-                                                  ),
-                                                ),
-                                                errorWidget: (_, __, ___) =>
-                                                    _buildCategoryIconFallback(
-                                                      icon,
-                                                      iconSize,
-                                                      isSelected,
-                                                    ),
-                                              )
-                                            : _buildCategoryIconFallback(
-                                                icon,
-                                                iconSize,
-                                                isSelected,
-                                              ),
-                                      ),
-                                    ),
-                                    SizedBox(
-                                      height: Responsive.spacing(context, 6),
-                                    ),
-                                    SizedBox(
-                                      height: textAreaHeight,
-                                      width: itemWidth,
-                                      child: Center(
-                                        child: Text(
-                                          displayName,
-                                          textAlign: TextAlign.center,
-                                          maxLines: 2,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: TextStyle(
-                                            fontSize: Responsive.fontSize(
-                                              context,
-                                              11.5,
-                                            ),
-                                            color: isSelected
-                                                ? AppTheme.primary
-                                                : AppTheme.onSurfaceVariant,
-                                            fontWeight: FontWeight.w400,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          );
-                        }),
-                      ),
-                    );
-                  }),
-                ),
-              );
-            },
-          ),
-        ),
-        if (pageCount > 1) ...[
-          SizedBox(height: Responsive.spacing(context, 8)),
-          AnimatedSmoothIndicator(
-            activeIndex: _categoriesPageIndex,
-            count: pageCount,
-            effect: WormEffect(
-              dotWidth: 6,
-              dotHeight: 6,
-              activeDotColor: AppTheme.primary,
-              dotColor: AppTheme.onSurfaceVariant.withValues(alpha: 0.3),
-            ),
-          ),
-        ],
-      ],
-    );
-  }
 
   Widget _buildCategoryIconFallback(String icon, double size, bool isSelected) {
     final isEmoji = icon.length <= 2 || icon.runes.length <= 2;
@@ -1720,550 +2255,5 @@ class _HomeScreenState extends State<HomeScreen> with OnboardingTourHost {
     );
   }
 
-  Widget _buildPackages() {
-    final packages = _packages.isEmpty ? DummyData.packages : _packages;
-    final cardWidth = Responsive.packageCardWidth(context);
-    final cardHeight = (cardWidth * 0.68).clamp(104.0, 132.0);
-    return SizedBox(
-      height: cardHeight,
-      child: ListView.builder(
-        scrollDirection: Axis.horizontal,
-        padding: EdgeInsets.symmetric(
-          horizontal: Responsive.spacing(context, 16),
-        ),
-        itemCount: packages.length,
-        itemBuilder: (context, index) {
-          final pkg = packages[index] is Map
-              ? packages[index] as Map<String, dynamic>
-              : <String, dynamic>{};
-          final displayName = LocaleUtils.localizedName(
-            pkg,
-            context.watch<AppSettingsProvider>().isArabic,
-          );
-          double price = ApiConfig.priceFromMap(pkg);
-          if (price == 0.0) {
-            final psList = pkg['provider_services'] ?? pkg['providerServices'];
-            if (psList is List && psList.isNotEmpty) {
-              final first = psList.first;
-              if (first is Map<String, dynamic>) {
-                price = ApiConfig.priceFromMap(first);
-              }
-            }
-          }
-          final orig = pkg['original_price'];
-          final originalPrice = (orig is num)
-              ? orig.toDouble()
-              : ((orig is String) ? double.tryParse(orig) : null);
-          final imageUrl = ApiConfig.packageImageUrl(pkg);
-          final testsCount =
-              pkg['tests_count'] ??
-              (pkg['package_items'] is List
-                  ? (pkg['package_items'] as List).length
-                  : 0);
-          return SizedBox(
-            width: cardWidth,
-            child: Padding(
-              padding: EdgeInsets.only(left: Responsive.spacing(context, 12)),
-              child: Container(
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(13),
-                  gradient: const LinearGradient(
-                    begin: Alignment.topRight,
-                    end: Alignment.bottomLeft,
-                    colors: [RastUi.blue, RastUi.purple],
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: RastUi.purple.withValues(alpha: 0.22),
-                      blurRadius: 10,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
-                ),
-                clipBehavior: Clip.antiAlias,
-                child: Material(
-                  color: Colors.transparent,
-                  child: InkWell(
-                    onTap: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => PackageDetailScreen(package: pkg),
-                      ),
-                    ),
-                    borderRadius: BorderRadius.circular(24),
-                    child: Stack(
-                      children: [
-                        PositionedDirectional(
-                          start: 10,
-                          top: 10,
-                          child: _buildPackageImage(imageUrl, cardHeight),
-                        ),
-                        PositionedDirectional(
-                          start: cardHeight * 0.78,
-                          top: 10,
-                          bottom: 8,
-                          end: 10,
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Text(
-                                displayName,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: Responsive.fontSize(context, 10),
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 12,
-                                  vertical: 3,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: Colors.white,
-                                  borderRadius: BorderRadius.circular(18),
-                                ),
-                                child: Text(
-                                  price > 0
-                                      ? '${price.toStringAsFixed(0)} ${AppStrings.t('sar', context.watch<AppSettingsProvider>().language)}'
-                                      : AppStrings.t(
-                                          'contactForPrice',
-                                          context
-                                              .watch<AppSettingsProvider>()
-                                              .language,
-                                        ),
-                                  style: TextStyle(
-                                    color: RastUi.purple,
-                                    fontSize: Responsive.fontSize(context, 9),
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ),
-                              Row(
-                                children: [
-                                  Text(
-                                    '$testsCount ${AppStrings.t('testsCount', context.watch<AppSettingsProvider>().language)}',
-                                    style: TextStyle(
-                                      color: Colors.white.withValues(
-                                        alpha: 0.9,
-                                      ),
-                                      fontSize: Responsive.fontSize(context, 9),
-                                      fontWeight: FontWeight.w500,
-                                    ),
-                                  ),
-                                  if (originalPrice != null) ...[
-                                    const SizedBox(width: 6),
-                                    Text(
-                                      originalPrice.toStringAsFixed(0),
-                                      style: TextStyle(
-                                        decoration: TextDecoration.lineThrough,
-                                        decorationColor: Colors.white70,
-                                        color: Colors.white70,
-                                        fontSize: Responsive.fontSize(
-                                          context,
-                                          8,
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                        PositionedDirectional(
-                          end: 10,
-                          bottom: 7,
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                '4.8',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: Responsive.fontSize(context, 9),
-                                ),
-                              ),
-                              const SizedBox(width: 3),
-                              const Icon(
-                                Icons.star_rounded,
-                                color: AppTheme.accent,
-                                size: 14,
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          );
-        },
-      ),
-    );
-  }
 
-  Widget _buildPackageImage(String? imageUrl, double cardHeight) {
-    final size = (cardHeight * 0.66).clamp(68.0, 82.0);
-    return Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        border: Border.all(
-          color: Colors.white.withValues(alpha: 0.72),
-          width: 2,
-        ),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: imageUrl != null && imageUrl.isNotEmpty
-          ? CachedNetworkImage(
-              imageUrl: imageUrl,
-              fit: BoxFit.cover,
-              placeholder: (_, __) => _packageImageFallback(),
-              errorWidget: (_, __, ___) => _packageImageFallback(),
-            )
-          : _packageImageFallback(),
-    );
-  }
-
-  Widget _packageImageFallback() {
-    return Container(
-      color: Colors.white.withValues(alpha: 0.18),
-      child: const Icon(Icons.science_rounded, color: Colors.white, size: 28),
-    );
-  }
-
-  Widget _buildOffers() {
-    final offers = _offers;
-    if (offers.isEmpty) return const SizedBox.shrink();
-    final cardWidth = Responsive.packageCardWidth(context) * 0.95;
-    final cardHeight = (cardWidth * 0.85).clamp(120.0, 160.0);
-    return SizedBox(
-      height: cardHeight,
-      child: ListView.builder(
-        scrollDirection: Axis.horizontal,
-        padding: EdgeInsets.symmetric(
-          horizontal: Responsive.spacing(context, 16),
-        ),
-        itemCount: offers.length,
-        itemBuilder: (context, index) {
-          final offer = offers[index] is Map
-              ? offers[index] as Map<String, dynamic>
-              : <String, dynamic>{};
-          final displayName = LocaleUtils.localizedName(
-            offer,
-            context.watch<AppSettingsProvider>().isArabic,
-          );
-          final imageUrl = ApiConfig.resolveImageUrl(
-            offer['image_url'],
-            offer['image'],
-          );
-          final discount = offer['discount_percent'] ?? offer['discount'];
-          final discountStr = discount != null
-              ? '${discount is num ? discount.toInt() : discount}%'
-              : null;
-          return SizedBox(
-            width: cardWidth,
-            child: Padding(
-              padding: EdgeInsets.only(left: Responsive.spacing(context, 12)),
-              child: Container(
-                decoration: AppTheme.cardDecorationFor(context),
-                clipBehavior: Clip.antiAlias,
-                child: Material(
-                  color: Colors.transparent,
-                  child: InkWell(
-                    onTap: () => _navigateToAnalyses(),
-                    borderRadius: BorderRadius.circular(AppTheme.radiusCard),
-                    child: Stack(
-                      fit: StackFit.expand,
-                      children: [
-                        if (imageUrl != null && imageUrl.isNotEmpty)
-                          CachedNetworkImage(
-                            imageUrl: imageUrl,
-                            fit: BoxFit.cover,
-                            width: double.infinity,
-                            placeholder: (_, __) =>
-                                Container(color: AppTheme.surfaceVariant),
-                            errorWidget: (_, __, ___) => Container(
-                              color: AppTheme.primary.withValues(alpha: 0.12),
-                              child: Icon(
-                                Icons.local_offer_rounded,
-                                size: 40,
-                                color: AppTheme.primary,
-                              ),
-                            ),
-                          )
-                        else
-                          Container(
-                            color: AppTheme.accent.withValues(alpha: 0.15),
-                            child: Icon(
-                              Icons.local_offer_rounded,
-                              size: 40,
-                              color: AppTheme.accent,
-                            ),
-                          ),
-                        Positioned(
-                          left: 0,
-                          right: 0,
-                          bottom: 0,
-                          child: Container(
-                            padding: EdgeInsets.all(
-                              Responsive.spacing(context, 10),
-                            ),
-                            decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                begin: Alignment.topCenter,
-                                end: Alignment.bottomCenter,
-                                colors: [
-                                  Colors.transparent,
-                                  Colors.black.withValues(alpha: 0.8),
-                                ],
-                              ),
-                            ),
-                            child: Text(
-                              displayName,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: Responsive.fontSize(context, 12),
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                        ),
-                        if (discountStr != null)
-                          Positioned(
-                            top: 8,
-                            right: 8,
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 4,
-                              ),
-                              decoration: BoxDecoration(
-                                gradient: AppTheme.accentGradient,
-                                borderRadius: BorderRadius.circular(10),
-                                boxShadow: AppTheme.goldGlow,
-                              ),
-                              child: Text(
-                                AppStrings.tParam(
-                                  'discountPercent',
-                                  context.watch<AppSettingsProvider>().language,
-                                  discountStr,
-                                ),
-                                style: TextStyle(
-                                  fontSize: Responsive.fontSize(context, 10),
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          );
-        },
-      ),
-    );
-  }
-
-  Widget _buildLabs() {
-    final labs = _labs;
-    return ListView.separated(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      padding: EdgeInsets.symmetric(
-        horizontal: Responsive.spacing(context, 16),
-      ),
-      itemCount: labs.length,
-      separatorBuilder: (_, __) =>
-          SizedBox(height: Responsive.spacing(context, 12)),
-      itemBuilder: (context, index) {
-        final lab = labs[index] is Map
-            ? labs[index] as Map<String, dynamic>
-            : <String, dynamic>{};
-        final avatarSize =
-            56.0 * (MediaQuery.of(context).size.width / 375).clamp(1.0, 1.2);
-        final businessName = LocaleUtils.localizedBusinessName(
-          lab,
-          context.watch<AppSettingsProvider>().isArabic,
-        );
-        final isArabic = context.watch<AppSettingsProvider>().isArabic;
-        final locationText = LabLocationUtils.displayText(
-          lab: lab,
-          userLat: _userLat,
-          userLng: _userLng,
-          branches: BranchesIndexService.instance.branchesFor(lab) ??
-              (lab['branches'] is List
-                  ? lab['branches'] as List<dynamic>
-                  : null),
-          isArabic: isArabic,
-        );
-        final logoUrl =
-            ApiConfig.imageFromMap(lab) ??
-            ApiConfig.resolveImageUrl(lab['logo_url'], lab['logo']);
-        final avgRating =
-            (lab['avg_rating'] is num ? lab['avg_rating'] as num : 0)
-                .toDouble();
-        final homeService = lab['home_service_available'] == true;
-        return Container(
-          decoration: BoxDecoration(
-            color: RastUi.cardSurface(context),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: RastUi.softBorder(context)),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.10),
-                blurRadius: 7,
-                offset: const Offset(0, 3),
-              ),
-            ],
-          ),
-          child: Material(
-            color: Colors.transparent,
-            child: InkWell(
-              onTap: () => _navigateToLabDetails(lab),
-              borderRadius: BorderRadius.circular(12),
-              child: Padding(
-                padding: EdgeInsets.all(Responsive.spacing(context, 12)),
-                child: Stack(
-                  children: [
-                    PositionedDirectional(
-                      end: 0,
-                      top: 0,
-                      child: FutureBuilder<bool>(
-                        future: FavoritesService.isLabFavorite(lab),
-                        builder: (context, snapshot) {
-                          final isFavorite = snapshot.data ?? false;
-                          return IconButton(
-                            onPressed: () async {
-                              await FavoritesService.toggleLab(lab);
-                              if (mounted) setState(() {});
-                            },
-                            visualDensity: VisualDensity.compact,
-                            icon: Icon(
-                              isFavorite
-                                  ? Icons.favorite_rounded
-                                  : Icons.favorite_border_rounded,
-                              color: const Color(0xFFFF4D61),
-                              size: Responsive.fontSize(context, 22),
-                            ),
-                          );
-                        },
-                      ),
-                    ),
-                    Row(
-                      children: [
-                        _buildLabAvatar(logoUrl, avatarSize),
-                        SizedBox(width: Responsive.spacing(context, 14)),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                businessName,
-                                style: TextStyle(
-                                  fontSize: Responsive.fontSize(context, 12),
-                                  color: RastUi.textPurple,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              SizedBox(height: Responsive.spacing(context, 4)),
-                              Text(
-                                locationText,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  fontSize: Responsive.fontSize(context, 10),
-                                  color: RastUi.blue,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                              SizedBox(height: Responsive.spacing(context, 8)),
-                              Align(
-                                alignment: AlignmentDirectional.centerStart,
-                                child: Container(
-                                  constraints: const BoxConstraints(
-                                    minWidth: 84,
-                                  ),
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 14,
-                                    vertical: 4,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    gradient: RastUi.brandGradient,
-                                    borderRadius: BorderRadius.circular(18),
-                                  ),
-                                  child: Text(
-                                    homeService
-                                        ? AppStrings.t(
-                                            'homeService',
-                                            context
-                                                .watch<AppSettingsProvider>()
-                                                .language,
-                                          )
-                                        : 'في المختبر',
-                                    textAlign: TextAlign.center,
-                                    style: TextStyle(
-                                      color: Colors.white,
-                                      fontSize: Responsive.fontSize(
-                                        context,
-                                        10,
-                                      ),
-                                      fontWeight: FontWeight.w500,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                    PositionedDirectional(
-                      end: 0,
-                      bottom: 0,
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            avgRating > 0
-                                ? avgRating.toStringAsFixed(1)
-                                : '4.8',
-                            style: TextStyle(
-                              color: RastUi.textPurple,
-                              fontSize: Responsive.fontSize(context, 10),
-                            ),
-                          ),
-                          const SizedBox(width: 4),
-                          const Icon(
-                            Icons.star_rounded,
-                            size: 16,
-                            color: AppTheme.accent,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
 }

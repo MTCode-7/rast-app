@@ -26,6 +26,8 @@ import 'package:rast/features/bookings/screens/booking_detail_screen.dart';
 import 'package:rast/features/bookings/screens/payment_webview_screen.dart';
 import 'package:rast/features/cart/screens/cart_screen.dart';
 
+import '../../../core/constants/app_strings.dart';
+
 /// شاشة حجز تحليل: نوع الخدمة → التاريخ → الوقت → تأكيد وإنشاء → الدفع
 class BookFlowScreen extends StatefulWidget {
   /// المختبر (إن وُجد) أو نستخدم labId لجلبه
@@ -53,6 +55,19 @@ class BookFlowScreen extends StatefulWidget {
 }
 
 class _BookFlowScreenState extends State<BookFlowScreen> with OnboardingTourHost {
+  String get _lang =>
+      context.read<AppSettingsProvider>().language;
+
+  bool get _isArabic =>
+      context.read<AppSettingsProvider>().isArabic;
+
+  String _tr(String key) {
+    return AppStrings.t(key, _lang);
+  }
+
+  String _sar(double value) {
+    return '${value.toStringAsFixed(2)} ${AppStrings.t('sar', _lang)}';
+  }
   Map<String, dynamic>? _lab;
   int _step = 0;
   String _serviceType = 'in_clinic';
@@ -96,6 +111,33 @@ class _BookFlowScreenState extends State<BookFlowScreen> with OnboardingTourHost
               : widget.providerService['name_ar'])
           ?.toString() ??
       '';
+
+  String _serviceNameDisplay() {
+    final service = widget.providerService['service'];
+
+    if (service is Map) {
+      final map = Map<String, dynamic>.from(service);
+
+      final localized = LocaleUtils.localizedName(
+        map,
+        _isArabic,
+        arKey: 'name_ar',
+        enKey: 'name_en',
+      );
+
+      if (localized.isNotEmpty) {
+        return localized;
+      }
+    }
+
+    return LocaleUtils.localizedName(
+      widget.providerService,
+      _isArabic,
+      arKey: 'name_ar',
+      enKey: 'name_en',
+    );
+  }
+
   static double _extractPrice(Map<String, dynamic> map) {
     var v =
         map['final_price'] ??
@@ -335,24 +377,41 @@ class _BookFlowScreenState extends State<BookFlowScreen> with OnboardingTourHost
       _syncServiceTypeWithLabMode();
       await _resolveNearestBranch();
     } catch (_) {
-      setState(() => _error = 'تعذر تحميل بيانات المختبر');
+      setState(
+            () => _error =
+            _tr('labLoadFailed'),
+      );
     }
   }
 
   Future<void> _resolveNearestBranch() async {
     final labMap = _lab ?? widget.lab;
-    if (labMap == null) return;
+
+
+    if (labMap == null) {
+      return;
+    }
 
     final labJson = Map<String, dynamic>.from(labMap);
 
     if (widget.preselectedBranchId != null) {
+      print('🔵 Trying preselected branch...');
+
       final branches = await _branchesForLab(labMap);
+
       for (final b in branches) {
         if (b is! Map) continue;
+
         final m = Map<String, dynamic>.from(b);
+
         final id = m['id'] ?? m['branch_id'];
-        final parsed = id is int ? id : int.tryParse(id?.toString() ?? '');
+
+        final parsed = id is int
+            ? id
+            : int.tryParse(id?.toString() ?? '');
+
         if (parsed == widget.preselectedBranchId) {
+
           if (mounted) {
             setState(() {
               _nearestBranch = NearestBranchInfo(
@@ -364,52 +423,85 @@ class _BookFlowScreenState extends State<BookFlowScreen> with OnboardingTourHost
               );
             });
           }
+
           return;
         }
       }
     }
 
-    final fromApi = LabLocationUtils.nearestFromApi(labJson);
+    final fromApi =
+    LabLocationUtils.nearestFromApi(labJson);
+
+
     if (fromApi != null &&
         (fromApi.hasBranchId ||
             fromApi.nameAr.isNotEmpty ||
             fromApi.city.isNotEmpty)) {
+
       if (mounted) {
         setState(() => _nearestBranch = fromApi);
-        if (_step == 2 && _selectedDate != null) _loadTimeSlots();
+
+        if (_step == 2 &&
+            _selectedDate != null) {
+          _loadTimeSlots();
+        }
       }
+
       return;
     }
 
     double? lat = _userLat;
     double? lng = _userLng;
+
+
     if (lat == null || lng == null) {
       try {
-        final current = await LocationService.getCurrentLocation(
+
+        final current =
+        await LocationService.getCurrentLocation(
           saveAsDefault: false,
         );
+
         lat = current?.lat;
         lng = current?.lng;
-      } catch (_) {}
+
+      } catch (e) {
+      }
     }
+
     if (lat == null || lng == null) {
-      final saved = await LocationService.getDefaultLocation();
+
+      final saved =
+      await LocationService.getDefaultLocation();
+
       lat ??= saved?.lat;
       lng ??= saved?.lng;
+
     }
+
     _userLat = lat;
     _userLng = lng;
 
-    final branches = await _branchesForLab(labMap);
-    final nearest = LabLocationUtils.resolveForDisplay(
+    final branches =
+    await _branchesForLab(labMap);
+
+
+    final nearest =
+    LabLocationUtils.resolveForDisplay(
       lab: labJson,
       userLat: lat,
       userLng: lng,
       branches: branches,
     );
+
+
     if (mounted) {
-      setState(() => _nearestBranch = nearest);
-      if (_step == 2 && _selectedDate != null) {
+      setState(() {
+        _nearestBranch = nearest;
+      });
+
+      if (_step == 2 &&
+          _selectedDate != null) {
         _loadTimeSlots();
       }
     }
@@ -446,7 +538,7 @@ class _BookFlowScreenState extends State<BookFlowScreen> with OnboardingTourHost
     } else if (v != null) {
       d = double.tryParse(v.toString().trim()) ?? 0;
     }
-    if (d > 0) return d <= 1 ? d * 100 : d; // 0.07 → 7%, 7 → 7%
+    if (d > 0) return d <= 1 ? d * 100 : d;
     return ApiConfig.globalDiscountPercent.toDouble();
   }
 
@@ -489,23 +581,33 @@ class _BookFlowScreenState extends State<BookFlowScreen> with OnboardingTourHost
           (_addressController.text.trim().isEmpty ||
               _cityController.text.trim().isEmpty)) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('أدخل العنوان والمدينة للخدمة المنزلية'),
+          SnackBar(
+            content: Text(
+              _tr('enterHomeAddressCity'),
+            ),
           ),
         );
         return;
       }
     }
     if (_step == 1 && _selectedDate == null) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('اختر التاريخ')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            _tr('selectDate'),
+          ),
+        ),
+      );
       return;
     }
     if (_step == 2 && _selectedSlot == null) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('اختر وقت الزيارة')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            _tr('selectVisitTime'),
+          ),
+        ),
+      );
       return;
     }
     if (_step < 3) {
@@ -564,13 +666,13 @@ class _BookFlowScreenState extends State<BookFlowScreen> with OnboardingTourHost
         _loadingSlots = false;
         _timeSlotsError = e.message.isNotEmpty
             ? e.message
-            : 'تعذر تحميل المواعيد';
+            : _tr('timeSlotsLoadError');
       });
     } catch (_) {
       if (!mounted) return;
       setState(() {
         _loadingSlots = false;
-        _timeSlotsError = 'تعذر تحميل المواعيد. تحقق من الاتصال وحاول مرة أخرى.';
+        _timeSlotsError = _tr('timeSlotsConnectionError');
       });
     }
   }
@@ -584,7 +686,7 @@ class _BookFlowScreenState extends State<BookFlowScreen> with OnboardingTourHost
         _bookingBranchId == null &&
         (lat == null || lng == null)) {
       throw ApiException(
-        'يرجى تحديد موقعك من الإعدادات لاختيار أقرب فرع، أو انتظر اكتمال تحميل بيانات المختبر.',
+        _tr('locationRequiredForBranch'),
       );
     }
 
@@ -633,9 +735,11 @@ class _BookFlowScreenState extends State<BookFlowScreen> with OnboardingTourHost
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: const Text('تمت الإضافة إلى السلة'),
+          content: Text(
+            _tr('addedToCart'),
+          ),
           action: SnackBarAction(
-            label: 'عرض السلة',
+            label: _tr('viewCart'),
             onPressed: () => Navigator.push(
               context,
               MaterialPageRoute(builder: (_) => const CartScreen()),
@@ -648,8 +752,10 @@ class _BookFlowScreenState extends State<BookFlowScreen> with OnboardingTourHost
       setState(() => _error = e.message);
     } catch (e) {
       setState(() {
-        _error = e.toString().contains('SocketException')
-            ? 'تحقق من الاتصال'
+        _error = e.toString().contains(
+          'SocketException',
+        )
+            ? _tr('checkConnectionShort')
             : e.toString();
       });
     } finally {
@@ -661,109 +767,284 @@ class _BookFlowScreenState extends State<BookFlowScreen> with OnboardingTourHost
     if (!AuthService.isLoggedIn) {
       final ok = await Navigator.push(
         context,
-        MaterialPageRoute(builder: (_) => const LoginScreen()),
+        MaterialPageRoute(
+          builder: (_) => const LoginScreen(),
+        ),
       );
-      if (ok == true && mounted) setState(() {});
+
+      if (ok == true && mounted) {
+        setState(() {});
+      }
+
       return;
     }
+
     setState(() {
       _creating = true;
       _error = null;
     });
-    final isArabic = context.read<AppSettingsProvider>().isArabic;
+
+    final isArabic =
+        context
+            .read<AppSettingsProvider>()
+            .isArabic;
+
     try {
-      final body = await _buildBookingBody();
-      final booking = await Api.bookings.create(body);
-      final b = _toBookingMap(booking, isArabic: isArabic);
+      final body =
+      await _buildBookingBody();
+
+      final booking =
+      await Api.bookings.create(body);
+
+      final b = _toBookingMap(
+        booking,
+        isArabic: isArabic,
+      );
+
+      if (!mounted) return;
+
       setState(() {
         _creating = false;
         _createdBooking = b;
         _step = 4;
       });
     } on ApiException catch (e) {
+      if (!mounted) return;
+
       setState(() {
         _creating = false;
+
         _error = e.message;
       });
     } catch (e) {
+      if (!mounted) return;
+
       setState(() {
         _creating = false;
-        _error = e.toString().contains('SocketException')
-            ? 'تحقق من الاتصال'
+
+        _error = e
+            .toString()
+            .contains('SocketException')
+            ? _tr('checkConnectionShort')
             : e.toString();
       });
     }
   }
 
   Map<String, dynamic> _toBookingMap(
-    Map<String, dynamic> booking, {
-    bool isArabic = true,
-  }) {
-    final summary = booking['summary'] is Map
-        ? booking['summary'] as Map<String, dynamic>
+      Map<String, dynamic> booking, {
+        bool isArabic = true,
+      }) {
+    final summary =
+    booking['summary'] is Map
+        ? booking['summary']
+    as Map<String, dynamic>
         : null;
-    final ps = booking['provider_service'] ?? {};
-    final service = ps is Map ? ps['service'] ?? ps : {};
-    final provider = booking['provider'] ?? {};
-    final timeSlot = booking['time_slot'] ?? {};
+
+    final ps =
+        booking['provider_service'] ?? {};
+
+    final service = ps is Map
+        ? ps['service'] ?? ps
+        : {};
+
+    final provider =
+        booking['provider'] ?? {};
+
+    final timeSlot =
+        booking['time_slot'] ?? {};
+
     final providerMap = provider is Map
-        ? provider as Map<String, dynamic>
+        ? Map<String, dynamic>.from(
+      provider,
+    )
         : <String, dynamic>{};
-    final branchObj = booking['branch'];
+
+    String serviceNameAr = '';
+    String serviceNameEn = '';
+
+    if (service is Map) {
+      serviceNameAr =
+          service['name_ar']
+              ?.toString() ??
+              '';
+
+      serviceNameEn =
+          service['name_en']
+              ?.toString() ??
+              '';
+    }
+
+    final branchObj =
+    booking['branch'];
+
     String? branchLabel;
+
     if (branchObj is Map) {
-      final bm = branchObj as Map<String, dynamic>;
-      branchLabel = LocaleUtils.localizedName(
-        bm,
-        isArabic,
-        arKey: 'name_ar',
-        enKey: 'name_en',
+      final bm =
+      Map<String, dynamic>.from(
+        branchObj,
       );
-      final city = bm['city']?.toString() ?? '';
-      final district = bm['district']?.toString() ?? '';
-      final loc = LabLocationLine(city: city, district: district).formatted;
-      if (branchLabel.isNotEmpty && loc.isNotEmpty) {
-        branchLabel = '$branchLabel · $loc';
+
+      branchLabel =
+          LocaleUtils.localizedName(
+            bm,
+            isArabic,
+            arKey: 'name_ar',
+            enKey: 'name_en',
+          );
+
+      final city =
+          bm['city']?.toString() ?? '';
+
+      final district =
+          bm['district']?.toString() ?? '';
+
+      final loc = LabLocationLine(
+        city: city,
+        district: district,
+      ).formatted;
+
+      if (branchLabel.isNotEmpty &&
+          loc.isNotEmpty) {
+        branchLabel =
+        '$branchLabel · $loc';
       } else if (loc.isNotEmpty) {
         branchLabel = loc;
       }
     }
+
+    final fallbackBranchName =
+    _serviceType == 'home_service'
+        ? AppStrings.t(
+      'homeServiceLabel',
+      isArabic ? 'ar' : 'en',
+    )
+        : AppStrings.t(
+      'branchFallback',
+      isArabic ? 'ar' : 'en',
+    );
+
     final base = <String, dynamic>{
       'id': booking['id'],
-      'booking_number': booking['booking_number'] ?? 'RST-${booking['id']}',
-      'status': booking['status'] ?? 'pending',
-      'payment_status': booking['payment_status'] ?? 'pending',
-      'booking_date': booking['booking_date'] ?? timeSlot['date'] ?? '',
-      'booking_time': booking['booking_time'] ?? timeSlot['start_time'] ?? '',
+
+      'booking_number':
+      booking['booking_number'] ??
+          'RST-${booking['id']}',
+
+      'status':
+      booking['status'] ??
+          'pending',
+
+      'payment_status':
+      booking['payment_status'] ??
+          'pending',
+
+      'booking_date':
+      booking['booking_date'] ??
+          timeSlot['date'] ??
+          '',
+
+      'booking_time':
+      booking['booking_time'] ??
+          timeSlot['start_time'] ??
+          '',
+
       'booking_period_key':
-          booking['booking_period_key'] ?? timeSlot['period_key'],
+      booking['booking_period_key'] ??
+          timeSlot['period_key'],
+
       'booking_period_label_ar':
-          booking['booking_period_label_ar'] ?? timeSlot['period_label_ar'],
-      'service_type': booking['service_type'] ?? 'in_clinic',
-      'service_name_ar': service is Map ? service['name_ar'] : _serviceNameAr,
-      'service_name_en': service is Map ? service['name_en'] : null,
+      booking[
+      'booking_period_label_ar'
+      ] ??
+          timeSlot['period_label_ar'],
+
+      'booking_period_label_en':
+      booking[
+      'booking_period_label_en'
+      ] ??
+          timeSlot['period_label_en'],
+
+      'service_type':
+      booking['service_type'] ??
+          'in_clinic',
+
+      'service_name_ar':
+      serviceNameAr.isNotEmpty
+          ? serviceNameAr
+          : (isArabic
+          ? _serviceNameDisplay()
+          : ''),
+
+      'service_name_en':
+      serviceNameEn.isNotEmpty
+          ? serviceNameEn
+          : (!isArabic
+          ? _serviceNameDisplay()
+          : ''),
+
       'provider_name_ar':
-          providerMap['business_name_ar'] ?? widget.labName ?? '',
-      'provider_name_en': providerMap['business_name_en'],
-      'provider_logo_url': providerMap['logo_url'] ?? providerMap['logo'],
+      providerMap[
+      'business_name_ar'
+      ] ??
+          widget.labName ??
+          '',
+
+      'provider_name_en':
+      providerMap[
+      'business_name_en'
+      ],
+
+      'provider_logo_url':
+      providerMap['logo_url'] ??
+          providerMap['logo'],
+
       'branch_name':
-          booking['branch_name'] ??
+      booking['branch_name'] ??
           branchLabel ??
-          _nearestBranch?.displayLine(isArabic) ??
-          (_serviceType == 'home_service' ? 'خدمة منزلية' : 'الفرع'),
+          _nearestBranch?.displayLine(
+            isArabic,
+          ) ??
+          fallbackBranchName,
+
       ...booking,
     };
+
     if (summary != null) {
       base['summary'] = summary;
-      base['service_price'] = _parseNum(summary['service_price']);
-      base['home_service_fee'] = _parseNum(summary['home_service_fee']);
-      final d = _parseNum(summary['discount_amount']);
-      final p = _parseNum(summary['platform_discount']);
-      base['discount_amount'] = d > 0 ? d : p;
-      base['total_amount'] = _parseNum(summary['total_amount']);
+
+      base['service_price'] =
+          _parseNum(
+            summary['service_price'],
+          );
+
+      base['home_service_fee'] =
+          _parseNum(
+            summary['home_service_fee'],
+          );
+
+      final d = _parseNum(
+        summary['discount_amount'],
+      );
+
+      final p = _parseNum(
+        summary['platform_discount'],
+      );
+
+      base['discount_amount'] =
+      d > 0 ? d : p;
+
+      base['total_amount'] =
+          _parseNum(
+            summary['total_amount'],
+          );
     } else {
-      base['total_amount'] = booking['total_amount'] ?? _totalAmount;
+      base['total_amount'] =
+          booking['total_amount'] ??
+              _totalAmount;
     }
+
     return base;
   }
 
@@ -815,14 +1096,14 @@ class _BookFlowScreenState extends State<BookFlowScreen> with OnboardingTourHost
             SnackBar(
               content: Text(
                 isPaid
-                    ? 'تم تأكيد الدفع بنجاح'
-                    : 'بعد إتمام الدفع يمكنك مراجعة الحجز من حجوزاتي',
+                    ? _tr('paymentSuccess')
+                    : _tr('paymentReviewMessage'),
               ),
             ),
           );
         }
       } else {
-        final msg = res['message']?.toString() ?? 'فشل إنشاء جلسة الدفع';
+        final msg = res['message']?.toString() ?? _tr('paymentSessionFailed');
         if (mounted) {
           ScaffoldMessenger.of(
             context,
@@ -839,7 +1120,10 @@ class _BookFlowScreenState extends State<BookFlowScreen> with OnboardingTourHost
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('تعذر فتح الدفع: ${e.toString().split('\n').first}'),
+            content: Text(
+              '${_tr('unableOpenPayment')}: '
+                  '${e.toString().split('\n').first}',
+            ),
           ),
         );
       }
@@ -858,17 +1142,24 @@ class _BookFlowScreenState extends State<BookFlowScreen> with OnboardingTourHost
 
   @override
   Widget build(BuildContext context) {
+    final settings =
+    context.watch<AppSettingsProvider>();
+
+    final lang = settings.language;
     if (!AuthService.isLoggedIn) {
       return Directionality(
-        textDirection: ui.TextDirection.rtl,
+        textDirection: settings.textDirection,
         child: Container(
-          decoration: const BoxDecoration(gradient: RastUi.headerGradient),
+          decoration: const BoxDecoration(
+            color: Color(0xFF1A0665),
+          ),
           child: Scaffold(
             backgroundColor: Colors.transparent,
             appBar: RastTopBar(
-              title: 'حجز تحليل',
+              title: AppStrings.t('bookFlowTitle', lang),
               helpTourId: OnboardingTourIds.bookFlow,
               helpTourSteps: OnboardingCatalog.bookFlowTour,
+              backgroundColor: const Color(0xFF1A0665),
             ),
             body: ClipRRect(
               borderRadius: const BorderRadius.vertical(
@@ -898,7 +1189,7 @@ class _BookFlowScreenState extends State<BookFlowScreen> with OnboardingTourHost
                         ),
                         const SizedBox(height: 20),
                         Text(
-                          'سجّل الدخول لحجز التحليل',
+                          AppStrings.t('signInToBook', lang),
                           textAlign: TextAlign.center,
                           style: TextStyle(
                             color: RastUi.primaryText(context),
@@ -918,7 +1209,9 @@ class _BookFlowScreenState extends State<BookFlowScreen> with OnboardingTourHost
                             if (ok == true && mounted) setState(() {});
                           },
                           icon: const Icon(Icons.login),
-                          label: const Text('تسجيل الدخول'),
+                          label: Text(
+                            AppStrings.t('signIn', lang),
+                          ),
                         ),
                       ],
                     ),
@@ -932,72 +1225,92 @@ class _BookFlowScreenState extends State<BookFlowScreen> with OnboardingTourHost
     }
 
     return Directionality(
-      textDirection: ui.TextDirection.rtl,
+      textDirection: settings.textDirection,
       child: Container(
-        decoration: const BoxDecoration(gradient: RastUi.headerGradient),
+        decoration: const BoxDecoration(
+          color:Color(0xFF1A0665),
+        ),
         child: Scaffold(
           backgroundColor: Colors.transparent,
           appBar: RastTopBar(
-            title: _createdBooking != null ? 'تم الحجز' : 'حجز تحليل',
+            title: _createdBooking != null
+                ? AppStrings.t(
+              'bookingCompletedTitle',
+              lang,
+            )
+                : AppStrings.t(
+              'bookFlowTitle',
+              lang,
+            ),
             helpTourId: OnboardingTourIds.bookFlow,
             helpTourSteps: OnboardingCatalog.bookFlowTour,
+            iconColor: Colors.white,
+            backgroundColor: const Color(0xFF1A0665),
           ),
-          body: ClipRRect(
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-            child: Container(
-              color: RastUi.screenSurface(context),
-              child: _error != null && _step < 4
-                  ? _buildErrorBody()
-                  : _createdBooking != null
-                  ? _buildSuccessBody()
-                  : SingleChildScrollView(
-                      padding: EdgeInsets.fromLTRB(
-                        Responsive.spacing(context, 20),
-                        Responsive.spacing(context, 24),
-                        Responsive.spacing(context, 20),
-                        Responsive.spacing(context, 28),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          _buildStepIndicator(),
-                          SizedBox(height: Responsive.spacing(context, 22)),
-                          _buildStepCard(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                if (_step == 0) _buildStepServiceType(),
-                                if (_step == 1) _buildStepDate(),
-                                if (_step == 2) _buildStepTime(),
-                                if (_step == 3) _buildStepConfirm(),
-                              ],
-                            ),
-                          ),
-                          SizedBox(height: Responsive.spacing(context, 24)),
-                          if (_step < 4 && _createdBooking == null)
-                            _buildNextButton(),
-                        ],
-                      ),
-                    ),
+          body: _error != null && _step < 4
+              ? _buildErrorBody()
+              : _createdBooking != null
+              ? _buildSuccessBody()
+              : SingleChildScrollView(
+            padding: EdgeInsets.fromLTRB(
+              Responsive.spacing(context, 20),
+              Responsive.spacing(context, 16),
+              Responsive.spacing(context, 20),
+              Responsive.spacing(context, 28),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _buildStepIndicator(),
+
+                SizedBox(
+                  height: Responsive.spacing(context, 24),
+                ),
+
+                _buildStepCard(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      if (_step == 0) _buildStepServiceType(),
+                      if (_step == 1) _buildStepDate(),
+                      if (_step == 2) _buildStepTime(),
+                      if (_step == 3) _buildStepConfirm(),
+
+                      if (_step < 4 && _createdBooking == null) ...[
+                        SizedBox(
+                          height: Responsive.spacing(context, 28),
+                        ),
+                        _buildNextButton(),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
             ),
           ),
+
         ),
       ),
     );
   }
 
-  Widget _buildStepCard({required Widget child}) {
+  Widget _buildStepCard({
+    required Widget child,
+  }) {
     return Container(
-      padding: EdgeInsets.all(Responsive.spacing(context, 18)),
+      width: double.infinity,
+      padding: EdgeInsets.symmetric(
+        horizontal: Responsive.spacing(context, 18),
+        vertical: Responsive.spacing(context, 24),
+      ),
       decoration: BoxDecoration(
-        color: RastUi.cardSurface(context),
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: RastUi.softBorder(context)),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.08),
-            blurRadius: 14,
-            offset: const Offset(0, 5),
+            blurRadius: 18,
+            offset: const Offset(0, 6),
           ),
         ],
       ),
@@ -1012,9 +1325,24 @@ class _BookFlowScreenState extends State<BookFlowScreen> with OnboardingTourHost
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.error_outline, size: 56, color: AppTheme.error),
+            const Icon(
+              Icons.error_outline_rounded,
+              size: 56,
+              color: Colors.white,
+            ),
             const SizedBox(height: 16),
-            Text(_error!, textAlign: TextAlign.center),
+            Text(
+              _error!,
+              maxLines: 4,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: Responsive.fontSize(context, 14),
+                fontWeight: FontWeight.w600,
+                height: 1.5,
+              ),
+            ),
             const SizedBox(height: 16),
             FilledButton.icon(
               onPressed: () => setState(() => _error = null),
@@ -1035,70 +1363,190 @@ class _BookFlowScreenState extends State<BookFlowScreen> with OnboardingTourHost
 
   Widget _buildSuccessBody() {
     final paid = _createdBooking?['payment_status'] == 'paid';
+
     final summary = _createdBooking?['summary'] is Map
         ? _createdBooking!['summary'] as Map<String, dynamic>
         : null;
+
     final servicePrice = summary != null
         ? _parseNum(summary['service_price'])
         : _parseNum(_createdBooking?['service_price']);
+
     final homeFee = summary != null
         ? _parseNum(summary['home_service_fee'])
         : _parseNum(_createdBooking?['home_service_fee']);
+
     final discountAmount = summary != null
         ? (_parseNum(summary['discount_amount']) > 0
-              ? _parseNum(summary['discount_amount'])
-              : _parseNum(summary['platform_discount']))
+        ? _parseNum(summary['discount_amount'])
+        : _parseNum(summary['platform_discount']))
         : _parseNum(_createdBooking?['discount_amount']);
+
     final totalAmount = summary != null
         ? _parseNum(summary['total_amount'])
         : _parseNum(_createdBooking?['total_amount']);
+
     final vatAmount = summary != null
         ? _parseNum(summary['vat_amount'])
         : (() {
-            final meta = _createdBooking?['metadata'];
-            return meta is Map ? _parseNum(meta['vat_amount']) : 0.0;
-          })();
-    final isHomeService = _createdBooking?['service_type'] == 'home_service';
+      final meta = _createdBooking?['metadata'];
+      return meta is Map ? _parseNum(meta['vat_amount']) : 0.0;
+    })();
+
+    final isHomeService =
+        _createdBooking?['service_type'] == 'home_service';
+
+    final bookingNumber =
+        _createdBooking?['booking_number']?.toString() ?? '';
 
     return SingleChildScrollView(
-      padding: EdgeInsets.all(Responsive.spacing(context, 20)),
+      padding: EdgeInsets.fromLTRB(
+        Responsive.spacing(context, 18),
+        Responsive.spacing(context, 18),
+        Responsive.spacing(context, 18),
+        Responsive.spacing(context, 28),
+      ),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          // SUCCESS CARD
           Container(
-            padding: EdgeInsets.all(Responsive.spacing(context, 24)),
-            decoration: AppTheme.cardDecorationElevatedFor(context),
+            width: double.infinity,
+            padding: EdgeInsets.symmetric(
+              horizontal: Responsive.spacing(context, 18),
+              vertical: Responsive.spacing(context, 24),
+            ),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(
+                color: const Color(0xFFF0EEF5),
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.06),
+                  blurRadius: 18,
+                  offset: const Offset(0, 6),
+                ),
+              ],
+            ),
             child: Column(
               children: [
-                Icon(Icons.check_circle, size: 72, color: AppTheme.primary),
-                SizedBox(height: Responsive.spacing(context, 16)),
-                Text(
-                  'تم إنشاء الحجز بنجاح',
-                  style: TextStyle(
-                    fontSize: Responsive.fontSize(context, 20),
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                SizedBox(height: Responsive.spacing(context, 8)),
-                Text(
-                  _createdBooking?['booking_number']?.toString() ?? '',
-                  style: TextStyle(
-                    fontSize: Responsive.fontSize(context, 16),
-                    color: AppTheme.primary,
-                  ),
-                ),
-                SizedBox(height: Responsive.spacing(context, 20)),
-                if (!paid) ...[
-                  GradientFilledButtonIcon(
-                    onPressed: _openPayment,
-                    icon: const Icon(Icons.payment),
-                    label: const Text('ادفع الآن'),
-                    style: FilledButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 32,
-                        vertical: 14,
+                Container(
+                  width: 66,
+                  height: 66,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        Color(0xFF7B39F5),
+                        Color(0xFF5A1BC8),
+                      ],
+                    ),
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFF6C2BE3)
+                            .withValues(alpha: 0.28),
+                        blurRadius: 18,
+                        offset: const Offset(0, 6),
                       ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14),
+                    ],
+                  ),
+                  child: Container(
+                    width: 30,
+                    height: 30,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: Colors.white,
+                        width: 2.4,
+                      ),
+                    ),
+                    child: const Icon(
+                      Icons.check_rounded,
+                      size: 19,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+
+                SizedBox(
+                  height: Responsive.spacing(context, 18),
+                ),
+
+                Text(
+                  _tr('bookingCreatedSuccessfully'),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: const Color(0xFF211D46),
+                    fontSize: Responsive.fontSize(
+                      context,
+                      19,
+                    ),
+                    fontWeight: FontWeight.w900,
+                    height: 1.25,
+                  ),
+                ),
+
+                SizedBox(
+                  height: Responsive.spacing(context, 6),
+                ),
+
+                if (bookingNumber.isNotEmpty)
+                  Text(
+                    bookingNumber,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: const Color(0xFFC9A7FF),
+                      fontSize: Responsive.fontSize(
+                        context,
+                        13,
+                      ),
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.4,
+                    ),
+                  ),
+
+                if (!paid) ...[
+                  SizedBox(
+                    height: Responsive.spacing(context, 18),
+                  ),
+
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(
+                      minWidth: 150,
+                    ),
+                    child: GradientFilledButtonIcon(
+                      onPressed: _openPayment,
+                      icon: const Icon(
+                        Icons.credit_card_rounded,
+                        size: 18,
+                      ),
+                      label: Text(
+                        _tr('payNow'),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      style: FilledButton.styleFrom(
+                        minimumSize: const Size(
+                          170,
+                          54,
+                        ),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 22,
+                          vertical: 12,
+                        ),
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
                       ),
                     ),
                   ),
@@ -1106,73 +1554,238 @@ class _BookFlowScreenState extends State<BookFlowScreen> with OnboardingTourHost
               ],
             ),
           ),
-          SizedBox(height: Responsive.spacing(context, 16)),
+
+          SizedBox(
+            height: Responsive.spacing(context, 22),
+          ),
+
           Container(
-            padding: EdgeInsets.all(Responsive.spacing(context, 20)),
-            decoration: AppTheme.cardDecorationFor(context),
+            width: double.infinity,
+            padding: EdgeInsets.all(
+              Responsive.spacing(context, 18),
+            ),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF5F7FB),
+              borderRadius: BorderRadius.circular(22),
+            ),
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment:
+              CrossAxisAlignment.stretch,
               children: [
                 Text(
-                  'تفاصيل الفاتورة',
+                  _tr('invoiceDetails'),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.start,
                   style: TextStyle(
-                    fontSize: Responsive.fontSize(context, 15),
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                SizedBox(height: Responsive.spacing(context, 12)),
-                _confirmRow(
-                  'سعر التحليل',
-                  '${servicePrice.toStringAsFixed(2)} ر.س',
-                ),
-                if (isHomeService)
-                  _confirmRow(
-                    'رسوم الخدمة المنزلية',
-                    '+ ${homeFee.toStringAsFixed(2)} ر.س',
-                  ),
-                _confirmRow(
-                  'خصم المنصة',
-                  '- ${discountAmount.toStringAsFixed(2)} ر.س',
-                  valueStyle: TextStyle(
-                    color: AppTheme.success,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                _confirmRow(
-                  'ضريبة القيمة المضافة',
-                  '+ ${vatAmount.toStringAsFixed(2)} ر.س',
-                  valueStyle: TextStyle(color: AppTheme.onSurfaceVariant),
-                ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 6),
-                  child: Divider(
-                    height: 1,
-                    color: Theme.of(
+                    color: const Color(0xFF17142C),
+                    fontSize: Responsive.fontSize(
                       context,
-                    ).colorScheme.outline.withValues(alpha: 0.5),
+                      15,
+                    ),
+                    fontWeight: FontWeight.w900,
                   ),
                 ),
-                _confirmRow(
-                  'المبلغ الإجمالي',
-                  '${totalAmount.toStringAsFixed(2)} ر.س',
-                  valueStyle: TextStyle(
-                    color: AppTheme.primary,
-                    fontWeight: FontWeight.bold,
+
+                SizedBox(
+                  height: Responsive.spacing(context, 16),
+                ),
+
+                _successInvoiceRow(
+                  label: _tr('testPrice'),
+                  value: _sar(servicePrice),
+                ),
+
+                if (isHomeService)
+                  _successInvoiceRow(
+                    label: _tr('homeServiceFee'),
+                    value: '+ ${_sar(homeFee)}',
+                  ),
+
+                _successInvoiceRow(
+                  label: _tr('platformDiscount'),
+                  value: '- ${_sar(discountAmount)}',
+                  valueColor: const Color(0xFF009B69),
+                ),
+
+                _successInvoiceRow(
+                  label: _tr('vat'),
+                  value: '+ ${_sar(vatAmount)}',
+                  valueColor: const Color(0xFF28234D),
+                ),
+
+                Padding(
+                  padding: EdgeInsets.symmetric(
+                    vertical: Responsive.spacing(
+                      context,
+                      7,
+                    ),
+                  ),
+                  child: const Divider(
+                    height: 1,
+                    thickness: 1,
+                    color: Color(0xFFDDE3ED),
+                  ),
+                ),
+
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      Expanded(
+                        child: Align(
+                          alignment: AlignmentDirectional.centerStart,
+                          child: Text(
+                            _tr('totalAmount'),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.start,
+                            style: TextStyle(
+                              color: const Color(0xFF17142C),
+                              fontSize: Responsive.fontSize(
+                                context,
+                                14,
+                              ),
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ),
+                      ),
+
+                      const SizedBox(width: 12),
+
+                      Flexible(
+                        child: Align(
+                          alignment: AlignmentDirectional.centerEnd,
+                          child: Text(
+                            _sar(totalAmount),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.end,
+                            style: TextStyle(
+                              color: const Color(0xFF6D28D9),
+                              fontSize: Responsive.fontSize(
+                                context,
+                                17,
+                              ),
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],
             ),
           ),
-          SizedBox(height: Responsive.spacing(context, 16)),
-          OutlinedButton.icon(
-            onPressed: _goToBookingDetail,
-            icon: const Icon(Icons.list_alt),
-            label: const Text('عرض تفاصيل الحجز'),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: AppTheme.primary,
-              padding: const EdgeInsets.symmetric(vertical: 14),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(14),
+
+          SizedBox(
+            height: Responsive.spacing(context, 28),
+          ),
+
+          // BOOKING DETAILS BUTTON
+          Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(
+                minWidth: 220,
+                maxWidth: 290,
+              ),
+              child: OutlinedButton.icon(
+                onPressed: _goToBookingDetail,
+                icon: const Icon(
+                  Icons.format_list_bulleted_rounded,
+                  size: 19,
+                ),
+                label: Text(
+                  _tr('viewBookingDetails'),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: Responsive.fontSize(
+                      context,
+                      13,
+                    ),
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor:
+                  const Color(0xFF762FE9),
+                  backgroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 18,
+                    vertical: 14,
+                  ),
+                  side: const BorderSide(
+                    color: Color(0xFFDCC8FF),
+                    width: 1.5,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius:
+                    BorderRadius.circular(16),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _successInvoiceRow({
+    required String label,
+    required String value,
+    Color? valueColor,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 7),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Align(
+              alignment: AlignmentDirectional.centerStart,
+              child: Text(
+                label,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.start,
+                style: TextStyle(
+                  color: const Color(0xFF3E4050),
+                  fontSize: Responsive.fontSize(
+                    context,
+                    12,
+                  ),
+                  fontWeight: FontWeight.w700,
+                  height: 1.35,
+                ),
+              ),
+            ),
+          ),
+
+          const SizedBox(width: 12),
+
+          Flexible(
+            child: Align(
+              alignment: AlignmentDirectional.centerEnd,
+              child: Text(
+                value,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.end,
+                style: TextStyle(
+                  color: valueColor ??
+                      const Color(0xFF17142C),
+                  fontSize: Responsive.fontSize(
+                    context,
+                    12,
+                  ),
+                  fontWeight: FontWeight.w900,
+                  height: 1.35,
+                ),
               ),
             ),
           ),
@@ -1182,55 +1795,101 @@ class _BookFlowScreenState extends State<BookFlowScreen> with OnboardingTourHost
   }
 
   Widget _buildStepIndicator() {
-    const labels = ['الخدمة', 'التاريخ', 'الوقت', 'التأكيد'];
+    final lang =
+        context.watch<AppSettingsProvider>().language;
+
+    final labels = [
+      AppStrings.t('stepService', lang),
+      AppStrings.t('stepDate', lang),
+      AppStrings.t('stepTime', lang),
+      AppStrings.t('stepConfirm', lang),
+    ];
+
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+      width: double.infinity,
+      padding: EdgeInsets.symmetric(
+        horizontal: Responsive.spacing(context, 14),
+        vertical: Responsive.spacing(context, 16),
+      ),
       decoration: BoxDecoration(
-        color: RastUi.subtleFill(context),
-        borderRadius: BorderRadius.circular(18),
+        color: Colors.white.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: Colors.white.withValues(alpha: 0.18),
+        ),
       ),
       child: Row(
         children: List.generate(4, (i) {
           final active = i == _step;
           final done = i < _step;
+
           return Expanded(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
                 AnimatedContainer(
-                  duration: const Duration(milliseconds: 180),
-                  width: active ? 34 : 28,
-                  height: active ? 34 : 28,
+                  duration:
+                  const Duration(milliseconds: 180),
+                  width: 34,
+                  height: 34,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    gradient: active || done ? RastUi.brandGradient : null,
-                    color: active || done ? null : const Color(0xFFE5E7F2),
-                    boxShadow: active ? RastUi.softShadow : null,
+                    color: done
+                        ? const Color(0xFF444DF8)
+                        : active
+                        ? Color(0xFF444DF8)
+                        : Colors.white,
+                    boxShadow: active
+                        ? [
+                      BoxShadow(
+                        color: Colors.black
+                            .withValues(alpha: 0.10),
+                        blurRadius: 8,
+                        offset: const Offset(0, 3),
+                      ),
+                    ]
+                        : null,
                   ),
                   child: Center(
                     child: done
-                        ? const Icon(Icons.check, size: 16, color: Colors.white)
+                        ? const Icon(
+                      Icons.check_rounded,
+                      size: 18,
+                      color: Colors.white,
+                    )
                         : Text(
-                            '${i + 1}',
-                            style: TextStyle(
-                              color: active
-                                  ? Colors.white
-                                  : RastUi.primaryText(context),
-                              fontSize: Responsive.fontSize(context, 12),
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
+                      '${i + 1}',
+                      style: TextStyle(
+                        color: active
+                        ? Colors.white
+                        : Colors.black,
+                        fontSize:
+                        Responsive.fontSize(
+                          context,
+                          12,
+                        ),
+                        fontWeight:
+                        FontWeight.w800,
+                      ),
+                    ),
                   ),
                 ),
-                const SizedBox(height: 6),
+
+                const SizedBox(height: 7),
+
                 Text(
                   labels[i],
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
                   style: TextStyle(
-                    color: active ? RastUi.purple : RastUi.mutedText,
+                    color: active
+                        ? const Color(0xFF8FA0FF)
+                        : done
+                        ? const Color(0xFFB8C0FF)
+                        : Colors.white.withValues(alpha: 0.95),
                     fontSize: Responsive.fontSize(context, 10),
-                    fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+                    fontWeight: FontWeight.bold,
                   ),
                 ),
               ],
@@ -1242,72 +1901,323 @@ class _BookFlowScreenState extends State<BookFlowScreen> with OnboardingTourHost
   }
 
   Widget _buildStepServiceType() {
-    final inClinicTotal = _displayTotalForServiceType('in_clinic');
-    final homeTotal = _displayTotalForServiceType('home_service');
+    final inClinicTotal =
+    _displayTotalForServiceType('in_clinic');
+
+    final homeTotal =
+    _displayTotalForServiceType('home_service');
+
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _buildSectionTitle('نوع الزيارة', Icons.medical_services_outlined),
-        SizedBox(height: Responsive.spacing(context, 12)),
+        _buildSectionTitle(
+          _tr('visitType'),
+          Icons.medical_services_outlined,
+        ),
+
+        SizedBox(
+          height: Responsive.spacing(context, 16),
+        ),
+
         if (!_isHomeOnly)
-          _serviceTypeChip(
-            'in_clinic',
-            'في المختبر',
-            Icons.business_rounded,
-            '${inClinicTotal.toStringAsFixed(2)} ر.س',
+          _serviceTypeOption(
+            value: 'in_clinic',
+            label: _tr('inLab'),
+            subtitle: _tr('inLabSubtitle'),
+            icon: Icons.apartment_rounded,
+            price: _sar(inClinicTotal),
           ),
+
         if (_homeAvailable && !_isClinicOnly) ...[
-          SizedBox(height: Responsive.spacing(context, 10)),
-          _serviceTypeChip(
-            'home_service',
-            'زيارة منزلية',
-            Icons.home_rounded,
-            '${homeTotal.toStringAsFixed(2)} ر.س',
+          SizedBox(
+            height: Responsive.spacing(context, 12),
+          ),
+
+          _serviceTypeOption(
+            value: 'home_service',
+            label: _tr('homeVisit'),
+            subtitle: _tr('homeVisitSubtitle'),
+            icon: Icons.home_rounded,
+            price: _sar(homeTotal),
           ),
         ],
+
         if (_serviceType == 'home_service') ...[
-          SizedBox(height: Responsive.spacing(context, 20)),
-          _buildSectionTitle('عنوان الزيارة', Icons.location_on_outlined),
-          SizedBox(height: Responsive.spacing(context, 8)),
-          TextField(
+          SizedBox(
+            height: Responsive.spacing(context, 24),
+          ),
+
+          _buildSectionTitle(
+            _tr('visitAddress'),
+            Icons.location_on_outlined,
+          ),
+
+          SizedBox(
+            height: Responsive.spacing(context, 14),
+          ),
+
+          _modernBookingField(
             controller: _addressController,
-            decoration: InputDecoration(
-              labelText: 'العنوان',
-              hintText: 'الشارع والحي',
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(18),
-              ),
-              filled: true,
-              fillColor: RastUi.subtleFill(context),
-            ),
+            label: _tr('address'),
+            hint: _tr('addressHint'),
+            icon: Icons.location_on_outlined,
           ),
-          SizedBox(height: Responsive.spacing(context, 10)),
-          TextField(
+
+          SizedBox(
+            height: Responsive.spacing(context, 12),
+          ),
+
+          _modernBookingField(
             controller: _cityController,
-            decoration: InputDecoration(
-              labelText: 'المدينة',
-              hintText: 'مثال: الرياض',
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(18),
-              ),
-              filled: true,
-              fillColor: RastUi.subtleFill(context),
-            ),
+            label: _tr('city'),
+            hint: _tr('cityHint'),
+            icon: Icons.location_city_outlined,
           ),
-          SizedBox(height: Responsive.spacing(context, 10)),
-          TextField(
+
+          SizedBox(
+            height: Responsive.spacing(context, 12),
+          ),
+
+          _modernBookingField(
             controller: _districtController,
-            decoration: InputDecoration(
-              labelText: 'الحي (اختياري)',
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(18),
-              ),
-              filled: true,
-              fillColor: RastUi.subtleFill(context),
-            ),
+            label: _tr('districtOptional'),
+            hint: null,
+            icon: Icons.map_outlined,
           ),
         ],
       ],
+    );
+  }
+
+  Widget _serviceTypeOption({
+    required String value,
+    required String label,
+    required String subtitle,
+    required IconData icon,
+    required String price,
+  }) {
+    final selected = _serviceType == value;
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () {
+          setState(() {
+            _serviceType = value;
+          });
+        },
+        borderRadius: BorderRadius.circular(20),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          width: double.infinity,
+          padding: EdgeInsets.all(
+            Responsive.spacing(context, 14),
+          ),
+          decoration: BoxDecoration(
+            color: selected
+                ? const Color(0xFFF3F1FF)
+                : const Color(0xFFF8F8FB),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: selected
+                  ? const Color(0xFF6254E7)
+                  : const Color(0xFFE4E3EA),
+              width: selected ? 1.6 : 1,
+            ),
+            boxShadow: selected
+                ? [
+              BoxShadow(
+                color: const Color(0xFF6254E7)
+                    .withValues(alpha: 0.14),
+                blurRadius: 14,
+                offset: const Offset(0, 5),
+              ),
+            ]
+                : null,
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              // ICON
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  color: selected
+                      ? const Color(0xFF6254E7)
+                      : const Color(0xFFEDECF2),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                alignment: Alignment.center,
+                child: Icon(
+                  icon,
+                  size: 24,
+                  color: selected
+                      ? Colors.white
+                      : const Color(0xFF686577),
+                ),
+              ),
+
+              SizedBox(
+                width: Responsive.spacing(context, 12),
+              ),
+
+              // TEXT
+              Expanded(
+                child: Column(
+                  crossAxisAlignment:
+                  CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: const Color(0xFF242230),
+                        fontSize: Responsive.fontSize(
+                          context,
+                          14,
+                        ),
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+
+                    const SizedBox(height: 4),
+
+                    Text(
+                      subtitle,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: const Color(0xFF777486),
+                        fontSize: Responsive.fontSize(
+                          context,
+                          11,
+                        ),
+                        fontWeight: FontWeight.w500,
+                        height: 1.3,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              SizedBox(
+                width: Responsive.spacing(context, 10),
+              ),
+
+              // PRICE + SELECTED INDICATOR
+              SizedBox(
+                width: 88,
+                child: Align(
+                  alignment: AlignmentDirectional.centerEnd,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text(
+                        price,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.end,
+                        style: TextStyle(
+                          color: selected
+                              ? const Color(0xFF6254E7)
+                              : const Color(0xFF242230),
+                          fontSize: Responsive.fontSize(
+                            context,
+                            13,
+                          ),
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+
+                      const SizedBox(height: 8),
+
+                      AnimatedContainer(
+                        duration: const Duration(milliseconds: 180),
+                        width: 24,
+                        height: 24,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: selected
+                              ? const Color(0xFF6254E7)
+                              : Colors.transparent,
+                          border: Border.all(
+                            color: selected
+                                ? const Color(0xFF6254E7)
+                                : const Color(0xFFB8B6C2),
+                            width: 1.5,
+                          ),
+                        ),
+                        child: selected
+                            ? const Icon(
+                          Icons.check_rounded,
+                          size: 15,
+                          color: Colors.white,
+                        )
+                            : null,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _modernBookingField({
+    required TextEditingController controller,
+    required String label,
+    String? hint,
+    required IconData icon,
+  }) {
+    return TextField(
+      controller: controller,
+      decoration: InputDecoration(
+        labelText: label,
+        hintText: hint,
+
+        prefixIcon: Icon(
+          icon,
+          size: 20,
+          color: const Color(0xFF6254E7),
+        ),
+
+        filled: true,
+        fillColor: const Color(0xFFF8F8FB),
+
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 16,
+        ),
+
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: const BorderSide(
+            color: Color(0xFFE4E3EA),
+          ),
+        ),
+
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: const BorderSide(
+            color: Color(0xFFE4E3EA),
+          ),
+        ),
+
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: const BorderSide(
+            color: Color(0xFF6254E7),
+            width: 1.5,
+          ),
+        ),
+      ),
     );
   }
 
@@ -1336,157 +2246,329 @@ class _BookFlowScreenState extends State<BookFlowScreen> with OnboardingTourHost
     );
   }
 
-  Widget _serviceTypeChip(
-    String value,
-    String label,
-    IconData icon,
-    String price,
-  ) {
-    final selected = _serviceType == value;
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: () => setState(() => _serviceType = value),
-        borderRadius: BorderRadius.circular(16),
-        child: Container(
-          padding: EdgeInsets.all(Responsive.spacing(context, 16)),
-          decoration: BoxDecoration(
-            color: selected ? null : RastUi.subtleFill(context),
-            gradient: selected ? RastUi.brandGradient : null,
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(
-              color: selected ? Colors.transparent : RastUi.softBorder(context),
-              width: 1,
-            ),
-            boxShadow: selected ? RastUi.softShadow : null,
-          ),
-          child: Row(
-            children: [
-              Icon(
-                icon,
-                color: selected ? Colors.white : RastUi.purple,
-                size: 28,
-              ),
-              SizedBox(width: Responsive.spacing(context, 12)),
-              Expanded(
-                child: Text(
-                  label,
-                  style: TextStyle(
-                    color: selected
-                        ? Colors.white
-                        : RastUi.primaryText(context),
-                    fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                  ),
-                ),
-              ),
-              Text(
-                price,
-                style: TextStyle(
-                  color: selected ? Colors.white : RastUi.purple,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
   Widget _buildStepDate() {
     final today = DateTime.now();
-    final days = List.generate(10, (i) => today.add(Duration(days: i)));
+    final days = List.generate(
+      10,
+          (i) => today.add(Duration(days: i)),
+    );
+
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _buildSectionTitle('اختر التاريخ', Icons.calendar_month_outlined),
-        SizedBox(height: Responsive.spacing(context, 16)),
+        _buildSectionTitle(
+          _tr('chooseDate'),
+          Icons.calendar_month_outlined,
+        ),
+
         SizedBox(
-          height: 92,
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            itemCount: days.length,
-            separatorBuilder: (_, __) => const SizedBox(width: 10),
-            itemBuilder: (context, index) {
-              final day = days[index];
-              final selected =
-                  _selectedDate != null &&
-                  DateUtils.isSameDay(_selectedDate, day);
-              return InkWell(
-                onTap: () => setState(() => _selectedDate = day),
-                borderRadius: BorderRadius.circular(18),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 180),
-                  width: 68,
-                  decoration: BoxDecoration(
-                    gradient: selected ? RastUi.brandGradient : null,
-                    color: selected ? null : RastUi.subtleFill(context),
-                    borderRadius: BorderRadius.circular(18),
-                    border: Border.all(
-                      color: selected
-                          ? Colors.transparent
-                          : RastUi.softBorder(context),
+          height: Responsive.spacing(context, 18),
+        ),
+
+        Container(
+          width: double.infinity,
+          padding: EdgeInsets.symmetric(
+            horizontal: Responsive.spacing(context, 12),
+            vertical: Responsive.spacing(context, 14),
+          ),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF8F8FB),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: const Color(0xFFE5E3EA),
+            ),
+          ),
+          child: SizedBox(
+            height: 106,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              physics: const BouncingScrollPhysics(),
+              itemCount: days.length,
+              separatorBuilder: (_, __) =>
+              const SizedBox(width: 10),
+              itemBuilder: (context, index) {
+                final day = days[index];
+
+                final selected =
+                    _selectedDate != null &&
+                        DateUtils.isSameDay(
+                          _selectedDate,
+                          day,
+                        );
+
+                final isToday =
+                DateUtils.isSameDay(today, day);
+
+                return InkWell(
+                  onTap: () {
+                    setState(() {
+                      _selectedDate = day;
+                    });
+                  },
+                  borderRadius: BorderRadius.circular(18),
+                  child: AnimatedContainer(
+                    duration:
+                    const Duration(milliseconds: 180),
+                    width: 72,
+                    padding: const EdgeInsets.symmetric(
+                      vertical: 10,
+                      horizontal: 6,
                     ),
-                    boxShadow: selected ? RastUi.softShadow : null,
+                    decoration: BoxDecoration(
+                      color: selected
+                          ? const Color(0xFF6254E7)
+                          : Colors.white,
+                      borderRadius:
+                      BorderRadius.circular(18),
+                      border: Border.all(
+                        color: selected
+                            ? const Color(0xFF6254E7)
+                            : isToday
+                            ? const Color(
+                          0xFF6254E7,
+                        ).withValues(
+                          alpha: 0.40,
+                        )
+                            : const Color(
+                          0xFFE5E3EA,
+                        ),
+                        width: selected ? 1.5 : 1,
+                      ),
+                      boxShadow: selected
+                          ? [
+                        BoxShadow(
+                          color:
+                          const Color(
+                            0xFF6254E7,
+                          ).withValues(
+                            alpha: 0.22,
+                          ),
+                          blurRadius: 12,
+                          offset:
+                          const Offset(0, 5),
+                        ),
+                      ]
+                          : null,
+                    ),
+                    child: Column(
+                      mainAxisAlignment:
+                      MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          _weekdayLabel(day),
+                          maxLines: 1,
+                          overflow:
+                          TextOverflow.ellipsis,
+                          textAlign:
+                          TextAlign.center,
+                          style: TextStyle(
+                            color: selected
+                                ? Colors.white
+                                .withValues(
+                              alpha: 0.85,
+                            )
+                                : const Color(
+                              0xFF777486,
+                            ),
+                            fontSize:
+                            Responsive.fontSize(
+                              context,
+                              10,
+                            ),
+                            fontWeight:
+                            FontWeight.w600,
+                          ),
+                        ),
+
+                        const SizedBox(height: 6),
+
+                        Text(
+                          DateFormat('d')
+                              .format(day),
+                          maxLines: 1,
+                          style: TextStyle(
+                            color: selected
+                                ? Colors.white
+                                : const Color(
+                              0xFF262333,
+                            ),
+                            fontSize:
+                            Responsive.fontSize(
+                              context,
+                              22,
+                            ),
+                            fontWeight:
+                            FontWeight.w900,
+                          ),
+                        ),
+
+                        const SizedBox(height: 3),
+
+                        Text(
+                          _monthLabel(day),
+                          maxLines: 1,
+                          overflow:
+                          TextOverflow.ellipsis,
+                          textAlign:
+                          TextAlign.center,
+                          style: TextStyle(
+                            color: selected
+                                ? Colors.white
+                                .withValues(
+                              alpha: 0.80,
+                            )
+                                : const Color(
+                              0xFF8A8795,
+                            ),
+                            fontSize:
+                            Responsive.fontSize(
+                              context,
+                              9,
+                            ),
+                            fontWeight:
+                            FontWeight.w500,
+                          ),
+                        ),
+
+                        if (isToday) ...[
+                          const SizedBox(height: 5),
+
+                          Container(
+                            width: 5,
+                            height: 5,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: selected
+                                  ? Colors.white
+                                  : const Color(
+                                0xFF6254E7,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
                   ),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(
-                        _weekdayLabel(day),
-                        style: TextStyle(
-                          color: selected ? Colors.white : RastUi.mutedText,
-                          fontSize: Responsive.fontSize(context, 11),
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        DateFormat('d').format(day),
-                        style: TextStyle(
-                          color: selected
-                              ? Colors.white
-                              : RastUi.primaryText(context),
-                          fontSize: Responsive.fontSize(context, 22),
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                      Text(
-                        _monthLabel(day),
-                        style: TextStyle(
-                          color: selected ? Colors.white : RastUi.mutedText,
-                          fontSize: Responsive.fontSize(context, 10),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            },
+                );
+              },
+            ),
           ),
         ),
-        SizedBox(height: Responsive.spacing(context, 14)),
-        OutlinedButton.icon(
-          onPressed: () async {
-            final d = await showDatePicker(
-              context: context,
-              initialDate: _selectedDate ?? today,
-              firstDate: today,
-              lastDate: today.add(const Duration(days: 60)),
-            );
-            if (d != null) setState(() => _selectedDate = d);
-          },
-          icon: const Icon(Icons.event_available_rounded),
-          label: Text(
-            _selectedDate != null
-                ? DateFormat('yyyy-MM-dd').format(_selectedDate!)
-                : 'اختيار من التقويم',
-          ),
-          style: OutlinedButton.styleFrom(
-            foregroundColor: RastUi.purple,
-            side: const BorderSide(color: Color(0xFFE2E0EA)),
-            padding: const EdgeInsets.symmetric(vertical: 15),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(18),
+
+        SizedBox(
+          height: Responsive.spacing(context, 16),
+        ),
+
+        Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: () async {
+              final d = await showDatePicker(
+                context: context,
+                locale: Locale(_lang),
+                initialDate: _selectedDate ?? today,
+                firstDate: today,
+                lastDate: today.add(
+                  const Duration(days: 60),
+                ),
+              );
+
+              if (d != null) {
+                setState(() {
+                  _selectedDate = d;
+                });
+              }
+            },
+            borderRadius:
+            BorderRadius.circular(18),
+            child: Container(
+              width: double.infinity,
+              padding:
+              const EdgeInsets.symmetric(
+                horizontal: 14,
+                vertical: 14,
+              ),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF8F8FB),
+                borderRadius:
+                BorderRadius.circular(18),
+                border: Border.all(
+                  color: const Color(0xFFE3E1E9),
+                ),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 40,
+                    height: 40,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: const Color(
+                        0xFF6254E7,
+                      ).withValues(
+                        alpha: 0.10,
+                      ),
+                      borderRadius:
+                      BorderRadius.circular(
+                        12,
+                      ),
+                    ),
+                    child: const Icon(
+                      Icons
+                          .event_available_rounded,
+                      size: 20,
+                      color: Color(0xFF6254E7),
+                    ),
+                  ),
+
+                  SizedBox(
+                    width: Responsive.spacing(
+                      context,
+                      12,
+                    ),
+                  ),
+
+                  Expanded(
+                    child: Text(
+                      _selectedDate != null
+                          ? DateFormat(
+                        'yyyy-MM-dd',
+                      ).format(
+                        _selectedDate!,
+                      )
+                          : _tr('chooseFromCalendar'),
+                      maxLines: 1,
+                      overflow:
+                      TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: _selectedDate != null
+                            ? const Color(
+                          0xFF262333,
+                        )
+                            : const Color(
+                          0xFF777486,
+                        ),
+                        fontSize:
+                        Responsive.fontSize(
+                          context,
+                          13,
+                        ),
+                        fontWeight:
+                        FontWeight.w700,
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(width: 8),
+
+                  const Icon(
+                    Icons
+                        .arrow_forward_ios_rounded,
+                    size: 14,
+                    color: Color(0xFF8B8797),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
@@ -1495,47 +2577,43 @@ class _BookFlowScreenState extends State<BookFlowScreen> with OnboardingTourHost
   }
 
   String _weekdayLabel(DateTime day) {
-    const labels = [
-      'الاثنين',
-      'الثلاثاء',
-      'الأربعاء',
-      'الخميس',
-      'الجمعة',
-      'السبت',
-      'الأحد',
-    ];
-    return labels[day.weekday - 1];
+    return DateFormat(
+      'EEEE',
+      _isArabic ? 'ar' : 'en',
+    ).format(day);
   }
 
   String _monthLabel(DateTime day) {
-    const labels = [
-      'يناير',
-      'فبراير',
-      'مارس',
-      'أبريل',
-      'مايو',
-      'يونيو',
-      'يوليو',
-      'أغسطس',
-      'سبتمبر',
-      'أكتوبر',
-      'نوفمبر',
-      'ديسمبر',
-    ];
-    return labels[day.month - 1];
+    return DateFormat(
+      'MMM',
+      _isArabic ? 'ar' : 'en',
+    ).format(day);
   }
 
-  String _timeSlotPrimaryLabel(Map<String, dynamic> slot) {
-    final ar = slot['period_label_ar']?.toString().trim();
-    if (ar != null && ar.isNotEmpty) return ar;
-    return DateFormatter.formatBookingTime(slot['start_time']?.toString());
+  String _timeSlotPrimaryLabel(
+      Map<String, dynamic> slot,
+      ) {
+    final ar = slot['period_label_ar']
+        ?.toString()
+        .trim();
+
+    if (ar != null && ar.isNotEmpty) {
+      return ar;
+    }
+
+    return DateFormatter.formatBookingTime(
+      slot['start_time']?.toString(),
+    );
   }
 
   Widget _buildStepTime() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _buildSectionTitle('اختر الوقت', Icons.schedule_rounded),
+        _buildSectionTitle(
+          _tr('chooseTime'),
+          Icons.schedule_rounded,
+        ),
         SizedBox(height: Responsive.spacing(context, 12)),
         if (_timeSlotsError != null) ...[
           Container(
@@ -1548,13 +2626,15 @@ class _BookFlowScreenState extends State<BookFlowScreen> with OnboardingTourHost
                 Text(
                   _timeSlotsError!,
                   textAlign: TextAlign.center,
-                  style: TextStyle(color: AppTheme.onSurfaceVariant),
+                  style: TextStyle(color: Colors.white),
                 ),
                 const SizedBox(height: 12),
                 FilledButton.icon(
                   onPressed: _loadingSlots ? null : _loadTimeSlots,
                   icon: const Icon(Icons.refresh),
-                  label: const Text('إعادة المحاولة'),
+                  label: Text(
+                    _tr('retry'),
+                  ),
                 ),
               ],
             ),
@@ -1570,56 +2650,168 @@ class _BookFlowScreenState extends State<BookFlowScreen> with OnboardingTourHost
           Container(
             padding: const EdgeInsets.all(20),
             decoration: AppTheme.cardDecorationFor(context),
-            child: const Text(
-              'لا توجد مواعيد متاحة لهذا اليوم. اختر تاريخاً آخر.',
+            child: Text(
+              _tr('noTimeSlots'),
               textAlign: TextAlign.center,
             ),
           )
-        else
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            children: _timeSlots.map<Widget>((s) {
-              final slot = s is Map
-                  ? s as Map<String, dynamic>
-                  : <String, dynamic>{};
-              final slotId = slot['id'];
-              final selected = _selectedSlot?['id'] == slotId;
-              return ChoiceChip(
-                label: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 5,
+          else
+            Column(
+              children: _timeSlots.map<Widget>((s) {
+                final slot = s is Map
+                    ? s as Map<String, dynamic>
+                    : <String, dynamic>{};
+
+                final slotId = slot['id'];
+                final selected =
+                    _selectedSlot?['id'] == slotId;
+
+                return Padding(
+                  padding: const EdgeInsets.only(
+                    bottom: 10,
                   ),
-                  child: Text(
-                    _timeSlotPrimaryLabel(slot),
-                    style: TextStyle(
-                      color: selected ? Colors.white : RastUi.primaryText(context),
-                      fontWeight: FontWeight.w700,
+                  child: Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      onTap: () {
+                        setState(() {
+                          _selectedSlot = slot;
+                        });
+                      },
+                      borderRadius:
+                      BorderRadius.circular(16),
+                      child: AnimatedContainer(
+                        duration:
+                        const Duration(milliseconds: 180),
+                        width: double.infinity,
+                        constraints:
+                        const BoxConstraints(
+                          minHeight: 60,
+                        ),
+                        padding:
+                        const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 11,
+                        ),
+                        decoration: BoxDecoration(
+                          color: selected
+                              ? const Color(0xFF6254E7)
+                              : const Color(0xFFF8F8FB),
+                          borderRadius:
+                          BorderRadius.circular(16),
+                          border: Border.all(
+                            color: selected
+                                ? const Color(0xFF6254E7)
+                                : const Color(0xFFE4E2E9),
+                            width: selected ? 1.5 : 1,
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 38,
+                              height: 38,
+                              alignment: Alignment.center,
+                              decoration: BoxDecoration(
+                                color: selected
+                                    ? Colors.white.withValues(
+                                  alpha: 0.16,
+                                )
+                                    : const Color(
+                                  0xFF6254E7,
+                                ).withValues(
+                                  alpha: 0.08,
+                                ),
+                                borderRadius:
+                                BorderRadius.circular(11),
+                              ),
+                              child: Icon(
+                                Icons.access_time_rounded,
+                                size: 18,
+                                color: selected
+                                    ? Colors.white
+                                    : const Color(
+                                  0xFF6254E7,
+                                ),
+                              ),
+                            ),
+
+                            const SizedBox(width: 12),
+
+                            Expanded(
+                              child: Text(
+                                _timeSlotPrimaryLabel(slot),
+                                maxLines: 2,
+                                overflow:
+                                TextOverflow.ellipsis,
+                                textAlign: TextAlign.start,
+                                style: TextStyle(
+                                  color: selected
+                                      ? Colors.white
+                                      : RastUi.primaryText(
+                                    context,
+                                  ),
+                                  fontSize:
+                                  Responsive.fontSize(
+                                    context,
+                                    13,
+                                  ),
+                                  fontWeight:
+                                  FontWeight.w700,
+                                ),
+                              ),
+                            ),
+
+                            const SizedBox(width: 10),
+
+                            AnimatedContainer(
+                              duration: const Duration(
+                                milliseconds: 180,
+                              ),
+                              width: 25,
+                              height: 25,
+                              alignment: Alignment.center,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: selected
+                                    ? Colors.white
+                                    : Colors.transparent,
+                                border: Border.all(
+                                  color: selected
+                                      ? Colors.white
+                                      : const Color(
+                                    0xFFB8B6C2,
+                                  ),
+                                  width: 1.5,
+                                ),
+                              ),
+                              child: selected
+                                  ? const Icon(
+                                Icons.check_rounded,
+                                size: 15,
+                                color:
+                                Color(0xFF6254E7),
+                              )
+                                  : null,
+                            ),
+                          ],
+                        ),
+                      ),
                     ),
                   ),
-                ),
-                selected: selected,
-                showCheckmark: false,
-                onSelected: (_) => setState(() => _selectedSlot = slot),
-                selectedColor: RastUi.purple,
-                backgroundColor: RastUi.subtleFill(context),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(18),
-                  side: BorderSide(
-                    color: selected
-                        ? Colors.transparent
-                        : RastUi.softBorder(context),
-                  ),
-                ),
-              );
-            }).toList(),
-          ),
+                );
+              }).toList(),
+            ),
       ],
     );
   }
 
   Widget _buildStepConfirm() {
+    final settings =
+    context.watch<AppSettingsProvider>();
+
+    final isArabic = settings.isArabic;
+
     final labDisplay = LocaleUtils.localizedBusinessName(
       _lab,
       context.watch<AppSettingsProvider>().isArabic,
@@ -1630,7 +2822,10 @@ class _BookFlowScreenState extends State<BookFlowScreen> with OnboardingTourHost
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _buildSectionTitle('ملخص الحجز', Icons.receipt_long_outlined),
+        _buildSectionTitle(
+          _tr('bookingSummary'),
+          Icons.receipt_long_outlined,
+        ),
         SizedBox(height: Responsive.spacing(context, 12)),
         Container(
           padding: EdgeInsets.all(Responsive.spacing(context, 20)),
@@ -1642,33 +2837,49 @@ class _BookFlowScreenState extends State<BookFlowScreen> with OnboardingTourHost
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _confirmRow('التحليل', _serviceNameAr),
-              _confirmRow('المختبر', labNameDisplay),
+              _confirmRow(
+                _tr('test'),
+                _serviceNameDisplay(),
+              ),
+              _confirmRow(
+                _tr('lab'),
+                labNameDisplay,
+              ),
               if (_serviceType == 'in_clinic' && _nearestBranch != null)
                 _confirmRow(
-                  'الفرع',
+                  _tr('branch'),
                   _nearestBranch!.displayLine(
-                    context.watch<AppSettingsProvider>().isArabic,
+                    isArabic,
                   ),
                 ),
               _confirmRow(
-                'نوع الخدمة',
-                _serviceType == 'home_service' ? 'خدمة منزلية' : 'في المختبر',
+                _tr('serviceType'),
+                _serviceType == 'home_service'
+                    ? _tr('homeServiceLabel')
+                    : _tr('inLab'),
               ),
               _confirmRow(
-                'التاريخ',
+                _tr('date'),
                 _selectedDate != null
-                    ? DateFormatter.formatDate(_selectedDate!)
+                    ? DateFormat(
+                  'yyyy-MM-dd',
+                  _lang,
+                ).format(_selectedDate!)
                     : '',
               ),
               _confirmRow(
-                'الوقت',
+                _tr('time'),
                 _selectedSlot != null
-                    ? _timeSlotPrimaryLabel(_selectedSlot!)
+                    ? _timeSlotPrimaryLabel(
+                  _selectedSlot!,
+                )
                     : '',
               ),
               if (_serviceType == 'home_service')
-                _confirmRow('العنوان', _addressController.text),
+                _confirmRow(
+                  _tr('address'),
+                  _addressController.text,
+                ),
               SizedBox(height: Responsive.spacing(context, 12)),
               CheckboxListTile(
                 value: _isNonSaudi,
@@ -1677,8 +2888,13 @@ class _BookFlowScreenState extends State<BookFlowScreen> with OnboardingTourHost
                   _loadConfirmPreview();
                 },
                 title: Text(
-                  'أنا غير سعودي (تُطبّق الضريبة)',
-                  style: TextStyle(fontSize: Responsive.fontSize(context, 13)),
+                  _tr('nonSaudiVat'),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize:
+                    Responsive.fontSize(context, 13),
+                  ),
                 ),
                 controlAffinity: ListTileControlAffinity.leading,
                 contentPadding: EdgeInsets.zero,
@@ -1687,7 +2903,7 @@ class _BookFlowScreenState extends State<BookFlowScreen> with OnboardingTourHost
               ),
               const Divider(height: 24),
               Text(
-                'تفاصيل المبلغ',
+                _tr('amountDetails'),
                 style: TextStyle(
                   fontSize: Responsive.fontSize(context, 14),
                   fontWeight: FontWeight.w600,
@@ -1703,19 +2919,51 @@ class _BookFlowScreenState extends State<BookFlowScreen> with OnboardingTourHost
     );
   }
 
-  Widget _confirmRow(String label, String value, {TextStyle? valueStyle}) {
+  Widget _confirmRow(
+      String label,
+      String value, {
+        TextStyle? valueStyle,
+      }) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
+      padding:
+      const EdgeInsets.symmetric(vertical: 6),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        crossAxisAlignment:
+        CrossAxisAlignment.start,
         children: [
-          Text(label, style: const TextStyle(color: AppTheme.onSurfaceVariant)),
+          Expanded(
+            child: Align(
+              alignment:
+              AlignmentDirectional.centerStart,
+              child: Text(
+                label,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.start,
+                style: const TextStyle(
+                  color:
+                  AppTheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+          ),
+
+          const SizedBox(width: 12),
+
           Flexible(
-            child: Text(
-              value,
-              style: valueStyle ?? const TextStyle(fontWeight: FontWeight.w600),
-              textAlign: TextAlign.left,
-              overflow: TextOverflow.ellipsis,
+            child: Align(
+              alignment:
+              AlignmentDirectional.centerEnd,
+              child: Text(
+                value,
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.end,
+                style: valueStyle ??
+                    const TextStyle(
+                      fontWeight: FontWeight.w600,
+                    ),
+              ),
             ),
           ),
         ],
@@ -1746,107 +2994,189 @@ class _BookFlowScreenState extends State<BookFlowScreen> with OnboardingTourHost
 
   /// تفاصيل المبلغ في ملخص الحجز: من معاينة الـ API إن وُجدت (نفس الفاتورة)
   Widget _buildConfirmAmounts() {
-    final row = _previewConfirm != null && _previewConfirm![_serviceType] is Map
+    final row =
+    _previewConfirm != null &&
+        _previewConfirm![_serviceType] is Map
         ? _previewConfirm![_serviceType] as Map<String, dynamic>
         : null;
+
     if (row != null) {
       final servicePrice = _parseNum(row['service_price']);
       final homeFee = _parseNum(row['home_service_fee']);
+
       final effectiveHomeFee = homeFee > 0
           ? homeFee
-          : (_serviceType == 'home_service' ? _homeServiceFeeRaw : 0.0);
-      final disc = _previewPlatformDiscountAndRate(row, servicePrice);
+          : (_serviceType == 'home_service'
+          ? _homeServiceFeeRaw
+          : 0.0);
+
+      final disc =
+      _previewPlatformDiscountAndRate(
+        row,
+        servicePrice,
+      );
+
       final discount = disc.discount;
       final discountRate = disc.ratePercent;
-      final vatAmount = _parseNum(row['vat_amount']);
+
+      final vatAmount = _parseNum(
+        row['vat_amount'],
+      );
+
       final total =
-          (servicePrice + effectiveHomeFee - discount + vatAmount).roundToDouble();
+      (
+          servicePrice +
+              effectiveHomeFee -
+              discount +
+              vatAmount
+      ).roundToDouble();
+
       var vatRate = _parseNum(row['vat_rate']);
-      if (vatRate <= 0 && _isNonSaudi) vatRate = _vatRate;
-      if (vatRate > 0 && vatRate <= 1) vatRate *= 100;
+
+      if (vatRate <= 0 && _isNonSaudi) {
+        vatRate = _vatRate;
+      }
+
+      if (vatRate > 0 && vatRate <= 1) {
+        vatRate *= 100;
+      }
+
       return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment:
+        CrossAxisAlignment.start,
         children: [
-          _confirmRow('سعر التحليل', '${servicePrice.toStringAsFixed(2)} ر.س'),
+          _confirmRow(
+            _tr('testPrice'),
+            _sar(servicePrice),
+          ),
+
           if (_serviceType == 'home_service')
             _confirmRow(
-              'الخدمة المنزلية',
-              '+ ${effectiveHomeFee.toStringAsFixed(2)} ر.س',
+              _tr('homeServiceFee'),
+              '+ ${_sar(effectiveHomeFee)}',
             ),
+
           _confirmRow(
-            'خصم المنصة ${discountRate.toStringAsFixed(0)}%',
-            '- ${discount.toStringAsFixed(2)} ر.س',
+            '${_tr('platformDiscount')} '
+                '${discountRate.toStringAsFixed(0)}%',
+            '- ${_sar(discount)}',
             valueStyle: TextStyle(
               color: AppTheme.success,
               fontWeight: FontWeight.w600,
             ),
           ),
+
           if (_isNonSaudi && vatAmount > 0)
             _confirmRow(
-              'الضريبة ${vatRate.toStringAsFixed(0)}%',
-              '+ ${vatAmount.toStringAsFixed(2)} ر.س',
-              valueStyle: TextStyle(
-                color: const Color.fromARGB(255, 255, 0, 0),
+              '${_tr('vat')} '
+                  '${vatRate.toStringAsFixed(0)}%',
+              '+ ${_sar(vatAmount)}',
+              valueStyle: const TextStyle(
+                color: Color.fromARGB(
+                  255,
+                  255,
+                  0,
+                  0,
+                ),
               ),
             ),
+
           Padding(
-            padding: const EdgeInsets.symmetric(vertical: 4),
+            padding:
+            const EdgeInsets.symmetric(
+              vertical: 4,
+            ),
             child: Divider(
               height: 1,
-              color: Theme.of(
-                context,
-              ).colorScheme.outline.withValues(alpha: 0.5),
+              color: Theme.of(context)
+                  .colorScheme
+                  .outline
+                  .withValues(alpha: 0.5),
             ),
           ),
+
           _confirmRow(
-            'المبلغ الإجمالي',
-            '${total.toStringAsFixed(2)} ر.س',
+            _tr('totalAmount'),
+            _sar(total),
             valueStyle: TextStyle(
               color: AppTheme.primary,
               fontWeight: FontWeight.bold,
-              fontSize: Responsive.fontSize(context, 16),
+              fontSize:
+              Responsive.fontSize(
+                context,
+                16,
+              ),
             ),
           ),
         ],
       );
     }
+
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment:
+      CrossAxisAlignment.start,
       children: [
-        _confirmRow('سعر التحليل', '${_price.toStringAsFixed(2)} ر.س'),
+        _confirmRow(
+          _tr('testPrice'),
+          _sar(_price),
+        ),
+
         if (_serviceType == 'home_service')
           _confirmRow(
-            'الخدمة المنزلية',
-            '+ ${_homeServiceFee.toStringAsFixed(2)} ر.س',
+            _tr('homeServiceFee'),
+            '+ ${_sar(_homeServiceFee)}',
           ),
+
         _confirmRow(
-          'خصم المنصة ${_platformDiscountRate.toStringAsFixed(0)}%',
-          '- ${_discountAmount.toStringAsFixed(2)} ر.س',
+          '${_tr('platformDiscount')} '
+              '${_platformDiscountRate.toStringAsFixed(0)}%',
+          '- ${_sar(_discountAmount)}',
           valueStyle: TextStyle(
             color: AppTheme.success,
             fontWeight: FontWeight.w600,
           ),
         ),
+
         if (_isNonSaudi)
           _confirmRow(
-            'الضريبة ${_vatRate.toStringAsFixed(0)}%',
-            '+ ${_vatAmount.toStringAsFixed(2)} ر.س',
-            valueStyle: TextStyle(color: const Color.fromARGB(255, 255, 0, 0)),
+            '${_tr('vat')} '
+                '${_vatRate.toStringAsFixed(0)}%',
+            '+ ${_sar(_vatAmount)}',
+            valueStyle: const TextStyle(
+              color: Color.fromARGB(
+                255,
+                255,
+                0,
+                0,
+              ),
+            ),
           ),
+
         Padding(
-          padding: const EdgeInsets.symmetric(vertical: 4),
+          padding:
+          const EdgeInsets.symmetric(
+            vertical: 4,
+          ),
           child: Divider(
             height: 1,
-            color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.5),
+            color: Theme.of(context)
+                .colorScheme
+                .outline
+                .withValues(alpha: 0.5),
           ),
         ),
+
         _confirmRow(
-          'المبلغ الإجمالي',
-          '${_totalAmount.toStringAsFixed(2)} ر.س',
+          _tr('totalAmount'),
+          _sar(_totalAmount),
           valueStyle: TextStyle(
             color: AppTheme.primary,
             fontWeight: FontWeight.bold,
-            fontSize: Responsive.fontSize(context, 16),
+            fontSize:
+            Responsive.fontSize(
+              context,
+              16,
+            ),
           ),
         ),
       ],
@@ -1855,38 +3185,66 @@ class _BookFlowScreenState extends State<BookFlowScreen> with OnboardingTourHost
 
   Widget _buildNextButton() {
     final isConfirm = _step == 3;
+
+    Widget backButton() {
+      return SizedBox(
+        width: 54,
+        height: 54,
+        child: OutlinedButton(
+          onPressed: _backStep,
+          style: OutlinedButton.styleFrom(
+            foregroundColor: const Color(0xFF6254E7),
+            backgroundColor: const Color(0xFFF8F8FB),
+            side: const BorderSide(
+              color: Color(0xFFE3E1E9),
+            ),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            padding: EdgeInsets.zero,
+          ),
+          child: const Icon(
+            Icons.arrow_back_ios_new_rounded,
+            size: 18,
+          ),
+        ),
+      );
+    }
+
     if (!isConfirm) {
       return Row(
         children: [
           if (_step > 0) ...[
-            SizedBox(
-              width: 56,
-              height: 56,
-              child: OutlinedButton(
-                onPressed: _backStep,
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: RastUi.purple,
-                  side: const BorderSide(color: Color(0xFFE2E0EA)),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(18),
-                  ),
-                  padding: EdgeInsets.zero,
-                ),
-                child: const Icon(Icons.arrow_back_ios_new_rounded, size: 18),
-              ),
-            ),
+            backButton(),
             const SizedBox(width: 12),
           ],
+
           Expanded(
-            child: GradientFilledButton(
-              onPressed: _nextStep,
-              style: FilledButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 17),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(22),
+            child: SizedBox(
+              height: 54,
+              child: GradientFilledButton(
+                onPressed: _nextStep,
+                style: FilledButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                ),
+                child: Text(
+                  _tr('next'),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: Responsive.fontSize(
+                      context,
+                      14,
+                    ),
+                    fontWeight: FontWeight.w800,
+                  ),
                 ),
               ),
-              child: const Text('التالي'),
             ),
           ),
         ],
@@ -1894,71 +3252,133 @@ class _BookFlowScreenState extends State<BookFlowScreen> with OnboardingTourHost
     }
 
     final busy = _creating || _addingToCart;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Row(
           children: [
-            SizedBox(
-              width: 56,
-              height: 56,
-              child: OutlinedButton(
-                onPressed: _backStep,
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: RastUi.purple,
-                  side: const BorderSide(color: Color(0xFFE2E0EA)),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(18),
-                  ),
-                  padding: EdgeInsets.zero,
-                ),
-                child: const Icon(Icons.arrow_back_ios_new_rounded, size: 18),
-              ),
-            ),
+            backButton(),
+
             const SizedBox(width: 12),
+
             Expanded(
-              child: GradientFilledButton(
-                onPressed: busy ? null : _addToCart,
-                style: FilledButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 17),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(22),
+              child: SizedBox(
+                height: 54,
+                child: GradientFilledButton(
+                  onPressed: busy ? null : _addToCart,
+                  style: FilledButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                  ),
+                  child: _addingToCart
+                      ? const SizedBox(
+                    height: 22,
+                    width: 22,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  )
+                      : Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(
+                        Icons.shopping_cart_outlined,
+                        size: 19,
+                        color: Colors.white,
+                      ),
+
+                      const SizedBox(width: 8),
+
+                      Flexible(
+                        child: Text(
+                          _tr('addToCart'),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize:
+                            Responsive.fontSize(
+                              context,
+                              13,
+                            ),
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-                child: _addingToCart
-                    ? const SizedBox(
-                        height: 24,
-                        width: 24,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Colors.white,
-                        ),
-                      )
-                    : const Text('إضافة إلى السلة'),
               ),
             ),
           ],
         ),
-        const SizedBox(height: 10),
-        OutlinedButton(
-          onPressed: busy ? null : _createBooking,
-          style: OutlinedButton.styleFrom(
-            foregroundColor: RastUi.purple,
-            padding: const EdgeInsets.symmetric(vertical: 16),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(22),
+
+        const SizedBox(height: 12),
+
+        // SECONDARY ACTION
+        SizedBox(
+          height: 52,
+          child: OutlinedButton(
+            onPressed: busy ? null : _createBooking,
+            style: OutlinedButton.styleFrom(
+              foregroundColor: const Color(0xFF6254E7),
+              backgroundColor: const Color(0xFFF8F8FB),
+              side: const BorderSide(
+                color: Color(0xFFDCD9E7),
+                width: 1.2,
+              ),
+              padding: const EdgeInsets.symmetric(
+                horizontal: 14,
+              ),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
             ),
-            side: const BorderSide(color: Color(0xFFE2E0EA)),
+            child: _creating
+                ? const SizedBox(
+              height: 22,
+              width: 22,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+              ),
+            )
+                : Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(
+                  Icons.flash_on_rounded,
+                  size: 19,
+                ),
+
+                const SizedBox(width: 8),
+
+                Flexible(
+                  child: Text(
+                    _tr('instantBookPay'),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: Responsive.fontSize(
+                        context,
+                        13,
+                      ),
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
-          child: _creating
-              ? const SizedBox(
-                  height: 22,
-                  width: 22,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : const Text('حجز فوري والدفع'),
         ),
       ],
     );
   }
+
 }

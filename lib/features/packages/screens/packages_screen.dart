@@ -14,12 +14,14 @@ import 'package:rast/core/providers/app_settings_provider.dart';
 import 'package:rast/core/theme/app_theme.dart';
 import 'package:rast/core/utils/locale_utils.dart';
 import 'package:rast/core/utils/responsive.dart';
-import 'package:rast/core/widgets/search_box.dart';
 import 'package:rast/features/packages/screens/package_detail_screen.dart';
 import 'package:shimmer/shimmer.dart';
 
+import '../../../core/widgets/rast_ui.dart';
+
 class PackagesScreen extends StatefulWidget {
-  const PackagesScreen({super.key});
+  final String? initialSearchQuery;
+  const PackagesScreen({super.key, this.initialSearchQuery});
 
   @override
   State<PackagesScreen> createState() => _PackagesScreenState();
@@ -40,8 +42,20 @@ class _PackagesScreenState extends State<PackagesScreen> {
   @override
   void initState() {
     super.initState();
+
+    _searchController.text =
+        widget.initialSearchQuery?.trim() ?? '';
+
     _scrollController.addListener(_onScroll);
-    _loadFromCacheThenNetwork();
+
+    if (_searchController.text.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _runPackageSearch();
+      });
+    } else {
+      _loadFromCacheThenNetwork();
+    }
   }
 
   Future<void> _loadFromCacheThenNetwork() async {
@@ -168,25 +182,73 @@ class _PackagesScreenState extends State<PackagesScreen> {
   }
 
   void _onScroll() {
-    if (!_scrollController.hasClients || _isLoading || _isLoadingMore) return;
+    if (_searchController.text.trim().isNotEmpty) {
+      return;
+    }
+
+    if (!_scrollController.hasClients ||
+        _isLoading ||
+        _isLoadingMore) {
+      return;
+    }
+
     final position = _scrollController.position;
-    if (position.pixels >= position.maxScrollExtent - 280) {
+
+    if (position.pixels >=
+        position.maxScrollExtent - 280) {
       _loadData();
     }
   }
 
   List<dynamic> _visiblePackages() {
-    final q = _searchController.text.trim().toLowerCase();
-    if (q.isEmpty) return _packages;
-    return _packages.where((item) {
-      final pkg = item is Map
-          ? item as Map<String, dynamic>
-          : <String, dynamic>{};
-      final n1 = (pkg['name_ar'] ?? '').toString().toLowerCase();
-      final n2 = (pkg['name_en'] ?? '').toString().toLowerCase();
-      final n3 = (pkg['name'] ?? '').toString().toLowerCase();
-      return n1.contains(q) || n2.contains(q) || n3.contains(q);
-    }).toList();
+    return _packages;
+  }
+
+  Future<void> _runPackageSearch() async {
+    final query = _searchController.text.trim();
+
+    if (query.isEmpty) {
+      await _loadData(reset: true);
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      final results = await Api.services.searchPackages(query);
+
+      if (!mounted) return;
+
+      setState(() {
+        _packages = List<dynamic>.from(results);
+
+        _totalAvailable = _packages.length;
+
+        // Search returns all matches, so no pagination during search.
+        _hasMore = false;
+        _isLoading = false;
+        _isLoadingMore = false;
+      });
+    } on ApiException catch (e) {
+      if (!mounted) return;
+
+      setState(() {
+        _errorMessage = e.message;
+        _isLoading = false;
+        _isLoadingMore = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+
+      setState(() {
+        _errorMessage = e.toString();
+        _isLoading = false;
+        _isLoadingMore = false;
+      });
+    }
   }
 
   @override
@@ -198,160 +260,400 @@ class _PackagesScreenState extends State<PackagesScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final lang = context.watch<AppSettingsProvider>().language;
+    final settings = context.watch<AppSettingsProvider>();
+    final lang = settings.language;
     final visible = _visiblePackages();
     final totalLabel = (_totalAvailable ?? _packages.length).toString();
 
     return Directionality(
-      textDirection: TextDirection.rtl,
+      textDirection: settings.textDirection,
       child: Scaffold(
         backgroundColor: Theme.of(context).colorScheme.surface,
-        appBar: AppBar(
-          title: Text(AppStrings.t('packagesPageTitle', lang)),
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-        ),
-        body: Column(
-          children: [
-            Padding(
-              padding: EdgeInsets.fromLTRB(
-                Responsive.spacing(context, 16),
-                Responsive.spacing(context, 4),
-                Responsive.spacing(context, 16),
-                Responsive.spacing(context, 10),
+        appBar: PreferredSize(
+          preferredSize: const Size.fromHeight(
+            kToolbarHeight + 8,
+          ),
+          child: Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              border: Border(
+                bottom: BorderSide(
+                  color: Colors.black.withValues(
+                    alpha: 0.06,
+                  ),
+                  width: 1,
+                ),
               ),
-              child: Container(
-                padding: EdgeInsets.all(Responsive.spacing(context, 14)),
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topRight,
-                    end: Alignment.bottomLeft,
-                    colors: [
-                      Theme.of(
-                        context,
-                      ).colorScheme.primary.withValues(alpha: 0.14),
-                      Theme.of(
-                        context,
-                      ).colorScheme.secondary.withValues(alpha: 0.08),
-                    ],
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(
+                    alpha: 0.05,
                   ),
-                  borderRadius: BorderRadius.circular(22),
-                  border: Border.all(
-                    color: Theme.of(
-                      context,
-                    ).colorScheme.outline.withValues(alpha: 0.12),
-                  ),
+                  blurRadius: 8,
+                  offset: const Offset(0, 3),
                 ),
-                child: SearchBox(
-                  controller: _searchController,
-                  hintText: AppStrings.t('searchPackages', lang),
-                  onSearchTap: () => setState(() {}),
-                  onSubmitted: (_) => setState(() {}),
+              ],
+            ),
+            child: SafeArea(
+              bottom: false,
+              child: RastTopBar(
+                title: AppStrings.t(
+                  'packagesPageTitle',
+                  lang,
                 ),
+                showCart: true,
+                useWhiteBackground: true,
+                onBack: () => Navigator.pop(context),
               ),
             ),
-            if (_errorMessage != null && _packages.isNotEmpty)
-              Container(
-                width: double.infinity,
-                margin: EdgeInsets.symmetric(
-                  horizontal: Responsive.spacing(context, 16),
-                ),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 8,
-                ),
-                decoration: BoxDecoration(
-                  color: AppTheme.warning.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: AppTheme.warning.withValues(alpha: 0.2),
+          ),
+        ),
+
+        body: _isLoading
+            ? _buildLoading()
+            : RefreshIndicator(
+          onRefresh: () => _loadData(reset: true),
+          child: CustomScrollView(
+            controller: _scrollController,
+            physics: const AlwaysScrollableScrollPhysics(),
+            slivers: [
+              // SEARCH BAR
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: EdgeInsets.fromLTRB(
+                    Responsive.spacing(context, 16),
+                    Responsive.spacing(context, 25),
+                    Responsive.spacing(context, 16),
+                    Responsive.spacing(context, 10),
                   ),
-                ),
-                child: Row(
-                  children: [
-                    Icon(Icons.info_outline, size: 18, color: AppTheme.warning),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        AppStrings.t('showingCachedData', lang),
-                        style: const TextStyle(fontSize: 12),
+                  child: Container(
+                    height: 50,
+                    clipBehavior: Clip.antiAlias,
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
+                        color: const Color(0xFFDADDE2),
+                        width: 1,
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.08),
+                          blurRadius: 6,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: Padding(
+                      padding: EdgeInsetsGeometry.only(right: 15),
+                      child: TextField(
+                        controller: _searchController,
+                        textInputAction: TextInputAction.search,
+                        onSubmitted: (_) {
+                          _runPackageSearch();
+                        },
+                        style: TextStyle(
+                          fontSize: Responsive.fontSize(context, 14),
+                          color: const Color(0xFF33363D),
+                          fontWeight: FontWeight.w400,
+                        ),
+                        decoration: InputDecoration(
+                          hintText: AppStrings.t(
+                            'searchPackages',
+                            lang,
+                          ),
+                          hintStyle: TextStyle(
+                            fontSize: Responsive.fontSize(context, 14),
+                            color: const Color(0xFF60646C),
+                            fontWeight: FontWeight.w400,
+                          ),
+                          prefixIcon: settings.isArabic ? null : InkWell(
+                            onTap: () {
+                              _runPackageSearch();
+                            },
+                            borderRadius: BorderRadius.circular(24),
+                            child: const SizedBox(
+                              width: 48,
+                              height: 48,
+                              child: Center(
+                                child: Icon(
+                                  Icons.search_rounded,
+                                  size: 23,
+                                  color: Color(0xFF60646C),
+                                ),
+                              ),
+                            ),
+                          ),
+                          suffixIcon: settings.isArabic
+                              ? InkWell(
+                            onTap: () {
+                              _runPackageSearch();
+                            },
+                            borderRadius: BorderRadius.circular(24),
+                            child: const SizedBox(
+                              width: 48,
+                              height: 48,
+                              child: Center(
+                                child: Icon(
+                                  Icons.search_rounded,
+                                  size: 23,
+                                  color: Color(0xFF60646C),
+                                ),
+                              ),
+                            ),
+                          )
+                              : null,
+                          filled: true,
+                          fillColor: Colors.white,
+                          border: InputBorder.none,
+                          enabledBorder: InputBorder.none,
+                          focusedBorder: InputBorder.none,
+                          errorBorder: InputBorder.none,
+                          disabledBorder: InputBorder.none,
+                          isDense: true,
+                          contentPadding: const EdgeInsets.symmetric(
+                            vertical: 15,
+                          ),
+                        ),
                       ),
                     ),
-                  ],
-                ),
-              ),
-            SizedBox(height: Responsive.spacing(context, 8)),
-            Padding(
-              padding: EdgeInsets.symmetric(
-                horizontal: Responsive.spacing(context, 16),
-              ),
-              child: Align(
-                alignment: AlignmentDirectional.centerStart,
-                child: Text(
-                  'عرض ${visible.length} من $totalLabel',
-                  style: TextStyle(
-                    fontSize: Responsive.fontSize(context, 12),
-                    color: AppTheme.onSurfaceVariant,
-                    fontWeight: FontWeight.w500,
                   ),
                 ),
               ),
-            ),
-            SizedBox(height: Responsive.spacing(context, 6)),
-            Expanded(
-              child: _isLoading
-                  ? _buildLoading()
-                  : visible.isEmpty
-                  ? _buildEmpty()
-                  : RefreshIndicator(
-                      onRefresh: () => _loadData(reset: true),
-                      child: GridView.builder(
-                        controller: _scrollController,
-                        padding: EdgeInsets.all(
-                          Responsive.spacing(context, 16),
+
+              // CACHED DATA WARNING
+              if (_errorMessage != null && _packages.isNotEmpty)
+                SliverToBoxAdapter(
+                  child: Container(
+                    width: double.infinity,
+                    margin: EdgeInsets.symmetric(
+                      horizontal: Responsive.spacing(context, 16),
+                    ),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppTheme.warning.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: AppTheme.warning.withValues(alpha: 0.2),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.info_outline,
+                          size: 18,
+                          color: AppTheme.warning,
                         ),
-                        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount: 2,
-                          childAspectRatio: 0.68,
-                          crossAxisSpacing: Responsive.spacing(context, 12),
-                          mainAxisSpacing: Responsive.spacing(context, 12),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            AppStrings.t(
+                              'showingCachedData',
+                              lang,
+                            ),
+                            style: const TextStyle(
+                              fontSize: 12,
+                            ),
+                          ),
                         ),
-                        itemCount: visible.length + (_isLoadingMore ? 1 : 0),
-                        itemBuilder: (context, index) {
-                          if (index >= visible.length) {
-                            return const Center(
-                              child: CircularProgressIndicator(),
-                            );
-                          }
+                      ],
+                    ),
+                  ),
+                ),
+
+              // PACKAGE COUNT
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: EdgeInsets.fromLTRB(
+                    Responsive.spacing(context, 16),
+                    Responsive.spacing(context, 10),
+                    Responsive.spacing(context, 16),
+                    Responsive.spacing(context, 8),
+                  ),
+                  child: Align(
+                    alignment: AlignmentDirectional.centerStart,
+                    child: Text(
+                      '${AppStrings.t('showing', lang)} '
+                      '${visible.length} '
+                      '${AppStrings.t('of', lang)} '
+                      '$totalLabel',
+                      style: TextStyle(
+                        fontSize: Responsive.fontSize(
+                          context,
+                          12,
+                        ),
+                        color: Colors.black,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+
+              // EMPTY STATE
+              if (visible.isEmpty)
+                SliverFillRemaining(
+                  hasScrollBody: false,
+                  child: _buildEmpty(),
+                )
+              else
+                // PACKAGES GRID
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: EdgeInsets.symmetric(
+                      horizontal: Responsive.spacing(context, 16),
+                      vertical: Responsive.spacing(context, 8),
+                    ),
+                    child: LayoutBuilder(
+                      builder: (context, constraints) {
+                        final gap = Responsive.spacing(context, 12);
+
+                        if (constraints.maxWidth < 330) {
+                          return Column(
+                            children: [
+                              ...List.generate(
+                                visible.length,
+                                    (index) {
+                                  final pkg = visible[index] is Map
+                                      ? visible[index] as Map<String, dynamic>
+                                      : <String, dynamic>{};
+
+                                  return Padding(
+                                    padding: EdgeInsets.only(
+                                      bottom: gap,
+                                    ),
+                                    child: _PackageCard(
+                                      package: pkg,
+                                      lang: lang,
+                                      onTap: () => Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (_) => PackageDetailScreen(
+                                            package: pkg,
+                                          ),
+                                        ),
+                                      ),
+                                    )
+                                        .animate()
+                                        .fadeIn(
+                                      duration: 400.ms,
+                                      delay: Duration(
+                                        milliseconds: (index % 6) * 50,
+                                      ),
+                                    )
+                                        .slideY(
+                                      begin: 0.03,
+                                      end: 0,
+                                      curve: Curves.easeOutCubic,
+                                    ),
+                                  );
+                                },
+                              ),
+
+                              if (_isLoadingMore)
+                                const Padding(
+                                  padding: EdgeInsets.all(20),
+                                  child: Center(
+                                    child: CircularProgressIndicator(),
+                                  ),
+                                ),
+                            ],
+                          );
+                        }
+
+                        final leftPackages = <Widget>[];
+                        final rightPackages = <Widget>[];
+
+                        for (int index = 0; index < visible.length; index++) {
                           final pkg = visible[index] is Map
                               ? visible[index] as Map<String, dynamic>
                               : <String, dynamic>{};
-                          return _PackageCard(
-                                package: pkg,
-                                lang: lang,
-                                onTap: () => Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (_) =>
-                                        PackageDetailScreen(package: pkg),
+
+                          final card = Padding(
+                            padding: EdgeInsets.only(
+                              bottom: gap,
+                            ),
+                            child: _PackageCard(
+                              package: pkg,
+                              lang: lang,
+                              onTap: () => Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => PackageDetailScreen(
+                                    package: pkg,
                                   ),
                                 ),
-                              )
-                              .animate()
-                              .fadeIn(
-                                duration: 400.ms,
-                                delay: Duration(milliseconds: (index % 6) * 50),
-                              )
-                              .slideY(
-                                begin: 0.03,
-                                end: 0,
-                                curve: Curves.easeOutCubic,
-                              );
-                        },
-                      ),
+                              ),
+                            )
+                                .animate()
+                                .fadeIn(
+                              duration: 400.ms,
+                              delay: Duration(
+                                milliseconds: (index % 6) * 50,
+                              ),
+                            )
+                                .slideY(
+                              begin: 0.03,
+                              end: 0,
+                              curve: Curves.easeOutCubic,
+                            ),
+                          );
+
+                          if (index.isEven) {
+                            leftPackages.add(card);
+                          } else {
+                            rightPackages.add(card);
+                          }
+                        }
+
+                        return Column(
+                          children: [
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    children: leftPackages,
+                                  ),
+                                ),
+
+                                SizedBox(width: gap),
+
+                                Expanded(
+                                  child: Column(
+                                    children: rightPackages,
+                                  ),
+                                ),
+                              ],
+                            ),
+
+                            if (_isLoadingMore)
+                              const Padding(
+                                padding: EdgeInsets.all(20),
+                                child: Center(
+                                  child: CircularProgressIndicator(),
+                                ),
+                              ),
+                          ],
+                        );
+                      },
                     ),
-            ),
-          ],
+                  ),
+                ),
+
+              SliverToBoxAdapter(
+                child: SizedBox(
+                  height: Responsive.spacing(
+                    context,
+                    24,
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -409,200 +711,339 @@ class _PackageCard extends StatelessWidget {
   final String lang;
   final VoidCallback onTap;
 
-  const _PackageCard({required this.package, required this.lang, required this.onTap});
+  const _PackageCard({
+    required this.package,
+    required this.lang,
+    required this.onTap,
+  });
 
-  static Map<String, dynamic>? _asStringKeyedMap(dynamic value) {
-    if (value is Map<String, dynamic>) return value;
-    if (value is Map) return Map<String, dynamic>.from(value);
-    return null;
-  }
-
-  /// اسم المختبر من حقول متعددة (يدعم أشكال API المختلفة).
-  String _providerName(BuildContext context) {
-    final isArabic = context.read<AppSettingsProvider>().isArabic;
-
-    String fromProviderMap(Map<String, dynamic>? p) {
-      if (p == null) return '';
-      var n = LocaleUtils.localizedBusinessName(p, isArabic).trim();
-      if (n.isNotEmpty) return n;
-      n = LocaleUtils.localizedName(p, isArabic).trim();
-      if (n.isNotEmpty) return n;
-      n = (p['provider_name'] ??
-              p['lab_name'] ??
-              p['business_name'] ??
-              p['name'] ??
-              '')
-          .toString()
-          .trim();
-      return n;
-    }
-
-    final rootHints = [
-      package['provider_name'],
-      package['lab_name'],
-      package['business_name_ar'],
-      package['business_name_en'],
-      package['business_name'],
-      package['facility_name'],
-    ];
-    for (final h in rootHints) {
-      final s = h?.toString().trim() ?? '';
-      if (s.isNotEmpty) return s;
-    }
-
-    final labMap = _asStringKeyedMap(package['laboratory']) ??
-        _asStringKeyedMap(package['lab']);
-    final fromLab = fromProviderMap(labMap);
-    if (fromLab.isNotEmpty) return fromLab;
-
-    final direct = fromProviderMap(_asStringKeyedMap(package['provider']));
-    if (direct.isNotEmpty) return direct;
-
-    final providerServices = package['provider_services'] ?? package['providerServices'];
-    if (providerServices is List) {
-      for (final item in providerServices) {
-        final ps = _asStringKeyedMap(item);
-        if (ps == null) continue;
-        final nested = fromProviderMap(_asStringKeyedMap(ps['provider']));
-        if (nested.isNotEmpty) return nested;
-      }
-    }
-    return '';
-  }
 
   @override
   Widget build(BuildContext context) {
+    final settings =
+    context.watch<AppSettingsProvider>();
+
     final displayName = LocaleUtils.localizedName(
       package,
-      context.watch<AppSettingsProvider>().isArabic,
+      settings.isArabic,
     );
+
+    final secondaryName = settings.isArabic
+        ? (package['name_en'] ?? '')
+        .toString()
+        .trim()
+        : (package['name_ar'] ?? '')
+        .toString()
+        .trim();
+
     final price = ApiConfig.priceFromMap(package);
-    final originalPrice = (package['original_price'] is num)
-        ? (package['original_price'] as num).toDouble()
+
+    final originalPrice =
+    package['original_price'] is num
+        ? (package['original_price'] as num)
+        .toDouble()
         : null;
-    final imageUrl = ApiConfig.packageImageUrl(package);
+
+    final imageUrl =
+    ApiConfig.packageImageUrl(package);
+
     final testsCount =
         package['tests_count'] ??
-        (package['package_items'] is List
-            ? (package['package_items'] as List).length
-            : 0);
-    final providerName = _providerName(context);
-    final labLine = providerName.isNotEmpty ? providerName : 'مختبر';
+            (package['package_items'] is List
+                ? (package['package_items'] as List)
+                .length
+                : 0);
 
     return Material(
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(14),
         child: Container(
-          decoration: AppTheme.cardDecorationFor(context),
+          width: double.infinity,
+          decoration: BoxDecoration(
+            color: const Color(0xFFF8F9FB),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: const Color(0xFFE0E2E6),
+              width: 1,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.14),
+                blurRadius: 12,
+                spreadRadius: 1,
+                offset: const Offset(0, 5),
+              ),
+            ],
+          ),
           clipBehavior: Clip.antiAlias,
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment:
+            CrossAxisAlignment.start,
             children: [
-              Expanded(
-                flex: 5,
-                child: (imageUrl != null && imageUrl.isNotEmpty)
+              // PACKAGE IMAGE
+              AspectRatio(
+                aspectRatio: 1.02,
+                child:
+                imageUrl != null &&
+                    imageUrl.isNotEmpty
                     ? CachedNetworkImage(
-                        imageUrl: imageUrl,
-                        width: double.infinity,
-                        fit: BoxFit.cover,
-                        placeholder: (_, __) => Container(
-                          color: AppTheme.primary.withValues(alpha: 0.08),
-                          child: Icon(
-                            Icons.medical_services_outlined,
-                            size: 36,
-                            color: AppTheme.primary.withValues(alpha: 0.5),
-                          ),
-                        ),
-                        errorWidget: (_, __, ___) => _buildFallback(),
-                      )
+                  imageUrl: imageUrl,
+                  width: double.infinity,
+                  fit: BoxFit.cover,
+                  placeholder: (_, __) =>
+                      Container(
+                        color:
+                        AppTheme.surfaceVariant,
+                      ),
+                  errorWidget:
+                      (_, __, ___) =>
+                      _buildFallback(),
+                )
                     : _buildFallback(),
               ),
-              Expanded(
-                flex: 4,
-                child: Padding(
-                  padding: EdgeInsets.all(Responsive.spacing(context, 10)),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        displayName,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: Responsive.fontSize(context, 13),
-                          fontWeight: FontWeight.w600,
+
+              // PACKAGE INFORMATION
+              Padding(
+                padding: EdgeInsets.fromLTRB(
+                  Responsive.spacing(
+                    context,
+                    12,
+                  ),
+                  Responsive.spacing(
+                    context,
+                    11,
+                  ),
+                  Responsive.spacing(
+                    context,
+                    12,
+                  ),
+                  Responsive.spacing(
+                    context,
+                    12,
+                  ),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment:
+                  CrossAxisAlignment.start,
+                  children: [
+                    // PACKAGE NAME
+                    Text(
+                      displayName,
+                      maxLines: 2,
+                      overflow:
+                      TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color:
+                        const Color(0xFF24262B),
+                        fontSize:
+                        Responsive.fontSize(
+                          context,
+                          13,
+                        ),
+                        fontWeight:
+                        FontWeight.w700,
+                        height: 1.25,
+                      ),
+                    ),
+
+                    // SECOND LANGUAGE NAME
+                    if (secondaryName.isNotEmpty &&
+                        secondaryName !=
+                            displayName) ...[
+                      SizedBox(
+                        height:
+                        Responsive.spacing(
+                          context,
+                          3,
                         ),
                       ),
-                      SizedBox(height: Responsive.spacing(context, 6)),
-                      Row(
-                        children: [
-                          Icon(
-                            Icons.business_rounded,
-                            size: 15,
-                            color: AppTheme.primary.withValues(alpha: 0.75),
-                          ),
-                          SizedBox(width: Responsive.spacing(context, 4)),
-                          Expanded(
-                            child: Text(
-                              labLine,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                fontSize: Responsive.fontSize(context, 11),
-                                color: AppTheme.onSurfaceVariant,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 5,
-                            ),
-                            decoration: BoxDecoration(
-                              gradient: AppTheme.auroraGradient,
-                              borderRadius: BorderRadius.circular(10),
-                              boxShadow: AppTheme.softGlow,
-                            ),
-                            child: Text(
-                              price > 0
-                                  ? '${price.toStringAsFixed(2)} ${AppStrings.t('sar', lang)}'
-                                  : AppStrings.t('contactForPrice', lang),
-                              style: TextStyle(
-                                fontSize: Responsive.fontSize(context, 12),
-                                color: Colors.white,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                          if (originalPrice != null)
-                            Text(
-                              originalPrice.toStringAsFixed(2),
-                              style: TextStyle(
-                                fontSize: Responsive.fontSize(context, 11),
-                                color: AppTheme.onSurfaceVariant,
-                                decoration: TextDecoration.lineThrough,
-                              ),
-                            ),
-                        ],
-                      ),
+
                       Text(
-                        '$testsCount ${AppStrings.t('testsCount', lang)}',
+                        secondaryName,
+                        maxLines: 2,
+                        overflow:
+                        TextOverflow.ellipsis,
                         style: TextStyle(
-                          fontSize: Responsive.fontSize(context, 11),
-                          color: AppTheme.onSurfaceVariant,
+                          color:
+                          const Color(
+                            0xFF55585F,
+                          ),
+                          fontSize:
+                          Responsive.fontSize(
+                            context,
+                            11,
+                          ),
+                          fontWeight:
+                          FontWeight.w400,
+                          height: 1.3,
                         ),
                       ),
                     ],
-                  ),
+
+                    SizedBox(
+                      height:
+                      Responsive.spacing(
+                        context,
+                        12,
+                      ),
+                    ),
+
+                    // PRICE
+                    Wrap(
+                      crossAxisAlignment:
+                      WrapCrossAlignment.end,
+                      spacing: 4,
+                      runSpacing: 2,
+                      children: [
+                        Text(
+                          price > 0
+                              ? price
+                              .toStringAsFixed(
+                            2,
+                          )
+                              : AppStrings.t(
+                            'contactForPrice',
+                            lang,
+                          ),
+                          maxLines: 1,
+                          overflow:
+                          TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color:
+                            const Color(
+                              0xFF686CFF,
+                            ),
+                            fontSize:
+                            Responsive.fontSize(
+                              context,
+                              15,
+                            ),
+                            fontWeight:
+                            FontWeight.w800,
+                            height: 1,
+                          ),
+                        ),
+
+                        if (price > 0)
+                          Text(
+                            AppStrings.t(
+                              'sar',
+                              lang,
+                            ),
+                            style: TextStyle(
+                              color:
+                              const Color(
+                                0xFF8A8EFA,
+                              ),
+                              fontSize:
+                              Responsive
+                                  .fontSize(
+                                context,
+                                8,
+                              ),
+                              fontWeight:
+                              FontWeight.w500,
+                            ),
+                          ),
+                      ],
+                    ),
+
+                    if (originalPrice != null &&
+                        originalPrice > price) ...[
+                      SizedBox(
+                        height:
+                        Responsive.spacing(
+                          context,
+                          3,
+                        ),
+                      ),
+                      Text(
+                        '${originalPrice.toStringAsFixed(2)} '
+                            '${AppStrings.t('sar', lang)}',
+                        maxLines: 1,
+                        overflow:
+                        TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize:
+                          Responsive.fontSize(
+                            context,
+                            9,
+                          ),
+                          color: AppTheme
+                              .onSurfaceVariant,
+                          decoration:
+                          TextDecoration
+                              .lineThrough,
+                        ),
+                      ),
+                    ],
+
+                    SizedBox(
+                      height:
+                      Responsive.spacing(
+                        context,
+                        12,
+                      ),
+                    ),
+
+                    // TEST COUNT
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons
+                              .biotech_outlined,
+                          size: 14,
+                          color:
+                          const Color(
+                            0xFF60636A,
+                          ),
+                        ),
+
+                        SizedBox(
+                          width:
+                          Responsive.spacing(
+                            context,
+                            5,
+                          ),
+                        ),
+
+                        Flexible(
+                          child: Text(
+                            testsCount > 0
+                                ? '$testsCount ${AppStrings.t('testsCount', lang)}'
+                                : AppStrings.t(
+                              'testsShownInImage',
+                              lang,
+                            ),
+                            maxLines: 1,
+                            overflow:
+                            TextOverflow
+                                .ellipsis,
+                            style: TextStyle(
+                              color:
+                              const Color(
+                                0xFF55585F,
+                              ),
+                              fontSize:
+                              Responsive
+                                  .fontSize(
+                                context,
+                                10,
+                              ),
+                              fontWeight:
+                              FontWeight
+                                  .w500,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
               ),
             ],
@@ -615,11 +1056,18 @@ class _PackageCard extends StatelessWidget {
   Widget _buildFallback() {
     return Container(
       width: double.infinity,
-      color: AppTheme.primary.withValues(alpha: 0.08),
-      child: Icon(
-        Icons.medical_services_outlined,
-        size: 48,
-        color: AppTheme.primary.withValues(alpha: 0.4),
+      color:
+      AppTheme.primary.withValues(
+        alpha: 0.08,
+      ),
+      child: Center(
+        child: Icon(
+          Icons.medical_services_outlined,
+          size: 48,
+          color: AppTheme.primary.withValues(
+            alpha: 0.4,
+          ),
+        ),
       ),
     );
   }

@@ -366,198 +366,411 @@ class _AnalysesScreenState extends State<AnalysesScreen> with OnboardingTourHost
 
   @override
   Widget build(BuildContext context) {
-    final lang = context.watch<AppSettingsProvider>().language;
+    final settings = context.watch<AppSettingsProvider>();
+    final lang = settings.language;
     final title = widget.labName ?? AppStrings.t('analyses', lang);
     final visible = _visibleServices();
     final totalLabel = (_totalAvailable ?? _services.length).toString();
 
-    return Directionality(
-      textDirection: TextDirection.rtl,
-      child: Container(
-        decoration: const BoxDecoration(gradient: RastUi.headerGradient),
-        child: Scaffold(
-          backgroundColor: Colors.transparent,
-          appBar: RastTopBar(
-            title: title,
-            showCart: true,
-            helpTourId: _showAnalysesTour ? OnboardingTourIds.analyses : null,
-            helpTourSteps:
-                _showAnalysesTour ? buildOnboardingSteps() : null,
-          ),
-          body: ClipRRect(
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-            child: Container(
-              color: RastUi.screenSurface(context),
-              child: _isLoading
-                  ? _buildLoading()
-                  : _error != null && _services.isEmpty
-                  ? _buildError()
-                  : Column(
-                      children: [
-                        Padding(
-                          padding: EdgeInsets.fromLTRB(
-                            Responsive.spacing(context, 24),
-                            Responsive.spacing(context, 32),
-                            Responsive.spacing(context, 24),
-                            Responsive.spacing(context, 10),
-                          ),
-                          child: Column(
-                            children: [
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: KeyedSubtree(
-                                      key: _searchKey,
-                                      child: SearchBox(
-                                        controller: _searchController,
-                                        hintText: 'ابحث عن مختبر',
-                                        onSearchTap: () =>
-                                            _loadData(reset: true),
-                                        onSubmitted: (_) =>
-                                            _loadData(reset: true),
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 14),
-                                  KeyedSubtree(
-                                    key: _filterKey,
-                                    child: _buildFilterButton(),
-                                  ),
-                                ],
-                              ),
-                              SizedBox(height: Responsive.spacing(context, 10)),
-                              Align(
-                                alignment: AlignmentDirectional.centerStart,
-                                child: Text(
-                                  'عرض ${visible.length} من $totalLabel',
-                                  style: TextStyle(
-                                    fontSize: Responsive.fontSize(context, 12),
-                                    color: AppTheme.onSurfaceVariant,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
-                              ),
-                              SizedBox(height: Responsive.spacing(context, 8)),
-                              _buildCategoriesStrip(),
-                            ],
-                          ),
-                        ),
-                        Expanded(
-                          child: visible.isEmpty
-                              ? _buildEmpty()
-                              : RefreshIndicator(
-                                  onRefresh: () => _loadData(reset: true),
-                                  child: GridView.builder(
-                                    controller: _scrollController,
-                                    padding: EdgeInsets.fromLTRB(
-                                      Responsive.spacing(context, 24),
-                                      Responsive.spacing(context, 10),
-                                      Responsive.spacing(context, 24),
-                                      Responsive.spacing(context, 24),
-                                    ),
-                                    gridDelegate:
-                                        SliverGridDelegateWithFixedCrossAxisCount(
-                                          crossAxisCount: 2,
-                                          childAspectRatio: 0.70,
-                                          crossAxisSpacing: Responsive.spacing(
-                                            context,
-                                            22,
-                                          ),
-                                          mainAxisSpacing: Responsive.spacing(
-                                            context,
-                                            24,
-                                          ),
-                                        ),
-                                    itemCount:
-                                        visible.length +
-                                        (_isLoadingMore ? 1 : 0),
-                                    itemBuilder: (context, index) {
-                                      if (index >= visible.length) {
-                                        return const Center(
-                                          child: CircularProgressIndicator(),
-                                        );
-                                      }
-                                      final item = visible[index];
-                                      Map<String, dynamic> service;
-                                      if (widget.labId != null) {
-                                        final ps = item is Map
-                                            ? item as Map<String, dynamic>
-                                            : <String, dynamic>{};
-                                        final s = ps['service'] ?? ps;
-                                        service = s is Map
-                                            ? Map<String, dynamic>.from(s)
-                                            : <String, dynamic>{};
-                                        service['price'] =
-                                            ps['final_price'] ??
-                                            ps['price'] ??
-                                            service['price'];
-                                        service['home_price'] =
-                                            ps['home_service_price'] ??
-                                            ps['home_price'];
-                                        service['provider_service_id'] =
-                                            ps['id'];
-                                        final psImg = ps['image']
-                                            ?.toString()
-                                            .trim();
-                                        if (psImg != null && psImg.isNotEmpty) {
-                                          service['image'] = psImg;
-                                        }
-                                      } else {
-                                        service = item is Map
-                                            ? Map<String, dynamic>.from(item)
-                                            : <String, dynamic>{};
-                                      }
-                                      final providerSvc =
-                                          widget.labId != null && item is Map
-                                          ? item as Map<String, dynamic>
-                                          : null;
+    return Scaffold(
+        backgroundColor: Colors.white,
 
-                                      return _AnalysisCard(
-                                            service: service,
-                                            categoryName: _getCategoryName(
-                                              context,
-                                              service['category_id'] ??
-                                                  service['service_category_id'],
-                                            ),
-                                            imageUrl: _getServiceImageUrl(
-                                              service,
-                                              providerSvc,
-                                            ),
-                                            isArabic: context
-                                                .watch<AppSettingsProvider>()
-                                                .isArabic,
-                                            isLabView: widget.labId != null,
-                                            lang: lang,
-                                            onTap: () => Navigator.push(
-                                              context,
-                                              MaterialPageRoute(
-                                                builder: (_) =>
-                                                    ServiceDetailScreen(
-                                                      service: service,
-                                                      labId: widget.labId,
-                                                      labName: widget.labName,
-                                                    ),
-                                              ),
-                                            ),
-                                          )
-                                          .animate()
-                                          .fadeIn(
-                                            duration: 400.ms,
-                                            delay: Duration(
-                                              milliseconds: (index % 6) * 50,
-                                            ),
-                                          )
-                                          .slideY(
-                                            begin: 0.03,
-                                            end: 0,
-                                            curve: Curves.easeOutCubic,
-                                          );
-                                    },
+        // WHITE HEADER
+        appBar: PreferredSize(
+          preferredSize: const Size.fromHeight(kToolbarHeight + 8),
+          child: Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              border: Border(
+                bottom: BorderSide(
+                  color: Colors.black.withValues(alpha: 0.06),
+                  width: 1,
+                ),
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.05),
+                  blurRadius: 8,
+                  offset: const Offset(0, 3),
+                ),
+              ],
+            ),
+            child: SafeArea(
+              bottom: false,
+              child: RastTopBar(
+                title: title,
+                showCart: true,
+                useWhiteBackground: true,
+                helpTourId: _showAnalysesTour
+                    ? OnboardingTourIds.analyses
+                    : null,
+                helpTourSteps: _showAnalysesTour
+                    ? buildOnboardingSteps()
+                    : null,
+              ),
+            ),
+          ),
+        ),
+
+        // WHOLE BODY
+      body: Directionality(
+        textDirection: settings.textDirection,
+        child:  Container(
+          width: double.infinity,
+          height: double.infinity,
+          decoration: const BoxDecoration(
+            gradient: AppTheme.backgroundGradient,
+          ),
+          child: _isLoading
+              ? _buildLoading()
+              : _error != null && _services.isEmpty
+              ? _buildError()
+              : RefreshIndicator(
+            onRefresh: () => _loadData(reset: true),
+            child: CustomScrollView(
+              controller: _scrollController,
+              physics: const AlwaysScrollableScrollPhysics(),
+              slivers: [
+                // SEARCH + COUNT + CATEGORIES
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: EdgeInsets.fromLTRB(
+                      Responsive.spacing(context, 16),
+                      Responsive.spacing(context, 24),
+                      Responsive.spacing(context, 16),
+                      Responsive.spacing(context, 10),
+                    ),
+                    child: Column(
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: KeyedSubtree(
+                                key: _searchKey,
+                                child: SearchBox(
+                                  controller: _searchController,
+                                  hintText: AppStrings.t(
+                                    'searchLaboratory',
+                                    lang,
                                   ),
+                                  onSearchTap: () =>
+                                      _loadData(reset: true),
+                                  onSubmitted: (_) =>
+                                      _loadData(reset: true),
                                 ),
+                              ),
+                            ),
+
+                            const SizedBox(width: 14),
+
+                            KeyedSubtree(
+                              key: _filterKey,
+                              child: _buildFilterButton(),
+                            ),
+                          ],
                         ),
+
+                        SizedBox(
+                          height:
+                          Responsive.spacing(context, 10),
+                        ),
+
+                        Align(
+                          alignment:
+                          AlignmentDirectional.centerStart,
+                          child: Text(
+                            '${AppStrings.t('showing', lang)} '
+                                '${visible.length} '
+                                '${AppStrings.t('of', lang)} '
+                                '$totalLabel',
+                            style: TextStyle(
+                              fontSize:
+                              Responsive.fontSize(
+                                context,
+                                12,
+                              ),
+                              color: Colors.black,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+
+                        SizedBox(
+                          height:
+                          Responsive.spacing(context, 8),
+                        ),
+
+                        _buildCategoriesStrip(),
                       ],
                     ),
+                  ),
+                ),
+
+                // EMPTY RESULT
+                if (visible.isEmpty)
+                  SliverFillRemaining(
+                    hasScrollBody: false,
+                    child: _buildEmpty(),
+                  )
+                else
+
+                // RESPONSIVE GRID
+                  SliverLayoutBuilder(
+                    builder: (context, constraints) {
+                      final horizontalPadding =
+                      Responsive.spacing(
+                        context,
+                        15,
+                      );
+
+                      final crossSpacing =
+                      Responsive.spacing(
+                        context,
+                        12,
+                      );
+
+                      final crossAxisCount =
+                      constraints.crossAxisExtent < 340
+                          ? 1
+                          : 2;
+
+                      final totalSpacing =
+                      crossAxisCount > 1
+                          ? crossSpacing *
+                          (crossAxisCount - 1)
+                          : 0.0;
+
+                      final availableWidth =
+                          constraints.crossAxisExtent -
+                              (horizontalPadding * 2) -
+                              totalSpacing;
+
+                      final cardWidth =
+                          availableWidth /
+                              crossAxisCount;
+
+                      final imageHeight =
+                      (cardWidth * 0.72)
+                          .clamp(
+                        105.0,
+                        145.0,
+                      )
+                          .toDouble();
+
+                      final textScale =
+                      MediaQuery.textScalerOf(
+                        context,
+                      ).scale(1.0);
+
+                      final safeTextScale =
+                      textScale
+                          .clamp(
+                        1.0,
+                        1.45,
+                      )
+                          .toDouble();
+
+                      final contentHeight =
+                          Responsive.spacing(
+                            context,
+                            140,
+                          ) *
+                              safeTextScale;
+
+                      final cardHeight =
+                          imageHeight +
+                              contentHeight;
+
+                      return SliverPadding(
+                        padding: EdgeInsets.fromLTRB(
+                          horizontalPadding,
+                          Responsive.spacing(
+                            context,
+                            10,
+                          ),
+                          horizontalPadding,
+                          Responsive.spacing(
+                            context,
+                            24,
+                          ),
+                        ),
+                        sliver: SliverGrid(
+                          gridDelegate:
+                          SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount:
+                            crossAxisCount,
+
+                            mainAxisExtent:
+                            cardHeight,
+
+                            crossAxisSpacing:
+                            crossSpacing,
+
+                            mainAxisSpacing:
+                            Responsive.spacing(
+                              context,
+                              20,
+                            ),
+                          ),
+                          delegate:
+                          SliverChildBuilderDelegate(
+                                (context, index) {
+                              // PAGINATION LOADER
+                              if (index >=
+                                  visible.length) {
+                                return const Center(
+                                  child:
+                                  CircularProgressIndicator(),
+                                );
+                              }
+
+                              final item =
+                              visible[index];
+
+                              Map<String, dynamic>
+                              service;
+
+                              // PROVIDER / LAB VIEW
+                              if (widget.labId !=
+                                  null) {
+                                final ps = item is Map
+                                    ? item
+                                as Map<
+                                    String,
+                                    dynamic>
+                                    : <String,
+                                    dynamic>{};
+
+                                final s =
+                                    ps['service'] ??
+                                        ps;
+
+                                service = s is Map
+                                    ? Map<String,
+                                    dynamic>.from(
+                                  s,
+                                )
+                                    : <String,
+                                    dynamic>{};
+
+                                service['price'] =
+                                    ps['final_price'] ??
+                                        ps['price'] ??
+                                        service[
+                                        'price'];
+
+                                service[
+                                'home_price'] =
+                                    ps['home_service_price'] ??
+                                        ps['home_price'];
+
+                                service[
+                                'provider_service_id'] =
+                                ps['id'];
+
+                                final psImg =
+                                ps['image']
+                                    ?.toString()
+                                    .trim();
+
+                                if (psImg != null &&
+                                    psImg
+                                        .isNotEmpty) {
+                                  service['image'] =
+                                      psImg;
+                                }
+                              } else {
+                                service = item is Map
+                                    ? Map<String,
+                                    dynamic>.from(
+                                  item,
+                                )
+                                    : <String,
+                                    dynamic>{};
+                              }
+
+                              final providerSvc =
+                              widget.labId !=
+                                  null &&
+                                  item is Map
+                                  ? item
+                              as Map<
+                                  String,
+                                  dynamic>
+                                  : null;
+
+                              return _AnalysisCard(
+                                service: service,
+                                categoryName:
+                                _getCategoryName(
+                                  context,
+                                  service[
+                                  'category_id'] ??
+                                      service[
+                                      'service_category_id'],
+                                ),
+                                imageUrl:
+                                _getServiceImageUrl(
+                                  service,
+                                  providerSvc,
+                                ),
+                                isArabic: context
+                                    .watch<
+                                    AppSettingsProvider>()
+                                    .isArabic,
+                                isLabView:
+                                widget.labId !=
+                                    null,
+                                lang: lang,
+                                onTap: () =>
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (_) =>
+                                            ServiceDetailScreen(
+                                              service:
+                                              service,
+                                              labId:
+                                              widget
+                                                  .labId,
+                                              labName:
+                                              widget
+                                                  .labName,
+                                            ),
+                                      ),
+                                    ),
+                              )
+                                  .animate()
+                                  .fadeIn(
+                                duration:
+                                400.ms,
+                                delay:
+                                Duration(
+                                  milliseconds:
+                                  (index %
+                                      6) *
+                                      50,
+                                ),
+                              )
+                                  .slideY(
+                                begin: 0.03,
+                                end: 0,
+                                curve: Curves
+                                    .easeOutCubic,
+                              );
+                            },
+
+                            childCount:
+                            visible.length +
+                                (_isLoadingMore
+                                    ? 1
+                                    : 0),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+              ],
             ),
           ),
         ),
@@ -589,8 +802,17 @@ class _AnalysesScreenState extends State<AnalysesScreen> with OnboardingTourHost
   }
 
   void _showFilterSheet() {
-    _minPriceController.text = _minPrice?.toStringAsFixed(0) ?? '';
-    _maxPriceController.text = _maxPrice?.toStringAsFixed(0) ?? '';
+    final settings =
+    context.read<AppSettingsProvider>();
+
+    final lang = settings.language;
+
+    _minPriceController.text =
+        _minPrice?.toStringAsFixed(0) ?? '';
+
+    _maxPriceController.text =
+        _maxPrice?.toStringAsFixed(0) ?? '';
+
     var sort = _sortBy;
 
     showModalBottomSheet(
@@ -599,7 +821,7 @@ class _AnalysesScreenState extends State<AnalysesScreen> with OnboardingTourHost
       backgroundColor: Colors.transparent,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setSheetState) => Directionality(
-          textDirection: TextDirection.rtl,
+          textDirection: settings.textDirection,
           child: Container(
             padding: EdgeInsets.fromLTRB(
               Responsive.spacing(context, 20),
@@ -620,77 +842,186 @@ class _AnalysesScreenState extends State<AnalysesScreen> with OnboardingTourHost
               child: SingleChildScrollView(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                  crossAxisAlignment:
+                  CrossAxisAlignment.start,
                   children: [
                     Center(
                       child: Container(
                         width: 42,
                         height: 4,
                         decoration: BoxDecoration(
-                          color: AppTheme.onSurfaceVariant.withValues(
+                          color: AppTheme
+                              .onSurfaceVariant
+                              .withValues(
                             alpha: 0.35,
                           ),
-                          borderRadius: BorderRadius.circular(2),
+                          borderRadius:
+                          BorderRadius.circular(2),
                         ),
                       ),
                     ),
-                    SizedBox(height: Responsive.spacing(context, 16)),
+
+                    SizedBox(
+                      height:
+                      Responsive.spacing(
+                        context,
+                        16,
+                      ),
+                    ),
+
                     Text(
-                      'فلترة التحاليل',
+                      AppStrings.t(
+                        'filterAnalyses',
+                        lang,
+                      ),
                       style: TextStyle(
-                        color: RastUi.primaryText(context),
-                        fontSize: Responsive.fontSize(context, 18),
+                        color:
+                        RastUi.primaryText(context),
+                        fontSize:
+                        Responsive.fontSize(
+                          context,
+                          18,
+                        ),
                         fontWeight: FontWeight.w800,
                       ),
                     ),
-                    SizedBox(height: Responsive.spacing(context, 18)),
+
+                    SizedBox(
+                      height:
+                      Responsive.spacing(
+                        context,
+                        18,
+                      ),
+                    ),
+
                     Wrap(
                       spacing: 8,
                       runSpacing: 8,
                       children: [
-                        _sortChoice('الافتراضي', 'default', sort, (value) {
-                          setSheetState(() => sort = value);
-                        }),
-                        _sortChoice('الأقل سعراً', 'price_low', sort, (value) {
-                          setSheetState(() => sort = value);
-                        }),
-                        _sortChoice('الأعلى سعراً', 'price_high', sort, (
-                          value,
-                        ) {
-                          setSheetState(() => sort = value);
-                        }),
-                        _sortChoice('الاسم', 'name', sort, (value) {
-                          setSheetState(() => sort = value);
-                        }),
+                        _sortChoice(
+                          AppStrings.t(
+                            'sortDefault',
+                            lang,
+                          ),
+                          'default',
+                          sort,
+                              (value) {
+                            setSheetState(
+                                  () => sort = value,
+                            );
+                          },
+                        ),
+
+                        _sortChoice(
+                          AppStrings.t(
+                            'priceLowToHigh',
+                            lang,
+                          ),
+                          'price_low',
+                          sort,
+                              (value) {
+                            setSheetState(
+                                  () => sort = value,
+                            );
+                          },
+                        ),
+
+                        _sortChoice(
+                          AppStrings.t(
+                            'priceHighToLow',
+                            lang,
+                          ),
+                          'price_high',
+                          sort,
+                              (value) {
+                            setSheetState(
+                                  () => sort = value,
+                            );
+                          },
+                        ),
+
+                        _sortChoice(
+                          AppStrings.t(
+                            'sortByName',
+                            lang,
+                          ),
+                          'name',
+                          sort,
+                              (value) {
+                            setSheetState(
+                                  () => sort = value,
+                            );
+                          },
+                        ),
                       ],
                     ),
-                    SizedBox(height: Responsive.spacing(context, 18)),
+
+                    SizedBox(
+                      height:
+                      Responsive.spacing(
+                        context,
+                        18,
+                      ),
+                    ),
+
                     Row(
                       children: [
                         Expanded(
                           child: TextField(
-                            controller: _minPriceController,
-                            keyboardType: TextInputType.number,
-                            decoration: const InputDecoration(
-                              labelText: 'أقل سعر',
-                              prefixIcon: Icon(Icons.payments_outlined),
+                            controller:
+                            _minPriceController,
+                            keyboardType:
+                            TextInputType.number,
+                            decoration:
+                            InputDecoration(
+                              labelText:
+                              AppStrings.t(
+                                'minimumPrice',
+                                lang,
+                              ),
+                              prefixIcon:
+                              const Icon(
+                                Icons
+                                    .payments_outlined,
+                              ),
                             ),
                           ),
                         ),
+
                         const SizedBox(width: 12),
+
                         Expanded(
                           child: TextField(
-                            controller: _maxPriceController,
-                            keyboardType: TextInputType.number,
-                            decoration: const InputDecoration(
-                              labelText: 'أعلى سعر',
-                              prefixIcon: Icon(Icons.payments_outlined),
+                            controller:
+                            _maxPriceController,
+                            keyboardType:
+                            TextInputType.number,
+                            decoration:
+                            InputDecoration(
+                              labelText:
+                              AppStrings.t(
+                                'maximumPrice',
+                                lang,
+                              ),
+                              prefixIcon:
+                              const Icon(
+                                Icons
+                                    .payments_outlined,
+                              ),
                             ),
                           ),
                         ),
                       ],
                     ),
-                    SizedBox(height: Responsive.spacing(context, 20)),
+
+                    SizedBox(
+                      height:
+                      Responsive.spacing(
+                        context,
+                        20,
+                      ),
+                    ),
+
                     Row(
                       children: [
                         Expanded(
@@ -700,30 +1031,56 @@ class _AnalysesScreenState extends State<AnalysesScreen> with OnboardingTourHost
                                 _sortBy = 'default';
                                 _minPrice = null;
                                 _maxPrice = null;
-                                _minPriceController.clear();
-                                _maxPriceController.clear();
+
+                                _minPriceController
+                                    .clear();
+
+                                _maxPriceController
+                                    .clear();
                               });
+
                               Navigator.pop(ctx);
                             },
-                            child: const Text('مسح'),
+                            child: Text(
+                              AppStrings.t(
+                                'clear',
+                                lang,
+                              ),
+                            ),
                           ),
                         ),
+
                         const SizedBox(width: 12),
+
                         Expanded(
                           child: FilledButton(
                             onPressed: () {
                               setState(() {
                                 _sortBy = sort;
-                                _minPrice = double.tryParse(
-                                  _minPriceController.text.trim(),
-                                );
-                                _maxPrice = double.tryParse(
-                                  _maxPriceController.text.trim(),
-                                );
+
+                                _minPrice =
+                                    double.tryParse(
+                                      _minPriceController
+                                          .text
+                                          .trim(),
+                                    );
+
+                                _maxPrice =
+                                    double.tryParse(
+                                      _maxPriceController
+                                          .text
+                                          .trim(),
+                                    );
                               });
+
                               Navigator.pop(ctx);
                             },
-                            child: const Text('تطبيق'),
+                            child: Text(
+                              AppStrings.t(
+                                'apply',
+                                lang,
+                              ),
+                            ),
                           ),
                         ),
                       ],
@@ -767,7 +1124,7 @@ class _AnalysesScreenState extends State<AnalysesScreen> with OnboardingTourHost
     }
 
     return SizedBox(
-      height: 38,
+      height: 44,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         itemCount: categories.length + 1,
@@ -788,19 +1145,40 @@ class _AnalysesScreenState extends State<AnalysesScreen> with OnboardingTourHost
                 );
 
           return ChoiceChip(
-            label: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
+            label: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
             selected: selected,
             showCheckmark: false,
             selectedColor: RastUi.purple,
-            backgroundColor: const Color(0xFFE7E9F8),
+            backgroundColor: Colors.white,
+            pressElevation: 0,
+            elevation: selected ? 2 : 0,
+            shadowColor: Colors.black.withValues(alpha: 0.08),
+            padding: const EdgeInsets.symmetric(
+              horizontal: 18,
+              vertical: 10,
+            ),
+            labelPadding: EdgeInsets.zero,
             labelStyle: TextStyle(
-              color: selected ? Colors.white : RastUi.textPurple,
+              color: selected
+                  ? Colors.white
+                  : RastUi.primaryText(context),
               fontSize: Responsive.fontSize(context, 12),
-              fontWeight: FontWeight.w600,
+              fontWeight: selected
+                  ? FontWeight.w700
+                  : FontWeight.w500,
             ),
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(18),
-              side: BorderSide.none,
+              borderRadius: BorderRadius.circular(20),
+              side: BorderSide(
+                color: selected
+                    ? RastUi.purple
+                    : const Color(0xFFE6E6EA),
+                width: 1,
+              ),
             ),
             onSelected: (_) {
               setState(() {
@@ -969,169 +1347,250 @@ class _AnalysisCardState extends State<_AnalysisCard> {
   Widget build(BuildContext context) {
     final service = widget.service;
     final price = ApiConfig.priceFromMap(service);
-    final displayName = LocaleUtils.localizedName(service, widget.isArabic);
+    final displayName = LocaleUtils.localizedName(
+      service,
+      widget.isArabic,
+    );
 
     return Material(
       color: Colors.transparent,
       child: InkWell(
         onTap: widget.onTap,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(16),
         child: Container(
           decoration: BoxDecoration(
             color: RastUi.cardSurface(context),
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(16),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withValues(alpha: 0.14),
-                blurRadius: 9,
+                color: Colors.black.withValues(alpha: 0.10),
+                blurRadius: 10,
                 offset: const Offset(0, 4),
               ),
             ],
           ),
           clipBehavior: Clip.antiAlias,
-          child: Stack(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Positioned.fill(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(9, 9, 9, 0),
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(9),
-                        child: SizedBox(
-                          height: 118,
-                          width: double.infinity,
-                          child:
-                              (widget.imageUrl != null &&
-                                  widget.imageUrl!.isNotEmpty)
-                              ? CachedNetworkImage(
-                                  imageUrl: widget.imageUrl!,
-                                  fit: BoxFit.cover,
-                                  placeholder: (_, __) => _buildImageFallback(),
-                                  errorWidget: (_, __, ___) =>
-                                      _buildImageFallback(),
-                                )
-                              : _buildImageFallback(),
+              // IMAGE
+              Stack(
+                children: [
+                  SizedBox(
+                    height: 126,
+                    width: double.infinity,
+                    child: (widget.imageUrl != null &&
+                        widget.imageUrl!.isNotEmpty)
+                        ? CachedNetworkImage(
+                      imageUrl: widget.imageUrl!,
+                      fit: BoxFit.cover,
+                      placeholder: (_, __) =>
+                          _buildImageFallback(),
+                      errorWidget: (_, __, ___) =>
+                          _buildImageFallback(),
+                    )
+                        : _buildImageFallback(),
+                  ),
+
+                  // Favorite
+                  PositionedDirectional(
+                    start: 8,
+                    top: 8,
+                    child: GestureDetector(
+                      onTap: _toggleFavorite,
+                      child: Container(
+                        width: 30,
+                        height: 30,
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.94),
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.08),
+                              blurRadius: 5,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                        child: Icon(
+                          _isFavorite
+                              ? Icons.favorite_rounded
+                              : Icons.favorite_border_rounded,
+                          color: const Color(0xFFFF4D78),
+                          size: 18,
                         ),
                       ),
                     ),
-                    Expanded(
-                      child: Padding(
-                        padding: EdgeInsets.fromLTRB(
-                          Responsive.spacing(context, 8),
-                          Responsive.spacing(context, 6),
-                          Responsive.spacing(context, 8),
-                          Responsive.spacing(context, 8),
+                  ),
+
+                  // Rating
+                  PositionedDirectional(
+                    end: 8,
+                    top: 9,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.94),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            '4.8',
+                            style: TextStyle(
+                              color: RastUi.primaryText(context),
+                              fontSize:
+                              Responsive.fontSize(context, 9),
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+
+                          const SizedBox(width: 3),
+
+                          const Icon(
+                            Icons.star_border_rounded,
+                            color: Color(0xFFFF4D78),
+                            size: 13,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+
+              // CONTENT
+              Expanded(
+                child: Padding(
+                  padding: EdgeInsets.fromLTRB(
+                    Responsive.spacing(context, 12),
+                    Responsive.spacing(context, 10),
+                    Responsive.spacing(context, 12),
+                    Responsive.spacing(context, 10),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      // TEST NAME
+                      Text(
+                        displayName,
+                        maxLines: 1,
+                        softWrap: false,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: const Color(0xFF171717),
+                          fontSize: Responsive.fontSize(context, 13),
+                          fontWeight: FontWeight.w800,
+                          height: 1.2,
                         ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      ),
+
+                      SizedBox(
+                        height: Responsive.spacing(context, 5),
+                      ),
+
+                      // CATEGORY
+                      if (widget.categoryName.isNotEmpty)
+                        Text(
+                          widget.categoryName,
+                          maxLines: 1,
+                          softWrap: false,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: const Color(0xFF52525B),
+                            fontSize: Responsive.fontSize(context, 10.5),
+                            fontWeight: FontWeight.w600,
+                            height: 1.2,
+                          ),
+                        ),
+
+                      const Spacer(),
+
+                      // BOTTOM AREA
+                      SizedBox(
+                        height: 54,
+                        width: double.infinity,
+                        child: Stack(
                           children: [
-                            Text(
-                              displayName,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                fontSize: Responsive.fontSize(context, 12),
-                                color: RastUi.textPurple,
-                                fontWeight: FontWeight.w700,
+                            Positioned(
+                              left: 0,
+                              bottom: 0,
+                              right: 52,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    AppStrings.t('price', widget.lang),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      color: const Color(0xFF52525B),
+                                      fontSize:
+                                      Responsive.fontSize(context, 9),
+                                      fontWeight: FontWeight.w600,
+                                      height: 1.1,
+                                    ),
+                                  ),
+
+                                  const SizedBox(height: 2),
+
+                                  Text(
+                                    price > 0
+                                        ? '${AppStrings.t('sar', widget.lang)} ${price.toStringAsFixed(2)}'
+                                        : '${AppStrings.t('sar', widget.lang)} —',
+                                    maxLines: 2,
+                                    softWrap: true,
+                                    overflow: TextOverflow.ellipsis,
+                                    textAlign: TextAlign.left,
+                                    style: TextStyle(
+                                      color: RastUi.purple,
+                                      fontSize:
+                                      Responsive.fontSize(context, 14),
+                                      fontWeight: FontWeight.w900,
+                                      height: 1.1,
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
-                            if (widget.categoryName.isNotEmpty)
-                              Text(
-                                widget.categoryName,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  fontSize: Responsive.fontSize(context, 9),
-                                  color: const Color(0xFFB5B0B8),
-                                  fontWeight: FontWeight.w500,
+
+                            Positioned(
+                              right: 0,
+                              bottom: 0,
+                              child: Container(
+                                width: 40,
+                                height: 40,
+                                decoration: BoxDecoration(
+                                  gradient: RastUi.brandGradient,
+                                  borderRadius: BorderRadius.circular(11),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: RastUi.purple.withValues(
+                                        alpha: 0.22,
+                                      ),
+                                      blurRadius: 8,
+                                      offset: const Offset(0, 3),
+                                    ),
+                                  ],
                                 ),
-                              ),
-                            Text(
-                              price > 0
-                                  ? '${price.toStringAsFixed(2)} ${AppStrings.t('sar', widget.lang)}'
-                                  : '— ${AppStrings.t('sar', widget.lang)}',
-                              style: TextStyle(
-                                fontSize: Responsive.fontSize(context, 12),
-                                color: RastUi.purple,
-                                fontWeight: FontWeight.w700,
+                                alignment: Alignment.center,
+                                child: const Icon(
+                                  Icons.add_rounded,
+                                  color: Colors.white,
+                                  size: 24,
+                                ),
                               ),
                             ),
                           ],
                         ),
                       ),
-                    ),
-                  ],
-                ),
-              ),
-              PositionedDirectional(
-                start: 12,
-                top: 12,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 6,
-                    vertical: 2,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: 0.28),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(
-                        Icons.star_rounded,
-                        color: AppTheme.accent,
-                        size: 12,
-                      ),
-                      const SizedBox(width: 2),
-                      Text(
-                        '4.8',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: Responsive.fontSize(context, 8),
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
                     ],
                   ),
-                ),
-              ),
-              PositionedDirectional(
-                end: 8,
-                top: 8,
-                child: IconButton(
-                  onPressed: _toggleFavorite,
-                  visualDensity: VisualDensity.compact,
-                  icon: Icon(
-                    _isFavorite
-                        ? Icons.favorite_rounded
-                        : Icons.favorite_border_rounded,
-                    color: const Color(0xFFFF4D61),
-                    size: Responsive.fontSize(context, 21),
-                  ),
-                ),
-              ),
-              PositionedDirectional(
-                end: 9,
-                bottom: 8,
-                child: Container(
-                  width: 32,
-                  height: 32,
-                  decoration: BoxDecoration(
-                    gradient: RastUi.brandGradient,
-                    borderRadius: BorderRadius.circular(8),
-                    boxShadow: [
-                      BoxShadow(
-                        color: RastUi.purple.withValues(alpha: 0.28),
-                        blurRadius: 8,
-                        offset: const Offset(0, 3),
-                      ),
-                    ],
-                  ),
-                  child: const Icon(Icons.add_rounded, color: Colors.white),
                 ),
               ),
             ],

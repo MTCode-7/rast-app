@@ -5,17 +5,20 @@ class ApiConfig {
   static double get globalDiscountMultiplier => 1.0 - (globalDiscountPercent / 100);
 
   /// اختر الرابط المناسب لبيئتك:
-  static const String baseUrl = 'https://rast-labs.com/api';
+   static const String baseUrl = 'https://rast-labs.com/api';
 
   /// رابط قاعدة التخزين للصور (نفس الدومين: الصور تُبنى كـ storageBaseUrl/storage/المسار)
   /// مثال: مسار "provider_services/xxx.jpg" → https://rast-labs.com/storage/provider_services/xxx.jpg
   static const String storageBaseUrl = 'https://rast-labs.com';
 
+  // static const String storageBaseUrl = 'http://192.168.1.110:8000';
+
+
   // للتطوير المحلي - أندرويد Emulator:
   // static const String baseUrl = 'http://10.0.2.2:8000/api';
 
   // للتطوير المحلي - جهاز حقيقي (استبدل IP بموقعك):
-  // static const String baseUrl = 'http://192.168.1.100:8000/api';
+  //static const String baseUrl = 'http://192.168.1.110:8000/api';
 
   static String get apiBaseUrl => baseUrl;
 
@@ -58,54 +61,93 @@ class ApiConfig {
   }
 
   /// كل روابط صور الباقة (مصفوفة package_images ثم الغلاف)
-  static List<String> packageImageUrls(Map<String, dynamic>? pkg) {
+  static List<String> packageImageUrls(
+      Map<String, dynamic>? pkg,
+      ) {
+    if (pkg == null) return [];
+
     final urls = <String>[];
-    void addResolved(Object? item) {
-      String? parsed;
-      if (item is Map) {
-        parsed = imageFromMap(Map<String, dynamic>.from(item)) ??
-            resolveImageUrl(item['url'], item['image'] ?? item['image_url']);
-      } else {
-        parsed = resolveImageUrl(item, null);
-      }
-      if (parsed != null && parsed.isNotEmpty && !urls.contains(parsed)) {
-        urls.add(parsed);
+
+    void addUrl(String? url) {
+      if (url != null &&
+          url.isNotEmpty &&
+          !urls.contains(url)) {
+        urls.add(url);
       }
     }
 
-    final packageImages = pkg?['package_images'];
+    void addResolved(Object? value) {
+      addUrl(
+        resolveImageUrl(
+          value,
+          null,
+        ),
+      );
+    }
+
+    /*
+  |--------------------------------------------------------------------------
+  | 1. Package cover image
+  |--------------------------------------------------------------------------
+  |
+  | Backend returns provider_services.image as:
+  | image
+  | image_url
+  |
+  | This must be the FIRST image used by the app.
+  |
+  */
+    addUrl(
+      resolveImageUrl(
+        pkg['image_url'],
+        pkg['image'],
+      ),
+    );
+
+    addResolved(
+      pkg['image_path'],
+    );
+
+    /*
+  |--------------------------------------------------------------------------
+  | 2. Package gallery
+  |--------------------------------------------------------------------------
+  |
+  | Gallery images are additional/fallback images only.
+  |
+  */
+    final packageImages = pkg['package_images'];
+
     if (packageImages is List) {
       for (final item in packageImages) {
-        addResolved(item);
+        if (item is Map) {
+          final map = Map<String, dynamic>.from(item);
+
+          addUrl(
+            resolveImageUrl(
+              map['image_url'] ?? map['url'],
+              map['image'] ?? map['image_path'],
+            ),
+          );
+        } else {
+          addResolved(item);
+        }
       }
     }
-    addResolved(pkg?['image_url']);
-    addResolved(pkg?['image']);
-    addResolved(pkg?['image_path']);
-    addResolved(imageFromMap(pkg));
+
     return urls;
   }
 
   /// استخراج رابط صورة الباقة (يتحقق من provider_services عند عدم وجود صورة على الباقة)
-  static String? packageImageUrl(Map<String, dynamic>? pkg) {
-    final fromList = packageImageUrls(pkg);
-    if (fromList.isNotEmpty) return fromList.first;
-    final url = imageFromMap(pkg) ?? resolveImageUrl(pkg?['image_url'], pkg?['image'] ?? pkg?['image_path']);
-    if (url != null && url.isNotEmpty) return url;
-    final packageImages = pkg?['package_images'];
-    if (packageImages is List && packageImages.isNotEmpty) {
-      for (final item in packageImages) {
-        final parsed = resolveImageUrl(item, null);
-        if (parsed != null && parsed.isNotEmpty) return parsed;
-      }
+  static String? packageImageUrl(
+      Map<String, dynamic>? pkg,
+      ) {
+    final urls = packageImageUrls(pkg);
+
+    if (urls.isNotEmpty) {
+      return urls.first;
     }
-    final psList = pkg?['provider_services'] ?? pkg?['providerServices'];
-    if (psList is List && psList.isNotEmpty) {
-      final first = psList.first;
-      if (first is Map<String, dynamic>) {
-        return imageFromMap(first) ?? resolveImageUrl(first['image_url'], first['image'] ?? first['image_path']);
-      }
-    }
+
     return null;
   }
 
