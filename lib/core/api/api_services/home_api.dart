@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:rast/core/api/api_client.dart';
+
 class HomeApi {
   final _client = ApiClient();
 
