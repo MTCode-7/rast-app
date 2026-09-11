@@ -719,47 +719,85 @@ class _BookFlowScreenState extends State<BookFlowScreen> with OnboardingTourHost
     if (!AuthService.isLoggedIn) {
       final ok = await Navigator.push(
         context,
-        MaterialPageRoute(builder: (_) => const LoginScreen()),
+        MaterialPageRoute(
+          builder: (_) => const LoginScreen(),
+        ),
       );
-      if (ok == true && mounted) setState(() {});
+
+      if (ok == true && mounted) {
+        setState(() {});
+      }
+
       return;
     }
+
     setState(() {
       _addingToCart = true;
       _error = null;
     });
+
     try {
       final body = await _buildBookingBody();
+
       if (!mounted) return;
+
       await context.read<CartService>().addItem(body);
+
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+
+      final messenger = ScaffoldMessenger.of(context);
+
+      messenger.hideCurrentSnackBar();
+
+      messenger.showSnackBar(
         SnackBar(
           content: Text(
             _tr('addedToCart'),
           ),
           action: SnackBarAction(
             label: _tr('viewCart'),
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const CartScreen()),
-            ),
+            onPressed: () {
+              messenger.hideCurrentSnackBar();
+
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const CartScreen(),
+                ),
+              );
+            },
           ),
         ),
       );
+
+      Future.delayed(
+        const Duration(seconds: 3),
+            () {
+          messenger.hideCurrentSnackBar();
+        },
+      );
+
       Navigator.pop(context);
     } on ApiException catch (e) {
-      setState(() => _error = e.message);
-    } catch (e) {
+      if (!mounted) return;
+
       setState(() {
-        _error = e.toString().contains(
-          'SocketException',
-        )
+        _error = e.message;
+      });
+    } catch (e) {
+      if (!mounted) return;
+
+      setState(() {
+        _error = e.toString().contains('SocketException')
             ? _tr('checkConnectionShort')
             : e.toString();
       });
     } finally {
-      if (mounted) setState(() => _addingToCart = false);
+      if (mounted) {
+        setState(() {
+          _addingToCart = false;
+        });
+      }
     }
   }
 

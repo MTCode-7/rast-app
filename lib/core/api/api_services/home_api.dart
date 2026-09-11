@@ -1,7 +1,8 @@
 import 'dart:io';
 
 import 'package:rast/core/api/api_client.dart';
-
+import 'package:device_info_plus/device_info_plus.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 class HomeApi {
   final _client = ApiClient();
 
@@ -9,10 +10,32 @@ class HomeApi {
   Future<Map<String, dynamic>> getHome() async {
     final platform = Platform.isIOS ? 'ios' : 'android';
 
+    final packageInfo = await PackageInfo.fromPlatform();
+    final deviceInfo = DeviceInfoPlugin();
+
+    String osVersion = '';
+    String deviceModel = '';
+
+    if (Platform.isAndroid) {
+      final androidInfo = await deviceInfo.androidInfo;
+
+      osVersion = androidInfo.version.release;
+      deviceModel = androidInfo.model;
+    } else if (Platform.isIOS) {
+      final iosInfo = await deviceInfo.iosInfo;
+
+      osVersion = iosInfo.systemVersion;
+      deviceModel = iosInfo.utsname.machine;
+    }
+
     final res = await _client.get(
       'home',
       queryParams: {
         'platform': platform,
+        'os_version': osVersion,
+        'device_model': deviceModel,
+        'app_version': packageInfo.version,
+        'build_number': packageInfo.buildNumber,
       },
     );
 
