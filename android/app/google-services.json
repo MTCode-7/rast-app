@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "310953261820",
+    "project_id": "rast-4ec36",
+    "storage_bucket": "rast-4ec36.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:310953261820:android:0bfd4f04d81eae87a9f579",
+        "android_client_info": {
+          "package_name": "com.rast.labs"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDZ4hAWWXLc6oTgvmwqZSVVwVGDdTohC-0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
