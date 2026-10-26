@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- لون أيقونة الإشعار (لون راست البنفسجي) -->
+    <color name="notification_color">#5B469D</color>
+</resources>

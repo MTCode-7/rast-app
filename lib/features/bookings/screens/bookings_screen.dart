@@ -180,6 +180,7 @@ class _BookingsScreenState extends State<BookingsScreen>
       booking['booking_period_label_en'] ??
           timeSlot['period_label_en'],
       'service_type': booking['service_type'] ?? 'in_clinic',
+      'patient_name': booking['patient_name'],
       'service_name_ar': service is Map ? service['name_ar'] : '',
       'service_name_en': service is Map ? service['name_en'] : '',
       'provider_name_ar': providerMap['business_name_ar'] ?? '',
@@ -884,7 +885,10 @@ class _PastBookingCard extends StatelessWidget {
       isArabic,
       arKey: 'service_name_ar',
       enKey: 'service_name_en',
-    );
+    ) +
+        ((booking['patient_name']?.toString() ?? '').isNotEmpty
+            ? ' · ${AppStrings.t('bookingForShort', lang)} ${booking['patient_name']}'
+            : '');
 
     final providerName = LocaleUtils.localizedName(
       booking,
@@ -1360,7 +1364,10 @@ class _UpcomingBookingCard extends StatelessWidget {
       isArabic,
       arKey: 'service_name_ar',
       enKey: 'service_name_en',
-    );
+    ) +
+        ((booking['patient_name']?.toString() ?? '').isNotEmpty
+            ? ' · ${AppStrings.t('bookingForShort', lang)} ${booking['patient_name']}'
+            : '');
 
     final providerName = LocaleUtils.localizedName(
       booking,

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:rast/core/services/analytics_service.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:provider/provider.dart';
 import 'package:rast/core/constants/app_strings.dart';
@@ -60,6 +61,7 @@ class _MainScaffoldState extends State<MainScaffold> with OnboardingTourHost {
   void initState() {
     super.initState();
     scheduleOnboardingTour(delay: const Duration(milliseconds: 1400));
+    AnalyticsService.logScreen(_tabScreenNames[_currentIndex]);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (AuthService.isLoggedIn) {
         context.read<CartService>().refresh(silent: true);
@@ -67,9 +69,13 @@ class _MainScaffoldState extends State<MainScaffold> with OnboardingTourHost {
     });
   }
 
+  // التبويبات مبنية معاً في IndexedStack، لذا تُسجَّل مشاهدة الشاشة عند التبديل
+  static const _tabScreenNames = ['home', 'my_bookings', 'labs', 'profile'];
+
   void _onNavTap(int index) {
     if (_currentIndex == index) return;
     setState(() => _currentIndex = index);
+    AnalyticsService.logScreen(_tabScreenNames[index]);
   }
 
   List<_NavItem> _navItems(String lang) => [

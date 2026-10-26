@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:rast/core/services/analytics_service.dart';
 import 'package:provider/provider.dart';
 import 'package:rast/core/providers/app_settings_provider.dart';
 import 'package:rast/core/utils/responsive.dart';
@@ -35,6 +36,7 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   void initState() {
     super.initState();
+    AnalyticsService.logScreen('chat');
     _scrollController.addListener(_onChatScroll);
   }
 

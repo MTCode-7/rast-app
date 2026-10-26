@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:rast/core/api/api_services.dart';
+import 'package:rast/core/services/analytics_service.dart';
 import 'package:rast/core/theme/app_theme.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -71,6 +72,7 @@ class AppSettingsProvider extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     _isDarkMode = prefs.getBool(_keyDarkMode) ?? false;
     _language = prefs.getString(_keyLanguage) ?? 'ar';
+    AnalyticsService.setLanguage(_language);
     final saved1 = prefs.getString(_keyPrimaryColor);
     final saved2 = prefs.getString(_keySecondaryColor);
     if (saved1 != null) _primaryColor = _parseColor(saved1);
@@ -94,6 +96,7 @@ class AppSettingsProvider extends ChangeNotifier {
   Future<void> setLanguage(String lang) async {
     if (_language == lang) return;
     _language = lang;
+    AnalyticsService.setLanguage(lang);
     notifyListeners();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_keyLanguage, lang);

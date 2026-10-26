@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:rast/core/services/analytics_service.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:rast/core/api/api_client.dart';
@@ -123,6 +124,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
   @override
   void initState() {
     super.initState();
+    AnalyticsService.logScreen('forgot_password');
     _tabController = TabController(length: 2, vsync: this);
   }
 

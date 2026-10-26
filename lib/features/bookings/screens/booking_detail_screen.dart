@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:rast/core/services/analytics_service.dart';
 import 'package:flutter_rating_bar/flutter_rating_bar.dart';
 import 'package:provider/provider.dart';
 import 'package:rast/core/constants/api_config.dart';
@@ -45,6 +46,7 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
   @override
   void initState() {
     super.initState();
+    AnalyticsService.logScreen('booking_details');
     _booking = Map<String, dynamic>.from(widget.booking);
     _loadFreshBooking();
   }
@@ -58,7 +60,7 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
   Future<void> _loadFreshBooking() async {
     final id = _booking['id'];
     if (id == null) return;
-    if (_parseNum(_booking['service_price']) != 0 && _parseNum(_booking['total_amount']) != 0) return;
+    // نحدّث دائماً لعرض حالة طلب الإلغاء والاسترداد الحالية
     try {
       final fresh = await Api.bookings.getBooking(id is int ? id : int.parse(id.toString()));
       if (mounted) {
@@ -219,6 +221,8 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
                     children: [
                       _buildStatusCard(context),
 
+                      _buildCancellationInfo(context),
+
                       SizedBox(
                         height:
                         Responsive.spacing(
@@ -252,6 +256,12 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
                               'service_name_en',
                             ),
                           ),
+
+                          if ((booking['patient_name']?.toString() ?? '').isNotEmpty)
+                            _buildInfoRow(
+                              _tr('bookingForTitle'),
+                              booking['patient_name'].toString(),
+                            ),
 
                           _buildInfoRow(
                             _tr('lab'),
@@ -610,6 +620,116 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
                   ? Colors.green
                   : Colors.orange)
                   .withValues(alpha: 0.10),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// حالة طلب الإلغاء (قيد المراجعة / مرفوض) وحالة استرداد المبلغ
+  Widget _buildCancellationInfo(BuildContext context) {
+    final request = booking['cancellation_request'] is Map
+        ? Map<String, dynamic>.from(booking['cancellation_request'])
+        : null;
+    final refund = booking['refund'] is Map
+        ? Map<String, dynamic>.from(booking['refund'])
+        : null;
+
+    final notes = <Widget>[];
+
+    if (request != null && request['status'] == 'pending') {
+      notes.add(_infoNote(
+        context,
+        icon: Icons.hourglass_top_rounded,
+        color: Colors.orange,
+        title: _tr('cancelRequestPending'),
+        body: _tr('cancelRequestPendingHint'),
+      ));
+    } else if (request != null &&
+        request['status'] == 'rejected' &&
+        booking['status'] != 'cancelled') {
+      final note = request['admin_note']?.toString().trim() ?? '';
+      notes.add(_infoNote(
+        context,
+        icon: Icons.block_rounded,
+        color: Colors.red,
+        title: _tr('cancelRequestRejected'),
+        body: note.isNotEmpty ? note : null,
+      ));
+    }
+
+    if (refund != null) {
+      final done = refund['status'] == 'processed';
+      final amount = _parseNum(refund['amount']);
+      notes.add(_infoNote(
+        context,
+        icon: done ? Icons.check_circle_rounded : Icons.currency_exchange_rounded,
+        color: done ? Colors.green : Colors.blue,
+        title: done ? _tr('refundDone') : _tr('refundInProgress'),
+        body: '${_tr('refundAmount')}: ${_sar(amount)}',
+      ));
+    }
+
+    if (notes.isEmpty) return const SizedBox.shrink();
+
+    return Padding(
+      padding: EdgeInsets.only(top: Responsive.spacing(context, 12)),
+      child: Column(
+        children: [
+          for (int i = 0; i < notes.length; i++) ...[
+            if (i > 0) SizedBox(height: Responsive.spacing(context, 8)),
+            notes[i],
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _infoNote(
+      BuildContext context, {
+        required IconData icon,
+        required Color color,
+        required String title,
+        String? body,
+      }) {
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.all(Responsive.spacing(context, 14)),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: color.withValues(alpha: 0.25)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: color, size: 22),
+          SizedBox(width: Responsive.spacing(context, 10)),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: TextStyle(
+                    fontSize: Responsive.fontSize(context, 13),
+                    fontWeight: FontWeight.w800,
+                    color: color,
+                  ),
+                ),
+                if (body != null && body.isNotEmpty) ...[
+                  SizedBox(height: Responsive.spacing(context, 4)),
+                  Text(
+                    body,
+                    style: TextStyle(
+                      fontSize: Responsive.fontSize(context, 12),
+                      color: const Color(0xFF4A4F5C),
+                      height: 1.5,
+                    ),
+                  ),
+                ],
+              ],
             ),
           ),
         ],
@@ -1214,6 +1334,9 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
   Widget _buildActions(BuildContext context) {
     final paymentStatus = booking['payment_status']?.toString() ?? 'pending';
     final canPay = paymentStatus != 'paid';
+    final isPaid = paymentStatus == 'paid';
+    // الخادم يحدد إمكانية الإلغاء (يمنعها مثلاً عند وجود طلب إلغاء قيد المراجعة)
+    final canCancel = booking['can_cancel'] != false;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1288,6 +1411,7 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
         if (canPay) SizedBox(height: Responsive.spacing(context, 12)),
         Row(
           children: [
+            if (canCancel)
             Expanded(
               child: Container(
                 decoration: BoxDecoration(
@@ -1304,7 +1428,7 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
                   onPressed: () => _showCancelDialog(context),
                   icon: const Icon(Icons.cancel_outlined, size: 20),
                   label: Text(
-                    _tr('cancelBooking'),
+                    _tr(isPaid ? 'requestCancellation' : 'cancelBooking'),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -1322,7 +1446,7 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
                 ),
               ),
             ),
-            SizedBox(width: Responsive.spacing(context, 12)),
+            if (canCancel) SizedBox(width: Responsive.spacing(context, 12)),
             Expanded(
               child: Container(
                 decoration: BoxDecoration(
@@ -1401,156 +1525,140 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
     }
   }
 
+  /// غير المدفوع: إلغاء فوري. المدفوع: طلب إلغاء بسبب إلزامي تراجعه الإدارة.
   void _showCancelDialog(
       BuildContext context,
       ) {
     final settings =
     context.read<AppSettingsProvider>();
 
-    final reasonController =
-    TextEditingController(
-      text: _tr('userCancellationReason'),
+    final isPaid = booking['payment_status']?.toString() == 'paid';
+
+    final reasonController = TextEditingController(
+      text: isPaid ? '' : _tr('userCancellationReason'),
     );
+    String? reasonError;
+    bool submitting = false;
 
     showDialog(
       context: context,
-      builder: (ctx) => Directionality(
-        textDirection:
-        settings.textDirection,
-        child: AlertDialog(
-          shape: RoundedRectangleBorder(
-            borderRadius:
-            BorderRadius.circular(20),
-          ),
-
-          title: Text(
-            _tr('cancelBooking'),
-          ),
-
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment:
-            CrossAxisAlignment.stretch,
-            children: [
-              Text(
-                _tr('cancelBookingConfirm'),
-                textAlign: TextAlign.start,
-              ),
-
-              const SizedBox(height: 16),
-
-              TextField(
-                controller:
-                reasonController,
-                textAlign: TextAlign.start,
-                decoration: InputDecoration(
-                  labelText:
-                  _tr(
-                    'cancelReasonOptional',
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => Directionality(
+          textDirection: settings.textDirection,
+          child: AlertDialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(20),
+            ),
+            title: Text(
+              _tr(isPaid ? 'requestCancellation' : 'cancelBooking'),
+            ),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    _tr(isPaid ? 'cancelRequestExplain' : 'cancelBookingConfirm'),
+                    textAlign: TextAlign.start,
+                    style: const TextStyle(height: 1.5),
                   ),
-                  border:
-                  OutlineInputBorder(
-                    borderRadius:
-                    BorderRadius.circular(
-                      12,
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: reasonController,
+                    textAlign: TextAlign.start,
+                    minLines: isPaid ? 3 : 1,
+                    maxLines: isPaid ? 5 : 1,
+                    decoration: InputDecoration(
+                      labelText: _tr(isPaid ? 'cancelReasonRequired' : 'cancelReasonOptional'),
+                      errorText: reasonError,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                     ),
                   ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: submitting ? null : () => Navigator.pop(ctx),
+                child: Text(_tr('no')),
+              ),
+              TextButton(
+                onPressed: submitting
+                    ? null
+                    : () async {
+                  final id = booking['id'];
+                  final typed = reasonController.text.trim();
+
+                  if (isPaid && typed.length < 5) {
+                    setDialogState(() => reasonError = _tr('cancelReasonRequiredError'));
+                    return;
+                  }
+
+                  final reason = typed.isEmpty ? _tr('userCancellationReason') : typed;
+                  setDialogState(() => submitting = true);
+
+                  try {
+                    if (id == null) return;
+                    final res = await Api.bookings.cancel(
+                      id is int ? id : int.parse(id.toString()),
+                      reason,
+                    );
+                    final requested = res['cancellation_status'] == 'requested';
+                    AnalyticsService.logEvent(requested ? 'cancel_booking_request' : 'cancel_booking', {
+                      'booking_id': id,
+                      'value': _parseNum(booking['total_amount']),
+                      'currency': 'SAR',
+                    });
+
+                    if (ctx.mounted) Navigator.pop(ctx);
+                    if (!context.mounted) return;
+
+                    if (requested) {
+                      // يبقى الحجز قائماً حتى قرار الإدارة: نعرض حالة الطلب في نفس الصفحة
+                      final data = res['data'];
+                      if (data is Map) {
+                        setState(() => _booking = _mergeBooking(_booking, Map<String, dynamic>.from(data)));
+                      }
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text(_tr('cancelRequestSent'))),
+                      );
+                    } else {
+                      Navigator.pop(context);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text(_tr('bookingCancelled'))),
+                      );
+                    }
+                  } on ApiException catch (e) {
+                    if (ctx.mounted) Navigator.pop(ctx);
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text(e.message)),
+                      );
+                    }
+                  } catch (e) {
+                    if (ctx.mounted) Navigator.pop(ctx);
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text(e.toString())),
+                      );
+                    }
+                  }
+                },
+                child: submitting
+                    ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+                    : Text(
+                  _tr(isPaid ? 'sendCancelRequest' : 'yesCancel'),
+                  style: const TextStyle(color: Colors.red),
                 ),
               ),
             ],
           ),
-
-          actions: [
-            TextButton(
-              onPressed: () =>
-                  Navigator.pop(ctx),
-              child: Text(
-                _tr('no'),
-              ),
-            ),
-
-            TextButton(
-              onPressed: () async {
-                final id =
-                booking['id'];
-
-                final reason =
-                reasonController
-                    .text
-                    .trim()
-                    .isEmpty
-                    ? _tr(
-                  'userCancellationReason',
-                )
-                    : reasonController
-                    .text
-                    .trim();
-
-                Navigator.pop(ctx);
-
-                try {
-                  if (id != null) {
-                    await Api.bookings
-                        .cancel(
-                      id is int
-                          ? id
-                          : int.parse(
-                        id.toString(),
-                      ),
-                      reason,
-                    );
-                  }
-
-                  if (context.mounted) {
-                    Navigator.pop(
-                      context,
-                    );
-
-                    ScaffoldMessenger.of(
-                      context,
-                    ).showSnackBar(
-                      SnackBar(
-                        content: Text(
-                          _tr(
-                            'bookingCancelled',
-                          ),
-                        ),
-                      ),
-                    );
-                  }
-                } on ApiException catch (e) {
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(
-                      context,
-                    ).showSnackBar(
-                      SnackBar(
-                        content:
-                        Text(e.message),
-                      ),
-                    );
-                  }
-                } catch (e) {
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(
-                      context,
-                    ).showSnackBar(
-                      SnackBar(
-                        content: Text(
-                          e.toString(),
-                        ),
-                      ),
-                    );
-                  }
-                }
-              },
-              child: Text(
-                _tr('yesCancel'),
-                style: const TextStyle(
-                  color: Colors.red,
-                ),
-              ),
-            ),
-          ],
         ),
       ),
     );

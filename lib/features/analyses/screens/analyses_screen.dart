@@ -2,6 +2,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:rast/core/services/analytics_service.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:provider/provider.dart';
 import 'package:rast/core/api/api_client.dart';
@@ -79,6 +80,7 @@ class _AnalysesScreenState extends State<AnalysesScreen> with OnboardingTourHost
   @override
   void initState() {
     super.initState();
+    AnalyticsService.logScreen('tests');
     if (widget.initialSearchQuery != null &&
         widget.initialSearchQuery!.trim().isNotEmpty) {
       _searchController.text = widget.initialSearchQuery!.trim();
@@ -455,8 +457,10 @@ class _AnalysesScreenState extends State<AnalysesScreen> with OnboardingTourHost
                                   ),
                                   onSearchTap: () =>
                                       _loadData(reset: true),
-                                  onSubmitted: (_) =>
-                                      _loadData(reset: true),
+                                  onSubmitted: (v) {
+ AnalyticsService.logSearch(v, area: 'tests');
+ _loadData(reset: true);
+},
                                 ),
                               ),
                             ),

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:rast/core/services/analytics_service.dart';
 import 'package:rast/core/constants/api_config.dart';
 import 'package:rast/core/providers/app_settings_provider.dart';
 import 'package:rast/core/services/favorites_service.dart';
@@ -73,6 +74,12 @@ class _LabDetailsScreenState extends State<LabDetailsScreen>
   @override
   void initState() {
     super.initState();
+    AnalyticsService.logScreen('lab_details');
+    AnalyticsService.logEvent('view_lab', {
+      'lab_id': widget.lab['id'],
+      'lab_name': widget.lab['business_name_ar'] ?? widget.lab['business_name_en'],
+      'city': widget.lab['city'],
+    });
     _labMap = Map<String, dynamic>.from(widget.lab);
     _tabController = TabController(length: 2, vsync: this);
     _tabController.addListener(() {
@@ -1126,7 +1133,8 @@ class _LabDetailsScreenState extends State<LabDetailsScreen>
                     setState(() {});
                   }
                 },
-                onSubmitted: (_) {
+                onSubmitted: (v) {
+ AnalyticsService.logSearch(v, area: 'lab_details');
                   if (_tabController.index == 0) {
                     unawaited(_loadServicesInternal(reset: true));
                   } else {

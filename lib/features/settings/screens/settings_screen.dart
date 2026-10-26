@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:rast/core/services/analytics_service.dart';
 import 'package:provider/provider.dart';
 import 'package:rast/core/api/api_services.dart';
 import 'package:rast/core/constants/app_strings.dart';
@@ -26,6 +27,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   void initState() {
     super.initState();
+    AnalyticsService.logScreen('settings');
     _loadConfig();
   }
 

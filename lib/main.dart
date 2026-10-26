@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -8,6 +10,7 @@ import 'package:rast/core/providers/app_settings_provider.dart';
 import 'package:rast/core/services/cart_service.dart';
 import 'package:rast/core/services/analytics_service.dart';
 import 'package:rast/core/services/permissions_service.dart';
+import 'package:rast/core/services/push_service.dart';
 import 'package:rast/core/theme/app_theme.dart';
 import 'package:rast/features/auth/services/auth_service.dart';
 import 'package:rast/features/splash/screens/splash_screen.dart';
@@ -23,6 +26,8 @@ void main() async {
   await AnalyticsService.init();
   await PermissionsService.requestLocationPermission();
   runApp(const RastApp());
+  // إشعارات الجوال: بعد ظهور التطبيق حتى لا يتأخر فتحه
+  unawaited(PushService.init());
 }
 
 class RastApp extends StatelessWidget {
@@ -53,6 +58,7 @@ class RastApp extends StatelessWidget {
           );
           final lang = settings.language;
           return MaterialApp(
+            navigatorKey: PushService.navigatorKey,
             title: AppStrings.t('appName', lang),
             debugShowCheckedModeBanner: false,
             theme: AppTheme.lightThemeWithColors(

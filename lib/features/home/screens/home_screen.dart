@@ -1,5 +1,6 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:rast/core/services/analytics_service.dart';
 import 'package:rast/core/constants/api_config.dart';
 import 'package:rast/core/constants/app_strings.dart';
 import 'package:rast/core/providers/app_settings_provider.dart';
@@ -780,7 +781,10 @@ class _HomeScreenState extends State<HomeScreen> with OnboardingTourHost {
           context.watch<AppSettingsProvider>().language,
         ),
         onSearchTap: _submitHomeSearch,
-        onSubmitted: (_) => _submitHomeSearch(),
+        onSubmitted: (v) {
+ AnalyticsService.logSearch(v, area: 'home');
+ _submitHomeSearch();
+},
         onFilterTap: _showFilterBottomSheet,
       ),
     );

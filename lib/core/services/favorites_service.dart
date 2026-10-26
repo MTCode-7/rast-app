@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:rast/core/services/analytics_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 enum FavoriteKind { lab, analysis }
@@ -94,6 +95,13 @@ class FavoritesService {
 
     items.insert(0, Map<String, dynamic>.from(item));
     await _write(key, items);
+    final price = item['price'] ?? item['final_price'] ?? item['in_clinic_price'];
+    AnalyticsService.logAddToWishlist(AnalyticsService.item(
+      id: id,
+      name: (item['name_ar'] ?? item['business_name_ar'] ?? item['name'] ?? item['name_en'])?.toString(),
+      category: key == _labsKey ? 'lab' : 'test',
+      price: price is num ? price.toDouble() : double.tryParse('${price ?? ''}'),
+    ));
     return true;
   }
 

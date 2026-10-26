@@ -1,5 +1,6 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:rast/core/services/analytics_service.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:provider/provider.dart';
 import 'dart:async';
@@ -42,6 +43,7 @@ class _PackagesScreenState extends State<PackagesScreen> {
   @override
   void initState() {
     super.initState();
+    AnalyticsService.logScreen('packages');
 
     _searchController.text =
         widget.initialSearchQuery?.trim() ?? '';
@@ -349,7 +351,8 @@ class _PackagesScreenState extends State<PackagesScreen> {
                       child: TextField(
                         controller: _searchController,
                         textInputAction: TextInputAction.search,
-                        onSubmitted: (_) {
+                        onSubmitted: (v) {
+ AnalyticsService.logSearch(v, area: 'packages');
                           _runPackageSearch();
                         },
                         style: TextStyle(

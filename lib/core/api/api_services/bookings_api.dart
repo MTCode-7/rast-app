@@ -44,10 +44,10 @@ class BookingsApi {
     return res['data'] as Map<String, dynamic>;
   }
 
-  /// POST /api/bookings/{id}/cancel - إلغاء حجز
+  /// POST /api/bookings/{id}/cancel - إلغاء حجز غير مدفوع فوراً، أو طلب إلغاء للإدارة إن كان مدفوعاً
+  /// يعيد الاستجابة كاملة: cancellation_status (cancelled | requested) و data (الحجز المحدّث)
   Future<Map<String, dynamic>> cancel(int id, String reason) async {
-    final res = await _client.post('bookings/$id/cancel', body: {'reason': reason});
-    return res['data'] as Map<String, dynamic>;
+    return await _client.post('bookings/$id/cancel', body: {'reason': reason});
   }
 
   /// POST /api/bookings/{id}/payment/session - إنشاء جلسة دفع (رابط الدفع)

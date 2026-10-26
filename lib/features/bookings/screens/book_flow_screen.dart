@@ -1,4 +1,5 @@
 import 'dart:ui' as ui show TextDirection;
+import 'package:firebase_analytics/firebase_analytics.dart' show AnalyticsEventItem;
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
@@ -75,6 +76,10 @@ class _BookFlowScreenState extends State<BookFlowScreen>
   final TextEditingController _addressController = TextEditingController();
   final TextEditingController _cityController = TextEditingController();
   final TextEditingController _districtController = TextEditingController();
+
+  /// الحجز لشخص آخر (أخ، ابن...): يُرسل اسمه مع الحجز، ويمكن إضافة نفس التحليل لعدة أشخاص في السلة
+  bool _forOther = false;
+  final TextEditingController _patientNameController = TextEditingController();
   DateTime? _selectedDate;
   Map<String, dynamic>? _selectedSlot;
   List<dynamic> _timeSlots = [];
@@ -112,6 +117,15 @@ class _BookFlowScreenState extends State<BookFlowScreen>
               : widget.providerService['name_ar'])
           ?.toString() ??
       '';
+
+  /// عنصر التحليلات لهذا الحجز (لأحداث بدء الدفع والشراء)
+  AnalyticsEventItem _analyticsItem(double amount) => AnalyticsService.item(
+        id: _providerServiceId,
+        name: _serviceNameDisplay(),
+        price: amount > 0 ? amount : null,
+        lab: widget.labName,
+        variant: _serviceType,
+      );
 
   String _serviceNameDisplay() {
     final service = widget.providerService['service'];
@@ -229,6 +243,7 @@ class _BookFlowScreenState extends State<BookFlowScreen>
   @override
   void initState() {
     super.initState();
+    AnalyticsService.logScreen('booking_flow');
     scheduleOnboardingTour(delay: const Duration(milliseconds: 700));
     _resolvedPrice = _extractPrice(widget.providerService);
     _resolvedHomeServiceFeeRaw = _extractHomeFee(
@@ -310,6 +325,7 @@ class _BookFlowScreenState extends State<BookFlowScreen>
     _addressController.dispose();
     _cityController.dispose();
     _districtController.dispose();
+    _patientNameController.dispose();
     super.dispose();
   }
 
@@ -650,10 +666,16 @@ class _BookFlowScreenState extends State<BookFlowScreen>
       throw ApiException(_tr('locationRequiredForBranch'));
     }
 
+    final patientName = _patientNameController.text.trim();
+    if (_forOther && patientName.length < 2) {
+      throw ApiException(_tr('patientNameRequired'));
+    }
+
     final body = <String, dynamic>{
       'provider_service_id': _providerServiceId,
       'time_slot_id': _selectedSlot!['id'],
       'service_type': _serviceType,
+      if (_forOther) 'patient_name': patientName,
     };
     if (_isNonSaudi) body['nationality'] = 'non_saudi';
     if (_serviceType == 'home_service') {
@@ -948,7 +970,12 @@ class _BookFlowScreenState extends State<BookFlowScreen>
       final paymentUrl = res['payment_url']?.toString();
 
       if (success && paymentUrl != null && paymentUrl.isNotEmpty) {
-        await AnalyticsService.logCheckoutStarted(itemCount: 1);
+        final checkoutValue = _parseNum(_createdBooking?['total_amount']);
+        await AnalyticsService.logCheckoutStarted(
+          itemCount: 1,
+          value: checkoutValue > 0 ? checkoutValue : null,
+          items: [_analyticsItem(checkoutValue)],
+        );
         if (!mounted) return;
         final bookingId = bid is int ? bid : int.parse(bid.toString());
         final paid = await Navigator.push<bool>(
@@ -974,9 +1001,14 @@ class _BookFlowScreenState extends State<BookFlowScreen>
               paymentStatus == 'paid' ||
               bookingStatus == 'confirmed';
           if (isPaid) {
+            final amount = _parseNum(
+              refreshed?['total_amount'] ?? _createdBooking?['total_amount'],
+            );
             await AnalyticsService.logPurchase(
-              transactionId: bookingId.toString(),
+              transactionId: 'booking_$bookingId',
+              value: amount > 0 ? amount : null,
               itemCount: 1,
+              items: [_analyticsItem(amount)],
             );
           }
           if (!mounted) return;
@@ -2445,6 +2477,7 @@ class _BookFlowScreenState extends State<BookFlowScreen>
               if (_serviceType == 'home_service')
                 _confirmRow(_tr('address'), _addressController.text),
               SizedBox(height: Responsive.spacing(context, 12)),
+              _buildBookingFor(),
               CheckboxListTile(
                 value: _isNonSaudi,
                 onChanged: (v) {
@@ -2476,6 +2509,64 @@ class _BookFlowScreenState extends State<BookFlowScreen>
             ],
           ),
         ),
+      ],
+    );
+  }
+
+  /// لمن التحليل؟ لي / لشخص آخر + اسمه
+  Widget _buildBookingFor() {
+    final myName = AuthService.currentUser?.name.trim() ?? '';
+    Widget chip(bool other, String label, IconData icon) {
+      final selected = _forOther == other;
+      return ChoiceChip(
+        selected: selected,
+        showCheckmark: false,
+        avatar: Icon(icon, size: 18, color: selected ? Colors.white : AppTheme.primary),
+        label: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
+        labelStyle: TextStyle(
+          color: selected ? Colors.white : RastUi.primaryText(context),
+          fontWeight: FontWeight.w600,
+        ),
+        selectedColor: AppTheme.primary,
+        onSelected: (_) => setState(() => _forOther = other),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          _tr('bookingForTitle'),
+          style: TextStyle(
+            fontSize: Responsive.fontSize(context, 14),
+            fontWeight: FontWeight.w600,
+            color: AppTheme.onSurface,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            chip(false, myName.isNotEmpty ? '${_tr('bookingForShort')} $myName' : _tr('bookingForMe'), Icons.person_outline),
+            chip(true, _tr('bookingForOther'), Icons.group_outlined),
+          ],
+        ),
+        if (_forOther) ...[
+          const SizedBox(height: 10),
+          _modernBookingField(
+            controller: _patientNameController,
+            label: _tr('patientNameLabel'),
+            hint: _tr('patientNameHint'),
+            icon: Icons.badge_outlined,
+          ),
+          const SizedBox(height: 6),
+          Text(
+            _tr('patientNameCartHint'),
+            style: TextStyle(fontSize: Responsive.fontSize(context, 11), color: AppTheme.onSurfaceVariant),
+          ),
+        ],
+        const SizedBox(height: 8),
       ],
     );
   }

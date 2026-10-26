@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:rast/core/services/analytics_service.dart';
 import 'package:rast/core/api/api_services.dart';
 import 'package:rast/core/theme/app_theme.dart';
 import 'package:rast/core/widgets/gradient_button.dart';
@@ -33,14 +34,31 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
   String? _error;
   bool _syncing = false;
 
+  /// البوابة تعيد المستخدم إلى `.../payment/return` بعد إتمام الدفع أو فشله
+  bool _isReturnUrl(String url) => url.contains('/payment/return');
+
   @override
   void initState() {
     super.initState();
+    AnalyticsService.logScreen('payment');
     _controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setNavigationDelegate(
         NavigationDelegate(
-          onPageStarted: (_) => setState(() => _isLoading = true),
+          onNavigationRequest: (request) {
+            if (_isReturnUrl(request.url)) {
+              _finish();
+              return NavigationDecision.prevent;
+            }
+            return NavigationDecision.navigate;
+          },
+          onPageStarted: (url) {
+            if (_isReturnUrl(url)) {
+              _finish();
+              return;
+            }
+            setState(() => _isLoading = true);
+          },
           onPageFinished: (_) => setState(() => _isLoading = false),
           onWebResourceError: (e) {
             if (e.errorType == WebResourceErrorType.hostLookup ||
@@ -58,30 +76,31 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
     }
   }
 
-  Future<void> _finish({required bool userConfirmedPaid}) async {
-    if (_syncing) return;
-    if (widget.bookingId == null) {
-      if (!mounted) return;
-      Navigator.pop(context, userConfirmedPaid);
-      return;
-    }
-    setState(() => _syncing = true);
-    var paid = userConfirmedPaid;
+  /// يعيد true فقط إذا أكّد الخادم الدفع (لا نعتمد على ضغط المستخدم «تم الدفع»)
+  Future<bool> _serverConfirmsPaid() async {
     try {
       if (widget.cartOrderId != null) {
         final status = await Api.cart.getPaymentStatus(widget.cartOrderId!);
-        if (status['payment_status']?.toString() == 'paid') {
-          paid = true;
-        }
-      } else if (widget.bookingId != null) {
+        return status['payment_status']?.toString() == 'paid';
+      }
+      if (widget.bookingId != null) {
         final status = await Api.bookings.getPaymentStatus(widget.bookingId!);
-        final paymentStatus = status['payment_status']?.toString();
-        final bookingStatus = status['booking_status']?.toString();
-        if (paymentStatus == 'paid' || bookingStatus == 'confirmed') {
-          paid = true;
-        }
+        return status['payment_status']?.toString() == 'paid' ||
+            status['booking_status']?.toString() == 'confirmed';
       }
     } catch (_) {}
+    return false;
+  }
+
+  Future<void> _finish({bool retry = true}) async {
+    if (_syncing) return;
+    setState(() => _syncing = true);
+    // إشعار البوابة قد يتأخر ثوانٍ عن عودة المستخدم، فنعيد التحقق قليلاً
+    var paid = await _serverConfirmsPaid();
+    for (var i = 0; !paid && retry && i < 2; i++) {
+      await Future<void>.delayed(const Duration(seconds: 2));
+      paid = await _serverConfirmsPaid();
+    }
     if (!mounted) return;
     Navigator.pop(context, paid);
   }
@@ -100,7 +119,7 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
           TextButton(
             onPressed: () {
               Navigator.pop(ctx);
-              _finish(userConfirmedPaid: false);
+              _finish(retry: false);
             },
             child: const Text('خروج'),
           ),
@@ -135,7 +154,7 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
             TextButton.icon(
               onPressed: _syncing
                   ? null
-                  : () => _finish(userConfirmedPaid: true),
+                  : () => _finish(),
               icon: _syncing
                   ? const SizedBox(
                       width: 18,

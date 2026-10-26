@@ -1,5 +1,6 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:rast/core/services/analytics_service.dart';
 import 'package:rast/core/api/api_services.dart';
 import 'package:rast/core/constants/api_config.dart';
 import 'package:rast/core/constants/app_strings.dart';
@@ -34,6 +35,8 @@ class _PackageDetailScreenState extends State<PackageDetailScreen>
   @override
   void initState() {
     super.initState();
+    AnalyticsService.logScreen('package_details');
+    AnalyticsService.logViewItem(AnalyticsService.itemFromMap(widget.package, category: 'package'));
     _loadData();
   }
 

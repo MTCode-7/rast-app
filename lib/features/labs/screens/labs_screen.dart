@@ -4,6 +4,7 @@ import 'dart:async';
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:rast/core/services/analytics_service.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:rast/core/constants/api_config.dart';
 import 'package:rast/core/providers/app_settings_provider.dart';
@@ -562,8 +563,10 @@ class _LabsScreenState extends State<LabsScreen> with OnboardingTourHost {
                                   controller: _searchController,
                                   hintText: AppStrings.t('searchLabs', lang),                                  onSearchTap: () =>
                                     _loadData(reset: true),
-                                  onSubmitted: (_) =>
-                                      _loadData(reset: true),
+                                  onSubmitted: (v) {
+ AnalyticsService.logSearch(v, area: 'labs');
+ _loadData(reset: true);
+},
                                 ),
                               ),
                             ),

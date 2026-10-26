@@ -1,4 +1,7 @@
+import 'dart:async';
 import 'dart:convert';
+import 'package:rast/core/services/analytics_service.dart';
+import 'package:rast/core/services/push_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// خدمة المصادقة - إدارة حالة تسجيل الدخول
@@ -30,9 +33,14 @@ class AuthService {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_keyToken, token);
     await prefs.setString(_keyUser, jsonEncode(user.toJson()));
+    // ربط جهاز الإشعارات بالحساب
+    unawaited(PushService.syncToken());
   }
 
   static Future<void> logout() async {
+    // فصل الجهاز عن الحساب قبل حذف رمز الدخول (يبقى على الإشعارات العامة)
+    await PushService.detach();
+    unawaited(AnalyticsService.logLogout());
     _token = null;
     _currentUser = null;
     final prefs = await SharedPreferences.getInstance();

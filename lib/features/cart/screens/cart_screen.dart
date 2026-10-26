@@ -35,6 +35,14 @@ class _CartScreenState extends State<CartScreen> {
   @override
   void initState() {
     super.initState();
+    AnalyticsService.logScreen('cart');
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final cart = context.read<CartService>();
+      if (cart.hasItems) {
+        AnalyticsService.logViewCart(value: cart.totalAmount, items: cart.analyticsItems);
+      }
+    });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (AuthService.isLoggedIn) {
         context.read<CartService>().refresh();
@@ -55,7 +63,13 @@ class _CartScreenState extends State<CartScreen> {
       _checkoutError = null;
     });
     try {
-      await AnalyticsService.logCheckoutStarted(itemCount: cart.items.length);
+      // نحفظ عناصر السلة قبل إفراغها عند إنشاء الطلب
+      final checkoutItems = cart.analyticsItems;
+      await AnalyticsService.logCheckoutStarted(
+        itemCount: cart.items.length,
+        value: cart.totalAmount > 0 ? cart.totalAmount : null,
+        items: checkoutItems,
+      );
       final result = await Api.cart.checkout();
       final cartOrderId = result['id'];
       final id = cartOrderId is int
@@ -93,11 +107,14 @@ class _CartScreenState extends State<CartScreen> {
       final isPaid = paid == true || paymentStatus == 'paid';
 
       if (isPaid) {
+        final amount = _parseNum(status?['total_amount'] ?? result['total_amount']);
         await AnalyticsService.logPurchase(
-          transactionId: id.toString(),
+          transactionId: 'cart_$id',
+          value: amount > 0 ? amount : null,
           itemCount: result['items_count'] is int
               ? result['items_count'] as int
               : null,
+          items: checkoutItems,
         );
       }
 
@@ -772,6 +789,14 @@ class _CartItemTile extends StatelessWidget {
                   name.isEmpty ? AppStrings.t('analysis', lang) : name,
                   style: const TextStyle(fontWeight: FontWeight.w600),
                 ),
+                // لمن هذا التحليل (يسمح بنفس التحليل لأكثر من شخص)
+                if ((item['patient_display_name']?.toString() ?? '').isNotEmpty) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    '${AppStrings.t('bookingForShort', lang)} ${item['patient_display_name']}',
+                    style: const TextStyle(fontSize: 12, color: AppTheme.primary, fontWeight: FontWeight.w600),
+                  ),
+                ],
                 const SizedBox(height: 4),
                 Text(
                   '$serviceType · ${DateFormatter.formatBookingDate(date)}${period != null && period.isNotEmpty ? ' · $period' : ''}',

@@ -1,5 +1,6 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:rast/core/services/analytics_service.dart';
 import 'package:rast/core/constants/api_config.dart';
 import 'package:rast/core/constants/app_strings.dart';
 import 'package:rast/core/providers/app_settings_provider.dart';
@@ -51,6 +52,11 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
   @override
   void initState() {
     super.initState();
+    AnalyticsService.logScreen('test_details');
+    AnalyticsService.logViewItem(AnalyticsService.itemFromMap(
+      widget.service,
+      lab: widget.labName ?? widget.lab?['business_name_ar']?.toString(),
+    ));
 
     _service = Map<String, dynamic>.from(
       widget.service,
