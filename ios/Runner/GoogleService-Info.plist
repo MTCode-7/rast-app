@@ -9,7 +9,7 @@
 	<key>PLIST_VERSION</key>
 	<string>1</string>
 	<key>BUNDLE_ID</key>
-	<string>com.rast.labs</string>
+	<string>com.labs.rast</string>
 	<key>PROJECT_ID</key>
 	<string>rast-4ec36</string>
 	<key>STORAGE_BUCKET</key>
@@ -17,7 +17,7 @@
 	<key>IS_ADS_ENABLED</key>
 	<false></false>
 	<key>IS_ANALYTICS_ENABLED</key>
-	<true></true>
+	<false></false>
 	<key>IS_APPINVITE_ENABLED</key>
 	<true></true>
 	<key>IS_GCM_ENABLED</key>
@@ -25,6 +25,6 @@
 	<key>IS_SIGNIN_ENABLED</key>
 	<true></true>
 	<key>GOOGLE_APP_ID</key>
-	<string>1:310953261820:ios:5d7aed4dfc95e8e5a9f579</string>
+	<string>1:310953261820:ios:b0bfec355ded3826a9f579</string>
 </dict>
 </plist>
