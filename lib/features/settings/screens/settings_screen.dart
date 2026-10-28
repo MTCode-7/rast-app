@@ -10,7 +10,7 @@ import 'package:rast/features/settings/screens/default_location_screen.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 /// إصدار التطبيق (يُحدَّث مع pubspec)
-const String kAppVersion = '1.0.0';
+const String kAppVersion = '4.0.1';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
