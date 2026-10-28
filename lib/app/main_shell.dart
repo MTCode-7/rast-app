@@ -9,6 +9,7 @@ import 'package:rast/core/onboarding/onboarding_step.dart';
 import 'package:rast/core/onboarding/onboarding_tour_ids.dart';
 import 'package:rast/core/providers/app_settings_provider.dart';
 import 'package:rast/core/services/cart_service.dart';
+import 'package:rast/core/services/review_prompt_service.dart';
 import 'package:rast/features/auth/services/auth_service.dart';
 import 'package:rast/core/widgets/rast_ui.dart';
 import 'package:rast/features/bookings/screens/bookings_screen.dart';
@@ -65,6 +66,10 @@ class _MainScaffoldState extends State<MainScaffold> with OnboardingTourHost {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (AuthService.isLoggedIn) {
         context.read<CartService>().refresh(silent: true);
+        // بعد الجولة التعريفية والشاشة الأولى: تقييم آخر زيارة لم تُقيَّم (مرة لكل حجز)
+        Future<void>.delayed(const Duration(seconds: 4), () {
+          if (mounted) ReviewPromptService.checkPendingOnLaunch(context);
+        });
       }
     });
   }

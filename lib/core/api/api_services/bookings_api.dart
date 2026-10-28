@@ -22,6 +22,12 @@ class BookingsApi {
     return res;
   }
 
+  /// GET /api/bookings/pending-review - زيارات آخر 30 يوماً تنتظر التقييم
+  Future<List<dynamic>> getPendingReview() async {
+    final res = await _client.get('bookings/pending-review');
+    return res['data'] is List ? res['data'] as List<dynamic> : <dynamic>[];
+  }
+
   /// GET /api/bookings/{id} - تفاصيل حجز
   Future<Map<String, dynamic>> getBooking(int id) async {
     final res = await _client.get('bookings/$id');

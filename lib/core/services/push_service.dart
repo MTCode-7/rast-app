@@ -176,7 +176,9 @@ class PushService {
     if (id == null || nav == null) return;
     try {
       final booking = await Api.bookings.getBooking(id);
-      nav.push(MaterialPageRoute(builder: (_) => BookingDetailScreen(booking: booking)));
+      // تذكير التقييم أو «اكتمل حجزك»: نفتح نافذة التقييم مباشرة
+      final openReview = data['type'] == 'review_reminder' || data['type'] == 'completed';
+      nav.push(MaterialPageRoute(builder: (_) => BookingDetailScreen(booking: booking, openReview: openReview)));
     } catch (_) {}
   }
 }

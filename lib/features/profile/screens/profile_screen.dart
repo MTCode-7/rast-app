@@ -12,6 +12,7 @@ import 'package:rast/features/auth/screens/login_screen.dart';
 import 'package:rast/features/auth/screens/register_screen.dart';
 import 'package:rast/features/auth/services/auth_service.dart'
     show AuthService, UserModel;
+import 'package:rast/core/services/review_prompt_service.dart';
 import 'package:rast/core/services/cart_service.dart';
 import 'package:rast/core/services/analytics_service.dart';
 import 'package:rast/features/bookings/screens/bookings_screen.dart';
@@ -438,6 +439,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 textColor: Color(0xFF535353),
                 iconColor: Color(0xFF535353),
                 onTap: _openPrivacyPolicy,
+              ),
+              _buildActionTile(
+                icon: Icons.star_rate_rounded,
+                title: AppStrings.t('rateApp', lang),
+                textColor: Color(0xFF535353),
+                iconColor: Colors.amber,
+                onTap: ReviewPromptService.openStore,
               ),
               _buildActionTile(
                 icon: Icons.verified_outlined,

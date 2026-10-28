@@ -418,6 +418,10 @@ class AppStrings {
       'submitReview': 'إرسال التقييم',
       'reviewAddedSuccess': 'تم إضافة التقييم بنجاح',
       'reviewSendFailed': 'تعذر إرسال التقييم',
+      'howWasVisit': 'كيف كانت زيارتك لـ %s؟',
+      'later': 'لاحقاً',
+      'rateApp': 'قيّم التطبيق',
+      'reviewInvite': 'شاركنا تجربتك لتساعد غيرك على اختيار المختبر المناسب',
 
       'cancelBooking': 'إلغاء الحجز',
       'directions': 'الوصول',
@@ -893,6 +897,10 @@ class AppStrings {
       'Review added successfully',
       'reviewSendFailed':
       'Unable to submit review',
+      'howWasVisit': 'How was your visit to %s?',
+      'later': 'Later',
+      'rateApp': 'Rate the App',
+      'reviewInvite': 'Share your experience to help others choose the right lab',
 
       'cancelBooking': 'Cancel Booking',
       'directions': 'Directions',

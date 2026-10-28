@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:rast/core/services/analytics_service.dart';
+import 'package:rast/core/services/review_prompt_service.dart';
 import 'package:flutter_rating_bar/flutter_rating_bar.dart';
 import 'package:provider/provider.dart';
 import 'package:rast/core/constants/api_config.dart';
@@ -20,7 +21,10 @@ import '../../../core/constants/app_strings.dart';
 class BookingDetailScreen extends StatefulWidget {
   final Map<String, dynamic> booking;
 
-  const BookingDetailScreen({super.key, required this.booking});
+  /// يفتح نافذة التقييم مباشرة (عند الضغط على إشعار تذكير التقييم)
+  final bool openReview;
+
+  const BookingDetailScreen({super.key, required this.booking, this.openReview = false});
 
   @override
   State<BookingDetailScreen> createState() => _BookingDetailScreenState();
@@ -49,7 +53,17 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
     AnalyticsService.logScreen('booking_details');
     _booking = Map<String, dynamic>.from(widget.booking);
     _loadFreshBooking();
+    if (widget.openReview && _canReview) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _showReviewDialog(context);
+      });
+    }
   }
+
+  bool get _hasReview => _booking['review'] is Map && _booking['review']['rating'] != null;
+
+  // الخادم يحدد الإمكانية (بعد الاكتمال أو بعد مرور موعد الحجز المدفوع)
+  bool get _canReview => !_hasReview && (_booking['can_review'] == true || _booking['status'] == 'completed');
 
   double _parseNum(dynamic v) {
     if (v == null) return 0;
@@ -335,8 +349,7 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
                               'confirmed')
                         _buildActions(context),
 
-                      if (booking['status'] ==
-                          'completed')
+                      if (_hasReview || _canReview)
                         _buildReviewSection(
                           context,
                         ),
@@ -1224,111 +1237,18 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
   }
 
   Future<void> _showReviewDialog(BuildContext context) async {
-    final settings =
-    context.read<AppSettingsProvider>();
-    final existingReview = booking['review'] is Map ? booking['review'] as Map<String, dynamic> : null;
-    final initialRating = existingReview != null && existingReview['rating'] != null
-        ? (existingReview['rating'] is num ? (existingReview['rating'] as num).toDouble() : 5.0).clamp(1.0, 5.0)
-        : 5.0;
-    var rating = initialRating.round();
-    final commentText = existingReview?['comment']?.toString().trim() ?? '';
-    final controller = TextEditingController(text: commentText);
-    final result = await showModalBottomSheet<bool>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) => Directionality(
-        textDirection: settings.textDirection,
-        child: Container(
-          padding: EdgeInsets.fromLTRB(24, 24, 24, MediaQuery.of(ctx).viewInsets.bottom + 24),
-          decoration: BoxDecoration(
-            color: Theme.of(ctx).colorScheme.surface,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(_tr('rateService'), style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-              SizedBox(height: 16),
-              Center(
-                child: RatingBar.builder(
-                  initialRating: initialRating,
-                  minRating: 1,
-                  direction: Axis.horizontal,
-                  allowHalfRating: false,
-                  itemCount: 5,
-                  itemSize: 40,
-                  itemPadding: EdgeInsets.symmetric(horizontal: 4),
-                  itemBuilder: (context, _) => Icon(Icons.star_rounded, color: Colors.amber),
-                  onRatingUpdate: (v) => rating = v.round(),
-                ),
-              ),
-              SizedBox(height: 20),
-              TextField(
-                controller: controller,
-                decoration: InputDecoration(
-                  labelText:
-                  _tr('reviewCommentOptional'),
-                  hintText:
-                  _tr('reviewCommentHint'),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                ),
-                maxLines: 3,
-              ),
-              SizedBox(height: 24),
-              GradientFilledButton(
-                onPressed: () => Navigator.pop(ctx, true),
-                style: FilledButton.styleFrom(padding: EdgeInsets.symmetric(vertical: 14)),
-                child: Text(
-                  _tr('submitReview'),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-    final commentToSend = controller.text.trim().isEmpty ? null : controller.text.trim();
-    controller.dispose();
-    if (result != true || !mounted) return;
-    final bid = booking['id'];
-    if (bid == null) return;
-    final bookingId = bid is int ? bid : int.parse(bid.toString());
+    final review = await ReviewPromptService.rateBooking(context, Map<String, dynamic>.from(_booking));
+    if (review == null || !mounted) return;
+    final updated = Map<String, dynamic>.from(_booking)
+      ..['review'] = review
+      ..['can_review'] = false;
+    setState(() => _booking = updated);
+    final bookingId = int.tryParse(_booking['id']?.toString() ?? '');
+    if (bookingId == null) return;
     try {
-      final reviewData = await Api.bookings.submitReview(bookingId, rating, comment: commentToSend);
-      if (mounted) {
-        final updated = Map<String, dynamic>.from(_booking);
-        if (reviewData.isNotEmpty && reviewData['rating'] != null) {
-          updated['review'] = reviewData;
-        }
-        try {
-          final fresh = await Api.bookings.getBooking(bookingId);
-          setState(() => _booking = _mergeBooking(updated, fresh));
-        } catch (_) {
-          if (updated['review'] != null) setState(() => _booking = updated);
-        }
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              _tr('reviewAddedSuccess'),
-            ),
-          ),
-        );
-      }
-    } on ApiException catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            _tr('reviewSendFailed'),
-          ),
-        ),
-      );
-      }
-    }
+      final fresh = await Api.bookings.getBooking(bookingId);
+      if (mounted) setState(() => _booking = _mergeBooking(updated, fresh));
+    } catch (_) {}
   }
 
   Widget _buildActions(BuildContext context) {
