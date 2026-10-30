@@ -726,6 +726,9 @@ class _BookFlowScreenState extends State<BookFlowScreen>
       if (!mounted) return;
 
       final messenger = ScaffoldMessenger.of(context);
+      // نحتفظ بالـ Navigator قبل إغلاق هذه الشاشة: بعد pop يصبح context هذه الشاشة غير صالح
+      // فكان زر «عرض السلة» لا يفعل شيئاً
+      final navigator = Navigator.of(context);
 
       messenger.hideCurrentSnackBar();
 
@@ -737,8 +740,7 @@ class _BookFlowScreenState extends State<BookFlowScreen>
             onPressed: () {
               messenger.hideCurrentSnackBar();
 
-              Navigator.push(
-                context,
+              navigator.push(
                 MaterialPageRoute(builder: (_) => const CartScreen()),
               );
             },

@@ -78,7 +78,7 @@ class _CartScreenState extends State<CartScreen> {
       if (id == null) throw ApiException('تعذر إنشاء طلب السلة');
 
       if (!mounted) return;
-      context.read<CartService>().clearLocal();
+      // لا نفرّغ السلة هنا: تبقى محفوظة حتى ينجح الدفع (الخادم يحذف عناصرها عند الدفع فقط)
 
       final payRes = await Api.cart.createPaymentSession(id);
       final paymentUrl = payRes['payment_url']?.toString();
@@ -119,6 +119,17 @@ class _CartScreenState extends State<CartScreen> {
       }
 
       if (!mounted) return;
+      // نحدّث السلة من الخادم: تفرغ بعد الدفع الناجح، وتبقى كما هي إن لم يكتمل
+      await context.read<CartService>().refresh(silent: true);
+      if (!mounted) return;
+
+      if (!isPaid) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('لم يكتمل الدفع. سلتك محفوظة ويمكنك المحاولة مرة أخرى.')),
+        );
+        return;
+      }
+
       await showDialog<void>(
         context: context,
         builder: (ctx) => AlertDialog(

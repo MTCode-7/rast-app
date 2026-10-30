@@ -82,7 +82,9 @@ class AnalyticsService {
 
   // ===================== التصفح =====================
 
-  /// عنصر GA4 من بيانات تحليل/باقة/مختبر
+  /// عنصر GA4 من بيانات تحليل/باقة/مختبر.
+  /// اسم التحليل أو الباقة لا يُرسل (بيانات صحية تمنعها سياسات Google/Snap/Meta):
+  /// نرسل التصنيف + المعرّف مثل الموقع، ويبقى اسم المختبر فقط.
   static AnalyticsEventItem item({
     required Object? id,
     required String? name,
@@ -92,9 +94,11 @@ class AnalyticsService {
     String? variant,
     int quantity = 1,
   }) {
+    final itemId = (id ?? 'unknown').toString();
+    final labName = (name == null || name.trim().isEmpty) ? 'unknown' : name.trim();
     return AnalyticsEventItem(
-      itemId: (id ?? name ?? 'unknown').toString(),
-      itemName: (name == null || name.trim().isEmpty) ? 'unknown' : name.trim(),
+      itemId: itemId,
+      itemName: category == 'lab' ? labName : '$category-$itemId',
       itemCategory: category,
       itemBrand: lab,
       itemVariant: variant,
@@ -130,7 +134,7 @@ class AnalyticsService {
           value: item.price?.toDouble(),
           items: [item],
         ));
-    await _sendToSnap('view_item', {'item_id': item.itemId, 'item_name': item.itemName, 'value': item.price});
+    await _sendToSnap('view_item', {'item_id': item.itemId, 'value': item.price, 'currency': currency});
   }
 
   static Future<void> logSelectItem(AnalyticsEventItem item, {String list = 'list'}) =>
@@ -140,7 +144,8 @@ class AnalyticsService {
     final t = term.trim();
     if (t.isEmpty) return;
     await _safe(() => _firebase.logSearch(searchTerm: t, parameters: {'search_area': area}));
-    await _sendToSnap('search', {'search_term': t});
+    // نص البحث يبقى في Firebase للتقارير فقط، ولا يُرسل لمنصة إعلانية (قد يكون اسم تحليل)
+    await _sendToSnap('search', {'search_area': area});
   }
 
   static Future<void> logAddToWishlist(AnalyticsEventItem item) async {
