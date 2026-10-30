@@ -21,6 +21,7 @@ class AuthApi {
     String? phone,
     required String password,
     required String passwordConfirmation,
+    String? referralCode,
   }) async {
     final body = <String, dynamic>{
       'name': name,
@@ -30,6 +31,9 @@ class AuthApi {
     };
     final phoneTrim = phone?.trim();
     if (phoneTrim != null && phoneTrim.isNotEmpty) body['phone'] = phoneTrim;
+    // كود دعوة صديق (اختياري): يمنح الطرفين نقاطاً بعد أول حجز مدفوع
+    final refTrim = referralCode?.trim();
+    if (refTrim != null && refTrim.isNotEmpty) body['referral_code'] = refTrim.toUpperCase();
     final res = await _client.post('auth/register', body: body);
     return res['data'] as Map<String, dynamic>;
   }

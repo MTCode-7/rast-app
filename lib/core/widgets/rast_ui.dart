@@ -4,6 +4,8 @@ import 'package:rast/core/onboarding/onboarding_step.dart';
 import 'package:rast/core/widgets/cart_icon_button.dart';
 import 'package:rast/core/widgets/rast_help_button.dart';
 import 'package:rast/core/theme/app_theme.dart';
+import 'package:rast/core/widgets/rast_motion.dart';
+import 'package:rast/core/widgets/rast_kit.dart';
 
 import '../providers/app_settings_provider.dart';
 
@@ -219,6 +221,8 @@ class RastSupportBubble extends StatelessWidget {
   }
 }
 
+/// الشريط العلوي الموحّد: تدرج الهوية، عنوان في المنتصف، وأزرار دائرية 44px
+/// (رجوع / مساعدة / سلة) بضغطة محسوسة. واجهة المُنشئ ثابتة لتوافق كل الشاشات.
 class RastTopBar extends StatelessWidget implements PreferredSizeWidget {
   const RastTopBar({
     super.key,

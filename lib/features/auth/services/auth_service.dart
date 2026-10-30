@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:rast/core/services/analytics_service.dart';
+import 'package:rast/core/services/app_events.dart';
 import 'package:rast/core/services/push_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -35,6 +36,7 @@ class AuthService {
     await prefs.setString(_keyUser, jsonEncode(user.toJson()));
     // ربط جهاز الإشعارات بالحساب
     unawaited(PushService.syncToken());
+    AppEvents.notifyBookingsChanged(); // الحجوزات تُحمّل لهذا الحساب فوراً
   }
 
   static Future<void> logout() async {
@@ -46,6 +48,7 @@ class AuthService {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_keyToken);
     await prefs.remove(_keyUser);
+    AppEvents.notifyBookingsChanged();
   }
 
   static void updateUser(UserModel user) {

@@ -37,6 +37,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _phoneController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
+  final _referralController = TextEditingController();
 
   bool _obscurePassword = true;
   bool _obscureConfirm = true;
@@ -56,6 +57,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     _phoneController.dispose();
     _passwordController.dispose();
     _confirmPasswordController.dispose();
+    _referralController.dispose();
     super.dispose();
   }
 
@@ -70,6 +72,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         phone: phone.isEmpty ? null : phone,
         password: _passwordController.text,
         passwordConfirmation: _confirmPasswordController.text,
+        referralCode: _referralController.text.trim().isEmpty ? null : _referralController.text.trim(),
       );
 
       final token = data['token']?.toString();
@@ -80,7 +83,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         userData is Map<String, dynamic> ? userData : <String, dynamic>{},
       );
       await AuthService.login(token, user);
-      await AnalyticsService.setUserId(user.id.toString());
+      await AnalyticsService.setUserId(user.id.toString(), email: user.email, phone: user.phone);
       await AnalyticsService.logSignUp();
       if (!mounted) return;
       context.read<CartService>().refresh(silent: true);
@@ -272,7 +275,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 icon: Icons.phone_outlined,
               ),
               validator: (v) {
-                if (v == null || v.trim().isEmpty) return null;
+                // الجوال مطلوب (الخادم يشترطه ليتواصل المختبر بخصوص الموعد)
+                if (v == null || v.trim().isEmpty) {
+                  return lang == 'en' ? 'Phone number is required' : 'رقم الجوال مطلوب';
+                }
 
                 if (v.trim().length < 9) {
                   return AppStrings.t('phoneInvalid', lang);
@@ -318,7 +324,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 icon: Icons.lock_reset_rounded,
                 suffix: IconButton(
                   icon: Icon(
-                    _obscurePassword
+                    _obscureConfirm
                         ? Icons.visibility_off_rounded
                         : Icons.visibility_rounded,
                     size: 20,
@@ -330,6 +336,18 @@ class _RegisterScreenState extends State<RegisterScreen> {
               validator: (v) => v != _passwordController.text
                   ? AppStrings.t('passwordsDoNotMatch', lang)
                   : null,
+            ),
+            SizedBox(height: Responsive.spacing(context, 15)),
+            TextFormField(
+              controller: _referralController,
+              textCapitalization: TextCapitalization.characters,
+              decoration: _fieldDecoration(
+                fill,
+                primary: primary,
+                label: '',
+                hint: lang == 'en' ? 'Invite code (optional)' : 'كود الدعوة (اختياري)',
+                icon: Icons.card_giftcard_rounded,
+              ),
             ),
             SizedBox(height: Responsive.spacing(context, 26)),
             GradientFilledButton(

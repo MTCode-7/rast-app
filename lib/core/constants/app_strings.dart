@@ -5,7 +5,7 @@ class AppStrings {
       'appName': 'راست لابس',
       'profile': 'حسابي',
       'signInToContinue': 'سجّل الدخول للوصول إلى كل المزايا',
-      'manageDataSubtitle': 'ادفع حجوزاتك، تتبع النتائج، وادير بياناتك من مكان واحد',
+      'manageDataSubtitle': 'ادفع حجوزاتك، تابع نتائجك، وأدِر بياناتك من مكان واحد',
       'signIn': 'دخول',
       'createAccount': 'إنشاء حساب',
       'editProfile': 'تعديل البيانات',

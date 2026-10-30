@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
+import 'package:rast/core/providers/app_settings_provider.dart';
 import 'package:rast/core/services/analytics_service.dart';
 import 'package:rast/core/api/api_services.dart';
-import 'package:rast/core/theme/app_theme.dart';
-import 'package:rast/core/widgets/gradient_button.dart';
-import 'package:rast/core/utils/responsive.dart';
+import 'package:rast/core/widgets/rast_kit.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
@@ -31,8 +32,11 @@ class PaymentWebViewScreen extends StatefulWidget {
 class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
   late final WebViewController _controller;
   bool _isLoading = true;
+  int _progress = 0;
   String? _error;
   bool _syncing = false;
+
+  String get _lang => context.read<AppSettingsProvider>().language;
 
   /// البوابة تعيد المستخدم إلى `.../payment/return` بعد إتمام الدفع أو فشله
   bool _isReturnUrl(String url) => url.contains('/payment/return');
@@ -58,6 +62,9 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
               return;
             }
             setState(() => _isLoading = true);
+          },
+          onProgress: (p) {
+            if (mounted) setState(() => _progress = p);
           },
           onPageFinished: (_) => setState(() => _isLoading = false),
           onWebResourceError: (e) {
@@ -105,130 +112,245 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
     Navigator.pop(context, paid);
   }
 
+  /// تأكيد لطيف قبل الخروج من منتصف الدفع (زر الرجوع في الشاشة أو في الجهاز)
   void _showExitDialog() {
-    showDialog<void>(
+    HapticFeedback.selectionClick();
+    showModalBottomSheet<void>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('إلغاء الدفع؟'),
-        content: const Text('هل تريد الخروج من صفحة الدفع؟'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('متابعة الدفع'),
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Directionality(
+        textDirection: context.read<AppSettingsProvider>().textDirection,
+        child: Container(
+          margin: const EdgeInsets.all(12),
+          padding: EdgeInsets.fromLTRB(20, 22, 20, 16 + MediaQuery.paddingOf(ctx).bottom),
+          decoration: BoxDecoration(
+            color: RastTokens.card(ctx),
+            borderRadius: BorderRadius.circular(26),
           ),
-          TextButton(
-            onPressed: () {
-              Navigator.pop(ctx);
-              _finish(retry: false);
-            },
-            child: const Text('خروج'),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const RastIconBox(icon: Icons.payments_outlined, size: 56, color: RastTokens.warning),
+              const SizedBox(height: 14),
+              Text(
+                L(_lang, 'الخروج من صفحة الدفع؟', 'Leave the payment page?'),
+                style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: RastTokens.ink(ctx)),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                L(
+                  _lang,
+                  'حجزك محفوظ، ويمكنك إكمال الدفع لاحقاً من «حجوزاتي». إن كنت أتممت الدفع سنتحقق منه تلقائياً.',
+                  'Your booking is saved; you can pay later from My bookings. If you already paid, we will verify it automatically.',
+                ),
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 13, height: 1.6, color: RastTokens.muted(ctx)),
+              ),
+              const SizedBox(height: 18),
+              RastButton(
+                label: L(_lang, 'متابعة الدفع', 'Continue payment'),
+                icon: Icons.lock_rounded,
+                onPressed: () => Navigator.pop(ctx),
+              ),
+              const SizedBox(height: 10),
+              RastButton(
+                label: L(_lang, 'خروج', 'Leave'),
+                secondary: true,
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  _finish(retry: false);
+                },
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    return Directionality(
-      textDirection: TextDirection.rtl,
-      child: Scaffold(
-        backgroundColor: Theme.of(context).colorScheme.surface,
-        appBar: AppBar(
-          title: const Text('الدفع الإلكتروني'),
-          leading: IconButton(
-            icon: const Icon(Icons.arrow_back_ios_new),
-            onPressed: _showExitDialog,
+    final settings = context.watch<AppSettingsProvider>();
+    final lang = settings.language;
+
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop && !_syncing) _showExitDialog();
+      },
+      child: Directionality(
+        textDirection: settings.textDirection,
+        child: Scaffold(
+          backgroundColor: RastTokens.bg(context),
+          appBar: AppBar(
+            backgroundColor: RastTokens.card(context),
+            surfaceTintColor: Colors.transparent,
+            elevation: 0,
+            scrolledUnderElevation: 0,
+            titleSpacing: 0,
+            leading: IconButton(
+              icon: Icon(Icons.close_rounded, color: RastTokens.ink(context)),
+              tooltip: L(lang, 'إغلاق', 'Close'),
+              onPressed: _syncing ? null : _showExitDialog,
+            ),
+            title: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.lock_rounded, size: 18, color: RastTokens.success),
+                const SizedBox(width: 6),
+                Flexible(
+                  child: Text(
+                    L(lang, 'الدفع', 'Payment'),
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: RastTokens.ink(context)),
+                  ),
+                ),
+              ],
+            ),
+            actions: [
+              IconButton(
+                tooltip: L(lang, 'فتح في المتصفح', 'Open in browser'),
+                icon: Icon(Icons.open_in_browser_rounded, color: RastTokens.muted(context)),
+                onPressed: () async {
+                  final uri = Uri.parse(widget.paymentUrl);
+                  try {
+                    await launchUrl(uri, mode: LaunchMode.externalApplication);
+                  } catch (_) {}
+                },
+              ),
+              Padding(
+                padding: const EdgeInsetsDirectional.only(end: 8),
+                child: TextButton.icon(
+                  style: TextButton.styleFrom(
+                    foregroundColor: RastTokens.success,
+                    backgroundColor: RastTokens.success.withValues(alpha: 0.1),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                  ),
+                  onPressed: _syncing ? null : () => _finish(),
+                  icon: _syncing
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.check_circle_rounded, size: 18),
+                  label: Text(
+                    L(lang, 'تم الدفع', 'I paid'),
+                    style: const TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                ),
+              ),
+            ],
+            bottom: PreferredSize(
+              preferredSize: const Size.fromHeight(3),
+              child: AnimatedOpacity(
+                duration: const Duration(milliseconds: 250),
+                opacity: _isLoading || _syncing ? 1 : 0,
+                child: LinearProgressIndicator(
+                  minHeight: 3,
+                  value: _syncing || _progress == 0 || _progress == 100 ? null : _progress / 100,
+                  color: RastTokens.brand,
+                  backgroundColor: RastTokens.brand.withValues(alpha: 0.08),
+                ),
+              ),
+            ),
           ),
-          actions: [
-            TextButton.icon(
-              onPressed: () async {
-                final uri = Uri.parse(widget.paymentUrl);
-                try {
-                  await launchUrl(uri, mode: LaunchMode.externalApplication);
-                } catch (_) {}
-              },
-              icon: const Icon(Icons.open_in_browser, size: 20),
-              label: const Text('المتصفح'),
-            ),
-            TextButton.icon(
-              onPressed: _syncing
-                  ? null
-                  : () => _finish(),
-              icon: _syncing
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.check_circle_outline, size: 20),
-              label: const Text('تم الدفع'),
-            ),
-          ],
-        ),
-        body: _error != null
-            ? _buildError()
-            : Stack(
-                children: [
-                  WebViewWidget(controller: _controller),
-                  if (_isLoading)
-                    Container(
-                      color: Colors.white,
-                      child: Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            const CircularProgressIndicator(
-                              color: AppTheme.primary,
-                            ),
-                            SizedBox(
-                              height: Responsive.spacing(context, 16),
-                            ),
-                            Text(
-                              'جاري تحميل صفحة الدفع...',
-                              style: TextStyle(
-                                fontSize: Responsive.fontSize(context, 14),
-                                color: AppTheme.onSurfaceVariant,
+          body: _error != null
+              ? _buildError()
+              : Stack(
+                  children: [
+                    WebViewWidget(controller: _controller),
+                    AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 300),
+                      child: _isLoading && _progress < 60
+                          ? Container(
+                              key: const ValueKey('loading'),
+                              color: RastTokens.bg(context),
+                              child: Center(
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Container(
+                                      width: 76,
+                                      height: 76,
+                                      decoration: BoxDecoration(
+                                        shape: BoxShape.circle,
+                                        color: RastTokens.success.withValues(alpha: 0.1),
+                                      ),
+                                      child: const Icon(Icons.shield_rounded, size: 38, color: RastTokens.success),
+                                    ),
+                                    const SizedBox(height: 16),
+                                    Text(
+                                      L(lang, 'جاري تجهيز صفحة الدفع الآمنة…', 'Preparing the secure payment page…'),
+                                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: RastTokens.ink(context)),
+                                    ),
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      L(lang, 'مدى · فيزا · ماستركارد · Apple Pay', 'mada · Visa · Mastercard · Apple Pay'),
+                                      style: TextStyle(fontSize: 12, color: RastTokens.muted(context)),
+                                    ),
+                                    const SizedBox(height: 18),
+                                    const SizedBox(
+                                      width: 26,
+                                      height: 26,
+                                      child: CircularProgressIndicator(strokeWidth: 2.6, color: RastTokens.brand),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            )
+                          : const SizedBox.shrink(key: ValueKey('done')),
+                    ),
+                    if (_syncing)
+                      Positioned.fill(
+                        child: Container(
+                          color: Colors.black.withValues(alpha: 0.35),
+                          child: Center(
+                            child: RastCard(
+                              padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 18),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const SizedBox(
+                                    width: 22,
+                                    height: 22,
+                                    child: CircularProgressIndicator(strokeWidth: 2.4, color: RastTokens.brand),
+                                  ),
+                                  const SizedBox(width: 14),
+                                  Text(
+                                    L(lang, 'نتحقق من حالة الدفع…', 'Verifying your payment…'),
+                                    style: TextStyle(fontWeight: FontWeight.w700, color: RastTokens.ink(context)),
+                                  ),
+                                ],
                               ),
                             ),
-                          ],
+                          ),
                         ),
                       ),
-                    ),
-                ],
-              ),
+                  ],
+                ),
+        ),
       ),
     );
   }
 
   Widget _buildError() {
     return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.wifi_off,
-              size: 64,
-              color: AppTheme.onSurfaceVariant.withValues(alpha: 0.6),
-            ),
-            SizedBox(height: Responsive.spacing(context, 16)),
-            Text(
-              _error!,
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: Responsive.fontSize(context, 16)),
-            ),
-            SizedBox(height: Responsive.spacing(context, 24)),
-            GradientFilledButtonIcon(
-              onPressed: () {
-                setState(() => _error = null);
-                _controller.loadRequest(Uri.parse(widget.paymentUrl));
-              },
-              icon: const Icon(Icons.refresh),
-              label: const Text('إعادة المحاولة'),
-            ),
-          ],
+      child: SingleChildScrollView(
+        child: RastEmptyState(
+          icon: Icons.wifi_off_rounded,
+          color: RastTokens.danger,
+          title: _error!,
+          message: L(
+            _lang,
+            'حجزك محفوظ. تأكد من اتصالك بالإنترنت ثم أعد المحاولة.',
+            'Your booking is saved. Check your connection and try again.',
+          ),
+          actionLabel: L(_lang, 'إعادة المحاولة', 'Try again'),
+          onAction: () {
+            setState(() => _error = null);
+            _controller.loadRequest(Uri.parse(widget.paymentUrl));
+          },
         ),
       ),
     );

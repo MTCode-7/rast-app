@@ -49,7 +49,7 @@ class _SplashScreenState extends State<SplashScreen> {
     final appName = AppStrings.t('appName', lang);
 
     return Directionality(
-      textDirection: TextDirection.rtl,
+      textDirection: lang == 'en' ? TextDirection.ltr : TextDirection.rtl,
       child: Scaffold(
         body: Container(
           width: double.infinity,
@@ -69,30 +69,6 @@ class _SplashScreenState extends State<SplashScreen> {
           ),
           child: Stack(
             children: [
-              Positioned(
-                top: -80,
-                right: -60,
-                child: Container(
-                  width: 220,
-                  height: 220,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: Colors.white.withValues(alpha: 0.06),
-                  ),
-                ),
-              ),
-              Positioned(
-                bottom: -100,
-                left: -40,
-                child: Container(
-                  width: 280,
-                  height: 280,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: Colors.white.withValues(alpha: 0.05),
-                  ),
-                ),
-              ),
               SafeArea(
                 child: Center(
                   child: Column(
@@ -138,9 +114,9 @@ class _SplashScreenState extends State<SplashScreen> {
                           .animate()
                           .fadeIn(duration: 500.ms, curve: Curves.easeOut)
                           .scale(
-                            begin: const Offset(0.88, 0.88),
-                            duration: 700.ms,
-                            curve: Curves.easeOutCubic,
+                            begin: const Offset(0.7, 0.7),
+                            duration: 800.ms,
+                            curve: Curves.elasticOut,
                           ),
                       const SizedBox(height: 28),
                       Text(
@@ -155,24 +131,16 @@ class _SplashScreenState extends State<SplashScreen> {
                           .animate()
                           .fadeIn(delay: 200.ms, duration: 500.ms)
                           .slideY(begin: 0.12, end: 0, curve: Curves.easeOutCubic),
-                      const SizedBox(height: 10),
-                      Text(
-                        'تحاليلك بسهولة',
-                        style: TextStyle(
-                          color: Colors.white.withValues(alpha: 0.88),
-                          fontSize: 15,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      )
-                          .animate()
-                          .fadeIn(delay: 350.ms, duration: 500.ms),
                       const SizedBox(height: 48),
                       SizedBox(
-                        width: 28,
-                        height: 28,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2.5,
-                          color: Colors.white.withValues(alpha: 0.85),
+                        width: 120,
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(4),
+                          child: LinearProgressIndicator(
+                            minHeight: 4,
+                            color: Colors.white,
+                            backgroundColor: Colors.white.withValues(alpha: 0.18),
+                          ),
                         ),
                       )
                           .animate()

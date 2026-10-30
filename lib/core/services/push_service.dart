@@ -11,6 +11,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:rast/core/api/api_client.dart';
 import 'package:rast/core/api/api_services.dart';
 import 'package:rast/core/services/analytics_service.dart';
+import 'package:rast/core/services/app_events.dart';
 import 'package:rast/features/bookings/screens/booking_detail_screen.dart';
 
 /// رسائل الخلفية (التطبيق مغلق): النظام يعرض الإشعار تلقائياً، لا حاجة لعمل شيء هنا.
@@ -137,6 +138,10 @@ class PushService {
   }
 
   static Future<void> _showForeground(RemoteMessage message) async {
+    // إشعار يخص حجزاً (تأكيد، تغيير موعد، نتيجة): نحدّث صفحة الحجوزات وهي مفتوحة
+    if (message.data['booking_id'] != null) AppEvents.notifyBookingsChanged();
+    // إشعار جديد: يزيد عدّاد الجرس في «حسابي»
+    AppEvents.notifyNotificationsChanged();
     final n = message.notification;
     if (n == null || kIsWeb || !Platform.isAndroid) return; // آيفون يعرضه النظام
     await _local.show(
@@ -169,8 +174,12 @@ class PushService {
   }
 
   /// فتح الحجز المرتبط بالإشعار (إن وُجد)
+  /// فتح الحجز المرتبط بإشعار (من الإشعار نفسه أو من صفحة الإشعارات)
+  static Future<void> openFromData(Map<String, dynamic> data) => _openFromData(data);
+
   static Future<void> _openFromData(Map<String, dynamic> data) async {
     AnalyticsService.logEvent('push_open', {'push_type': data['type']});
+    AppEvents.notifyNotificationsChanged();
     final id = int.tryParse(data['booking_id']?.toString() ?? '');
     final nav = navigatorKey.currentState;
     if (id == null || nav == null) return;

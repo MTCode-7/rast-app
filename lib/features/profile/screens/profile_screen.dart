@@ -15,9 +15,13 @@ import 'package:rast/features/auth/services/auth_service.dart'
 import 'package:rast/core/services/review_prompt_service.dart';
 import 'package:rast/core/services/cart_service.dart';
 import 'package:rast/core/services/analytics_service.dart';
+import 'package:rast/core/services/app_events.dart';
+import 'package:rast/features/notifications/notifications_screen.dart';
 import 'package:rast/features/bookings/screens/bookings_screen.dart';
 import 'package:rast/features/cart/screens/cart_screen.dart';
 import 'package:rast/features/favorites/screens/favorites_screen.dart';
+import 'package:rast/features/loyalty/loyalty_screen.dart';
+import 'package:rast/features/addresses/screens/addresses_screen.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 class ProfileScreen extends StatefulWidget {
@@ -32,9 +36,58 @@ class ProfileScreen extends StatefulWidget {
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
+  /// رصيد نقاط الولاء (يظهر بجانب «نقاطي»)
+  int? _points;
+
+  /// عدد الإشعارات غير المقروءة (شارة الجرس أعلى الصفحة)
+  int _unread = 0;
+
   @override
   void initState() {
     super.initState();
+    _loadPoints();
+    _loadUnread();
+    AppEvents.notificationsChanged.addListener(_loadUnread);
+  }
+
+  @override
+  void dispose() {
+    AppEvents.notificationsChanged.removeListener(_loadUnread);
+    super.dispose();
+  }
+
+  Future<void> _loadUnread() async {
+    if (!AuthService.isLoggedIn) return;
+    try {
+      final n = await Api.growth.unreadNotificationsCount();
+      if (mounted) setState(() => _unread = n);
+    } catch (_) {}
+  }
+
+  Widget _buildNotificationsBell(String lang) {
+    return IconButton(
+      tooltip: lang == 'en' ? 'Notifications' : 'الإشعارات',
+      onPressed: () async {
+        await Navigator.of(context).push(MaterialPageRoute(builder: (_) => const NotificationsScreen()));
+        _loadUnread();
+      },
+      icon: Badge(
+        isLabelVisible: _unread > 0,
+        backgroundColor: const Color(0xFFE11D48),
+        label: Text(_unread > 99 ? '99+' : '$_unread'),
+        child: const Icon(Icons.notifications_none_rounded, color: RastUi.textPurple, size: 26),
+      ),
+    );
+  }
+
+  Future<void> _loadPoints() async {
+    if (!AuthService.isLoggedIn) return;
+    try {
+      final data = await Api.growth.loyalty(lang: context.read<AppSettingsProvider>().language);
+      if (!mounted || data['enabled'] != true) return;
+      final p = data['points'];
+      setState(() => _points = p is num ? p.toInt() : int.tryParse('$p'));
+    } catch (_) {}
   }
 
   Future<void> _logout() async {
@@ -373,13 +426,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
           child: Column(
             children: [
-              Text(
-                AppStrings.t('profile', lang),
-                style: TextStyle(
-                  color: RastUi.textPurple,
-                  fontSize: Responsive.fontSize(context, 20),
-                  fontWeight: FontWeight.w700,
-                ),
+              Stack(
+                alignment: Alignment.center,
+                children: [
+                  Text(
+                    AppStrings.t('profile', lang),
+                    style: TextStyle(
+                      color: RastUi.textPurple,
+                      fontSize: Responsive.fontSize(context, 20),
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  PositionedDirectional(end: 0, child: _buildNotificationsBell(lang)),
+                ],
               ),
               SizedBox(height: Responsive.spacing(context, 34)),
               _buildProfileHero(user)
@@ -425,6 +484,29 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   MaterialPageRoute(builder: (_) => const FavoritesScreen()),
                 ),
                 iconColor: RastUi.purple,
+              ),
+              _buildActionTile(
+                icon: Icons.stars_rounded,
+                title: lang == 'en' ? 'My points' : 'نقاطي',
+                textColor: Color(0xFF535353),
+                iconColor: const Color(0xFFD99A00),
+                trailing: _points == null
+                    ? null
+                    : (lang == 'en' ? '$_points pts' : '$_points نقطة'),
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const LoyaltyScreen()),
+                ).then((_) => _loadPoints()),
+              ),
+              _buildActionTile(
+                icon: Icons.location_on_outlined,
+                title: lang == 'en' ? 'Location' : 'الموقع',
+                textColor: Color(0xFF535353),
+                iconColor: Color(0xFF535353),
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const AddressesScreen()),
+                ),
               ),
               _buildActionTile(
                 icon: Icons.info_outline_rounded,
@@ -637,6 +719,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     Color? textColor,
     Color? iconColor,
     bool showDivider = true,
+    String? trailing,
   }) {
     final fgText = textColor ?? RastUi.secondaryText(context);
     final fgIcon = iconColor ?? RastUi.purple;
@@ -665,6 +748,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       ),
                     ),
                   ),
+                  if (trailing != null) ...[
+                    Text(
+                      trailing,
+                      style: TextStyle(
+                        color: RastUi.purple,
+                        fontWeight: FontWeight.w700,
+                        fontSize: Responsive.fontSize(context, 14),
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                  ],
                   Icon(
                     Directionality.of(context) == TextDirection.rtl
                         ? Icons.chevron_left_rounded

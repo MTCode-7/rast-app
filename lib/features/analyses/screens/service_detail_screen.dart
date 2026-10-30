@@ -1,5 +1,7 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:rast/core/widgets/rast_motion.dart';
+import 'package:rast/features/loyalty/loyalty_config.dart';
 import 'package:rast/core/services/analytics_service.dart';
 import 'package:rast/core/constants/api_config.dart';
 import 'package:rast/core/constants/app_strings.dart';
@@ -9,15 +11,19 @@ import 'package:rast/core/utils/locale_utils.dart';
 import 'package:provider/provider.dart';
 import 'package:rast/core/theme/app_theme.dart';
 import 'package:rast/core/utils/responsive.dart';
-import 'package:rast/core/widgets/gradient_button.dart';
+import 'package:flutter_animate/flutter_animate.dart';
+import 'package:rast/core/services/branches_index_service.dart';
+import 'package:rast/core/services/location_service.dart';
+import 'package:rast/core/utils/lab_location_utils.dart';
+import 'package:rast/core/widgets/rast_kit.dart';
 import 'package:rast/core/widgets/rast_ui.dart';
-import 'package:rast/core/widgets/search_box.dart';
 import 'package:rast/core/widgets/zoomable_image_viewer.dart';
 import 'package:rast/core/api/api_services.dart';
 import 'package:rast/core/api/api_client.dart';
 import 'package:rast/features/bookings/screens/book_flow_screen.dart';
 import 'package:rast/features/lab_details/screens/lab_details_screen.dart';
-import 'package:shimmer/shimmer.dart';
+import 'package:rast/features/analyses/detail_widgets/premium_detail.dart';
+import 'package:rast/features/map/widgets/map_entry_button.dart';
 
 class ServiceDetailScreen extends StatefulWidget {
   final Map<String, dynamic> service;
@@ -44,14 +50,28 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
   List<Map<String, dynamic>> _providerServices = [];
   bool _isLoading = true;
   bool _isFavorite = false;
-  String _providersSort = 'rating';
+  // الأرخص أولاً: هذا ما يبحث عنه أغلب العملاء عند مقارنة المختبرات
+  String _providersSort = 'price_low';
   bool _providersHomeOnly = false;
   double? _providersMinPrice;
   double? _providersMaxPrice;
 
+  final ScrollController _scrollController = ScrollController();
+  bool _showHeaderTitle = false;
+  bool _providersLoading = true;
+  bool _aboutExpanded = false;
+  (double, double)? _userLoc;
+  int? _selectedPsId;
+  int _tab = 0; // 0 المختبرات، 1 التفاصيل، 2 التحضير
+
   @override
   void initState() {
     super.initState();
+    _scrollController.addListener(() {
+      final show = _scrollController.offset > 205;
+      if (show != _showHeaderTitle) setState(() => _showHeaderTitle = show);
+    });
+    _loadUserLocation();
     AnalyticsService.logScreen('test_details');
     AnalyticsService.logViewItem(AnalyticsService.itemFromMap(
       widget.service,
@@ -70,6 +90,7 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
 
   @override
   void dispose() {
+    _scrollController.dispose();
     _providersSearchController.dispose();
     super.dispose();
   }
@@ -96,6 +117,7 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
             const <Map<String, dynamic>>[],
           );
           _isLoading = false;
+          _providersLoading = false;
         });
       }
       return;
@@ -168,6 +190,7 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
         _providerServices =
             visibleProviderServices;
         _isLoading = false;
+        _providersLoading = false;
       });
 
       _loadFavorite(displayService);
@@ -176,6 +199,7 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
 
       setState(() {
         _isLoading = false;
+        _providersLoading = false;
 
         _service ??=
             _serviceForSelectedLab(
@@ -188,6 +212,7 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
 
       setState(() {
         _isLoading = false;
+        _providersLoading = false;
 
         _service ??=
             _serviceForSelectedLab(
@@ -288,6 +313,10 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
           ).compareTo(_priceForProviderService(a));
         case 'rating':
           return _providerRating(b).compareTo(_providerRating(a));
+        case 'distance':
+          final da = _distanceFor(a) ?? double.infinity;
+          final db = _distanceFor(b) ?? double.infinity;
+          return da.compareTo(db);
         case 'name':
           final aProvider = a['provider'] is Map
               ? a['provider'] as Map<String, dynamic>
@@ -372,6 +401,125 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
     Map<String, dynamic>? providerService,
   ]) => ApiConfig.analysisImageUrl(s, providerService);
 
+  // ===================== أدوات العرض الجديدة =====================
+
+  Map<String, dynamic> _providerOf(Map<String, dynamic> ps) => ps['provider'] is Map
+      ? Map<String, dynamic>.from(ps['provider'] as Map)
+      : <String, dynamic>{};
+
+  int? _labIdOf(Map<String, dynamic> ps) {
+    final provider = _providerOf(ps);
+    return _asInt(provider['id'] ?? ps['provider_id']);
+  }
+
+  /// المسافة لأقرب فرع للمختبر من موقع المستخدم المحفوظ (إن وُجد).
+  double? _distanceFor(Map<String, dynamic> ps) {
+    final loc = _userLoc;
+    if (loc == null) return null;
+    final provider = _providerOf(ps);
+    if (provider.isEmpty) return null;
+    final branches = BranchesIndexService.instance.branchesFor(provider) ??
+        (provider['branches'] is List ? provider['branches'] as List<dynamic> : null);
+    return LabLocationUtils.distanceKmToNearest(
+      lab: provider,
+      userLat: loc.$1,
+      userLng: loc.$2,
+      branches: branches,
+    );
+  }
+
+  Future<void> _loadUserLocation() async {
+    try {
+      final loc = await LocationService.getDefaultLocation();
+      if (loc == null || !mounted) return;
+      setState(() => _userLoc = (loc.lat, loc.lng));
+      await BranchesIndexService.instance.ensureLoaded();
+      if (mounted) setState(() {});
+    } catch (_) {}
+  }
+
+  /// أرخص عرض متاح (لزر الحجز السريع والوسم «الأرخص»).
+  Map<String, dynamic>? get _cheapestPs {
+    Map<String, dynamic>? best;
+    double? bestPrice;
+    for (final ps in _providerServices) {
+      final p = _priceForProviderService(ps);
+      if (p <= 0) continue;
+      if (bestPrice == null || p < bestPrice) {
+        bestPrice = p;
+        best = ps;
+      }
+    }
+    return best ?? (_providerServices.isNotEmpty ? _providerServices.first : null);
+  }
+
+  Map<String, dynamic>? get _nearestPs {
+    if (_userLoc == null) return null;
+    Map<String, dynamic>? best;
+    double? bestKm;
+    for (final ps in _providerServices) {
+      final km = _distanceFor(ps);
+      if (km == null) continue;
+      if (bestKm == null || km < bestKm) {
+        bestKm = km;
+        best = ps;
+      }
+    }
+    return best;
+  }
+
+  /// المختبر المختار لزر الحجز في الأسفل (افتراضياً الأرخص).
+  Map<String, dynamic>? get _selectedPs {
+    final id = _selectedPsId;
+    if (id != null) {
+      for (final ps in _providerServices) {
+        if (_asInt(ps['id']) == id) return ps;
+      }
+    }
+    return _cheapestPs;
+  }
+
+  /// نصوص وصف وهمية لا تفيد المستخدم فلا نعرضها
+  bool _isRealDescription(String? text) {
+    final t = (text ?? '').trim();
+    if (t.length < 12) return false;
+    const fillers = ['تحليل مخبري', 'تحليل طبي', 'Lab test', 'lab test'];
+    return !fillers.contains(t);
+  }
+
+  String _resultTimeText(String lang, Map<String, dynamic> service) {
+    final d = _asInt(service['default_duration']) ?? 0;
+    if (d <= 0) return '';
+    if (lang == 'en') return d == 1 ? 'Results in 1 day' : 'Results in $d days';
+    if (d == 1) return 'النتيجة خلال يوم';
+    if (d == 2) return 'النتيجة خلال يومين';
+    if (d <= 10) return 'النتيجة خلال $d أيام';
+    return 'النتيجة خلال $d يوماً';
+  }
+
+  void _bookProviderService(
+    BuildContext context,
+    Map<String, dynamic> service,
+    Map<String, dynamic> ps,
+  ) {
+    final isArabic = context.read<AppSettingsProvider>().isArabic;
+    final provider = _providerOf(ps);
+    final labIdVal = _labIdOf(ps);
+    if (labIdVal == null) {
+      _showBookingOptions(context, service);
+      return;
+    }
+    _openBookFlow(
+      context,
+      service,
+      labIdVal,
+      LocaleUtils.localizedBusinessName(provider, isArabic),
+      _psToProviderServiceMap(ps, LocaleUtils.localizedName(service, isArabic)),
+    );
+  }
+
+  // ===================== البناء =====================
+
   @override
   Widget build(BuildContext context) {
     final settings = context.watch<AppSettingsProvider>();
@@ -381,638 +529,617 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
     final category = service['category'] is Map
         ? service['category'] as Map<String, dynamic>
         : <String, dynamic>{};
-    final catName = LocaleUtils.localizedName(
-      category,
-      context.watch<AppSettingsProvider>().isArabic,
-    );
-    final categoryName = catName.isEmpty ? 'تحليل' : catName;
+    final catName = LocaleUtils.localizedName(category, isArabic);
+    final categoryName = catName.isEmpty ? L(lang, 'تحليل', 'Test') : catName;
     final imageUrl = _getImageUrl(
       service,
       _providerServices.isNotEmpty ? _providerServices.first : null,
     );
-    final description =
-        service['description_ar']?.toString() ??
-        service['description']?.toString() ??
-        'تحليل مخبري';
-    double price = ApiConfig.priceFromMap(service);
-    if (price == 0.0 && _providerServices.isNotEmpty) {
-      final first = _providerServices.first;
-      price = ApiConfig.priceFromMap(first);
-    }
-    final providersCount = _providerServices.length;
+    final description = isArabic
+        ? (service['description_ar'] ?? service['description'] ?? service['description_en'])?.toString()
+        : (service['description_en'] ?? service['description'] ?? service['description_ar'])?.toString();
+
+    final title = LocaleUtils.localizedName(service, isArabic);
+
+    final hasImage = imageUrl != null && imageUrl.trim().isNotEmpty;
+    final tabs = [
+      widget.labId != null ? L(lang, 'المختبر', 'Lab') : L(lang, 'المختبرات', 'Labs'),
+      L(lang, 'التفاصيل', 'Details'),
+      L(lang, 'التحضير', 'Preparation'),
+    ];
 
     return Directionality(
       textDirection: settings.textDirection,
-      child: Container(
-        decoration: const BoxDecoration(gradient: RastUi.headerGradient),
-        child: Scaffold(
-          backgroundColor: RastUi.screenSurface(context),
-          bottomNavigationBar: (!_isLoading && _service != null)
-              ? _buildBottomBar(context, service)
-              : null,
-          body: _isLoading && _service == null
-              ? _buildLoading()
-              : CustomScrollView(
-            slivers: [
-              // HEADER
-              SliverAppBar(
-                pinned: true,
-                floating: false,
-                automaticallyImplyLeading: false,
-
-                elevation: 7,
-                scrolledUnderElevation: 7,
-                shadowColor: Colors.black.withValues(alpha: 0.36),
-
-                backgroundColor: Colors.white,
-                surfaceTintColor: Colors.white,
-                toolbarHeight: 72,
-
-                flexibleSpace: Directionality(
-                  textDirection: TextDirection.ltr,
-                  child: SafeArea(
-                    bottom: false,
-                    child: Stack(
-                      children: [
-                        // BACK
-                        Positioned(
-                          left: isArabic ? null : 7,
-                          right: isArabic ? 7 : null,
-                          top: 0,
-                          bottom: 0,
-                          child: Center(
-                            child: Material(
-                              color: Colors.transparent,
-                              child: InkWell(
-                                onTap: () => Navigator.pop(context),
-                                borderRadius: BorderRadius.circular(30),
-                                child: SizedBox(
-                                  width: 44,
-                                  height: 44,
-                                  child: Center(
-                                    child: Icon(
-                                      isArabic
-                                          ? Icons.arrow_forward_ios_rounded
-                                          : Icons.arrow_back_ios_new_rounded,
-                                      textDirection: TextDirection.ltr,
-                                      color: const Color(0xFF171717),
-                                      size: 20,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
+      child: Scaffold(
+        backgroundColor: RastTokens.bg(context),
+        bottomNavigationBar: _buildBottomBar(context, service, lang),
+        body: CustomScrollView(
+          controller: _scrollController,
+          physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
+          slivers: [
+            PremiumHeroAppBar(
+              title: title,
+              collapsed: _showHeaderTitle,
+              image: PremiumHeroImage(url: imageUrl),
+              onImageTap: hasImage ? () => showZoomableImage(context, imageUrl) : null,
+              onBack: () => Navigator.pop(context),
+              favorite: AnimatedFavoriteIcon(
+                active: _isFavorite,
+                inactiveColor: _showHeaderTitle ? RastTokens.ink(context) : Colors.white,
+                size: 21,
+              ),
+              onFavorite: () => _toggleFavorite(service),
+              onShare: service['id'] == null
+                  ? null
+                  : () => shareViaWhatsApp(
+                        '$title — ${L(lang, 'قارن الأسعار واحجز على راست لابس', 'Compare prices and book on Rast Labs')}\n'
+                        'https://rast-labs.com/user/services/${service['id']}',
+                      ),
+            ),
+            // اللوحة البيضاء: التصنيف، الاسم، السعر الكبير، والمعلومات السريعة
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(RastTokens.gutter, 2, RastTokens.gutter, 0),
+                child: _buildTitleBlock(context, service, title, categoryName, lang, isArabic),
+              ),
+            ),
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(RastTokens.gutter, 16, RastTokens.gutter, 8),
+                child: _buildFacts(context, service, lang),
+              ),
+            ),
+            SliverPersistentHeader(
+              pinned: true,
+              delegate: PremiumTabsHeader(
+                tabs: tabs,
+                index: _tab,
+                dark: RastTokens.dark(context),
+                onChanged: (i) => setState(() => _tab = i),
+              ),
+            ),
+            SliverToBoxAdapter(
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 260),
+                switchInCurve: Curves.easeOutCubic,
+                transitionBuilder: (child, anim) => FadeTransition(
+                  opacity: anim,
+                  child: SlideTransition(
+                    position: Tween<Offset>(begin: const Offset(0, 0.03), end: Offset.zero).animate(anim),
+                    child: child,
+                  ),
+                ),
+                child: KeyedSubtree(
+                  key: ValueKey('tab-$_tab'),
+                  child: Padding(
+                    padding: const EdgeInsets.only(top: 10),
+                    child: switch (_tab) {
+                      0 => widget.labId != null
+                          ? Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: RastTokens.gutter),
+                              child: _buildLabChip(widget.labName ?? ''),
+                            )
+                          : _buildLabsSection(context, service, lang, isArabic),
+                      1 => Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: RastTokens.gutter),
+                          child: _buildDetailsTab(context, service, categoryName, description, lang),
                         ),
-
-                        // FAVORITE
-                        Positioned(
-                          left: isArabic ? 10 : null,
-                          right: isArabic ? null : 10,
-                          top: 0,
-                          bottom: 0,
-                          child: Center(
-                            child: Material(
-                              color: Colors.transparent,
-                              child: InkWell(
-                                onTap: () => _toggleFavorite(service),
-                                borderRadius: BorderRadius.circular(30),
-                                child: Container(
-                                  width: 44,
-                                  height: 44,
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFFE4F3FF),
-                                    shape: BoxShape.circle,
-                                    border: Border.all(
-                                      color: const Color(0xFFD3E9F8),
-                                    ),
-                                  ),
-                                  child: Center(
-                                    child: Icon(
-                                      _isFavorite
-                                          ? Icons.favorite_rounded
-                                          : Icons.favorite_border_rounded,
-                                      color: _isFavorite
-                                          ? const Color(0xFFFF4D61)
-                                          : const Color(0xFF172033),
-                                      size: 22,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
+                      _ => Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: RastTokens.gutter),
+                          child: _buildPrepTab(context, service, lang),
                         ),
-                      ],
-                    ),
+                    },
                   ),
                 ),
               ),
-
-              // BODY
-              SliverToBoxAdapter(
-                child: Directionality(
-                  textDirection:
-                  context.watch<AppSettingsProvider>().textDirection,
-                  child: Column(
-                    children: [
-                      // IMAGE
-                      SizedBox(
-                        height: imageUrl != null && imageUrl.isNotEmpty
-                            ? 240
-                            : 190,
-                        width: double.infinity,
-                        child: _buildHeroBackground(
-                          context,
-                          imageUrl,
-                        ),
-                      ),
-
-                      // CONTENT
-                      Transform.translate(
-                        offset: const Offset(0, -45),
-                        child: Padding(
-                          padding: EdgeInsets.symmetric(
-                            horizontal:
-                            Responsive.spacing(context, 20),
-                          ),
-                          child: Column(
-                            crossAxisAlignment:
-                            CrossAxisAlignment.start,
-                            children: [
-                              // FLOATING TITLE CARD
-                              _buildTitleSection(
-                                context,
-                                service,
-                                categoryName,
-                                price,
-                              ),
-
-                              SizedBox(
-                                height:
-                                Responsive.spacing(context, 20),
-                              ),
-
-                              // QUICK FACTS
-                              _buildQuickFactsRow(
-                                context,
-                                price,
-                                categoryName,
-                                providersCount,
-                              ),
-
-                              SizedBox(
-                                height:
-                                Responsive.spacing(context, 24),
-                              ),
-
-                              // DESCRIPTION
-                              _buildDescriptionCard(
-                                context,
-                                description,
-                              ),
-
-                              SizedBox(
-                                height:
-                                Responsive.spacing(context, 24),
-                              ),
-
-                              // LAB
-                              if (widget.labId != null &&
-                                  widget.labName != null)
-                                _buildLabChip(
-                                  widget.labName!,
-                                )
-                              else
-                                _buildLabsSection(
-                                  context,
-                                  service,
-                                ),
-
-                              SizedBox(
-                                height:
-                                Responsive.spacing(context, 24),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
+            ),
+            const SliverToBoxAdapter(child: SizedBox(height: 28)),
+          ],
         ),
       ),
     );
   }
 
-  Widget _buildTitleSection(
+  /// تبويب «التفاصيل»: معلومات منظمة + الوصف الحقيقي فقط (لا نصوص حشو)
+  Widget _buildDetailsTab(
     BuildContext context,
     Map<String, dynamic> service,
     String categoryName,
-    double price,
+    String? description,
+    String lang,
   ) {
-    final lang =
-        context.watch<AppSettingsProvider>().language;
-    return Container(
-      padding: EdgeInsets.all(Responsive.spacing(context, 16)),
-      decoration: BoxDecoration(
-        color: RastUi.panelSurface(context),
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: RastUi.softBorder(context)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.14),
-            blurRadius: 24,
-            spreadRadius: 1,
-            offset: const Offset(0, 10),
-          ),
-        ],
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  LocaleUtils.localizedName(
-                    service,
-                    context.watch<AppSettingsProvider>().isArabic,
-                  ),
-                  style: TextStyle(
-                    fontSize: Responsive.fontSize(context, 20),
-                    fontWeight: FontWeight.w800,
-                    color: RastUi.primaryText(context),
-                    height: 1.3,
-                  ),
-                ),
-                SizedBox(height: Responsive.spacing(context, 8)),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 5,
-                  ),
-                  decoration: BoxDecoration(
-                    color: RastUi.chipFill,
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Text(
-                    categoryName,
-                    style: TextStyle(
-                      fontSize: Responsive.fontSize(context, 12),
-                      color: RastUi.purple,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
+    final resultTime = _resultTimeText(lang, service);
+    final count = _providerServices.where((ps) => _priceForProviderService(ps) > 0).length;
+    final nameEn = (service['name_en'] ?? '').toString().trim();
+    final rows = <Widget>[
+      RastInfoRow(icon: Icons.category_rounded, label: L(lang, 'التصنيف', 'Category'), value: categoryName),
+      if (nameEn.isNotEmpty)
+        RastInfoRow(icon: Icons.translate_rounded, label: L(lang, 'الاسم العلمي', 'Scientific name'), value: nameEn, color: RastTokens.brand2),
+      if (resultTime.isNotEmpty)
+        RastInfoRow(icon: Icons.schedule_rounded, label: L(lang, 'مدة ظهور النتيجة', 'Result time'), value: resultTime, color: RastTokens.info),
+      if (widget.labId == null && count > 0)
+        RastInfoRow(
+          icon: Icons.apartment_rounded,
+          label: L(lang, 'متوفر لدى', 'Available at'),
+          value: lang == 'en' ? '$count labs' : (count == 1 ? 'مختبر واحد' : '$count مختبرات'),
+          color: RastTokens.success,
+        ),
+    ];
+    return Column(
+      children: [
+        RastCard(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            children: [
+              for (var i = 0; i < rows.length; i++) ...[
+                if (i > 0) Divider(height: 22, color: RastTokens.line(context)),
+                rows[i],
               ],
-            ),
+            ],
           ),
-          SizedBox(width: Responsive.spacing(context, 12)),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-            decoration: BoxDecoration(
-              gradient: RastUi.brandGradient,
-              borderRadius: BorderRadius.circular(14),
-              boxShadow: RastUi.softShadow,
-            ),
-            child: Text(
-              price > 0
-                  ? '${price.toStringAsFixed(2)} ${AppStrings.t('sar', lang)}'
-                  : AppStrings.t('contactForPrice', lang),
-              style: TextStyle(
-                fontSize: Responsive.fontSize(context, 16),
-                color: Colors.white,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
+        ).entrance(0),
+        if (_isRealDescription(description)) ...[
+          const SizedBox(height: 14),
+          _buildAbout(context, description!, lang).entrance(1),
         ],
-      ),
+      ],
     );
   }
 
-  Widget _buildQuickFactsRow(
-      BuildContext context,
-      double price,
-      String categoryName,
-      int providersCount,
-      ) {
-    final lang =
-        context.watch<AppSettingsProvider>().language;
-
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final spacing = Responsive.spacing(context, 10);
-
-        final isNarrow = constraints.maxWidth < 350;
-
-        final itemWidth = isNarrow
-            ? (constraints.maxWidth - spacing) / 2
-            : (constraints.maxWidth - (spacing * 2)) / 3;
-
-        return Wrap(
-          spacing: spacing,
-          runSpacing: spacing,
-          alignment: WrapAlignment.center,
+  /// تبويب «التحضير»: التعليمات أو طمأنة واضحة بعدم الحاجة لصيام
+  Widget _buildPrepTab(BuildContext context, Map<String, dynamic> service, String lang) {
+    final needsPrep = service['requires_preparation'] == true ||
+        service['requires_preparation'] == 1 ||
+        service['requires_preparation']?.toString() == 'true';
+    final prepText = (service['preparation_instructions'] ?? '').toString().trim();
+    if (!needsPrep) {
+      return RastCard(
+        padding: const EdgeInsets.all(18),
+        child: Row(
           children: [
-            SizedBox(
-              width: itemWidth,
-              child: _buildFactTile(
-                context,
-                icon: Icons.payments_outlined,
-                title: AppStrings.t('price', lang),
-                value: price > 0
-                    ? '${price.toStringAsFixed(0)} ${AppStrings.t('sar', lang)}'
-                    : AppStrings.t('dependsOnLab', lang),
-              ),
-            ),
-
-            SizedBox(
-              width: itemWidth,
-              child: _buildFactTile(
-                context,
-                icon: Icons.category_outlined,
-                title: AppStrings.t('category', lang),
-                value: categoryName,
-              ),
-            ),
-
-            SizedBox(
-              width: itemWidth,
-              child: _buildFactTile(
-                context,
-                icon: Icons.business_outlined,
-                title: AppStrings.t('laboratories', lang),
-                value: providersCount > 0
-                    ? providersCount.toString()
-                    : AppStrings.t('notAvailable', lang),
+            const RastIconBox(icon: Icons.check_circle_rounded, color: RastTokens.success, size: 46),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    L(lang, 'لا يحتاج تحضيراً', 'No preparation needed'),
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: RastTokens.ink(context)),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    L(lang, 'يمكنك إجراء التحليل في أي وقت دون صيام.', 'You can take this test anytime, no fasting.'),
+                    style: TextStyle(fontSize: 13, height: 1.6, color: RastTokens.muted(context)),
+                  ),
+                ],
               ),
             ),
           ],
-        );
-      },
-    );
-  }
-
-  Widget _buildFactTile(
-      BuildContext context, {
-        required IconData icon,
-        required String title,
-        required String value,
-      }) {
-    return Container(
-      constraints: const BoxConstraints(
-        minHeight: 105,
-      ),
-      padding: EdgeInsets.symmetric(
-        vertical: Responsive.spacing(context, 10),
-        horizontal: Responsive.spacing(context, 7),
-      ),
-      decoration: BoxDecoration(
-        color: RastUi.panelSurface(context),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: RastUi.softBorder(context),
         ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.06),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        mainAxisAlignment: MainAxisAlignment.center,
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          Container(
-            width: 32,
-            height: 32,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: RastUi.purple.withValues(alpha: 0.08),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(
-              icon,
-              size: 18,
-              color: RastUi.purple,
-            ),
-          ),
+      ).entrance(0);
+    }
+    return PremiumTextBlock(
+      icon: Icons.no_food_rounded,
+      color: RastTokens.warning,
+      title: L(lang, 'قبل التحليل', 'Before the test'),
+      text: prepText.isNotEmpty
+          ? prepText
+          : L(lang, 'يحتاج هذا التحليل تحضيراً مسبقاً، وسيؤكد لك المختبر التعليمات عند الحجز.',
+              'This test needs preparation; the lab will confirm instructions when you book.'),
+    );
+  }
 
-          SizedBox(
-            height: Responsive.spacing(context, 6),
+  Widget _headerButton({required Widget child, VoidCallback? onTap}) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        customBorder: const CircleBorder(),
+        child: Container(
+          width: 42,
+          height: 42,
+          decoration: BoxDecoration(
+            color: RastTokens.fill(context),
+            shape: BoxShape.circle,
+            border: Border.all(color: RastTokens.line(context)),
           ),
-
-          Text(
-            title,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: Responsive.fontSize(context, 10.5),
-              color: const Color(0xFF5B5561),
-              fontWeight: FontWeight.w700,
-              height: 1.15,
-            ),
-          ),
-
-          SizedBox(
-            height: Responsive.spacing(context, 3),
-          ),
-
-          Text(
-            value,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: Responsive.fontSize(context, 12),
-              color: const Color(0xFF171717),
-              fontWeight: FontWeight.w800,
-              height: 1.15,
-            ),
-          ),
-        ],
+          alignment: Alignment.center,
+          child: child,
+        ),
       ),
     );
   }
 
-  Widget _buildDescriptionCard(BuildContext context, String description) {
-    final lang =
-        context.watch<AppSettingsProvider>().language;
-    return Container(
-      width: double.infinity,
-      padding: EdgeInsets.all(Responsive.spacing(context, 18)),
-      decoration: BoxDecoration(
-        color: RastUi.panelSurface(context),
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: AppTheme.cardShadow,
-        border: Border.all(color: RastUi.softBorder(context)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+  /// رأس اللوحة البيضاء: التصنيف، الاسم الكبير، والسعر البارز مع عدد المختبرات
+  Widget _buildTitleBlock(
+    BuildContext context,
+    Map<String, dynamic> service,
+    String title,
+    String categoryName,
+    String lang,
+    bool isArabic,
+  ) {
+    final nameEn = (service['name_en'] ?? '').toString().trim();
+    final showEn = isArabic && nameEn.isNotEmpty && nameEn != title;
+    final count = _providerServices.where((ps) => _priceForProviderService(ps) > 0).length;
+    final cheapest = _cheapestPs;
+    final fromPrice = widget.labId != null
+        ? ApiConfig.priceFromMap(service)
+        : (cheapest != null ? _priceForProviderService(cheapest) : ApiConfig.priceFromMap(service));
+
+    Widget? trailing;
+    if (widget.labId == null && _providersLoading) {
+      trailing = const RastSkeleton(width: 92, height: 30, radius: 999);
+    } else if (widget.labId == null && count > 0) {
+      trailing = GestureDetector(
+        onTap: () => setState(() => _tab = 0),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: RastTokens.brand2.withValues(alpha: RastTokens.dark(context) ? 0.2 : 0.08),
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  gradient: RastUi.brandGradient,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(
-                  Icons.description_outlined,
-                  color: Colors.white,
-                  size: 20,
-                ),
-              ),
-              SizedBox(width: Responsive.spacing(context, 10)),
+              const Icon(Icons.apartment_rounded, size: 16, color: RastTokens.brand2),
+              const SizedBox(width: 6),
               Text(
-                AppStrings.t('description', lang),
-                style: TextStyle(
-                  fontSize: Responsive.fontSize(context, 15),
-                  fontWeight: FontWeight.w600,
-                  color: RastUi.primaryText(context),
-                ),
+                count == 1
+                    ? L(lang, 'مختبر واحد', '1 lab')
+                    : (lang == 'en' ? '$count labs' : '$count ${count <= 10 ? 'مختبرات' : 'مختبراً'}'),
+                style: const TextStyle(color: RastTokens.brand2, fontWeight: FontWeight.w800, fontSize: 12.5),
               ),
             ],
           ),
-          SizedBox(height: Responsive.spacing(context, 12)),
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        RastPill(label: categoryName, icon: Icons.category_rounded, dense: true),
+        const SizedBox(height: 10),
+        Text(
+          title,
+          style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: RastTokens.ink(context), height: 1.3),
+        ),
+        if (showEn) ...[
+          const SizedBox(height: 2),
           Text(
-            description,
-            style: TextStyle(
-              fontSize: Responsive.fontSize(context, 14),
-              color: const Color(0xFF535353),
-              height: 1.65,
-              fontWeight: FontWeight.w400,
-            ),
+            nameEn,
+            textDirection: TextDirection.ltr,
+            style: TextStyle(fontSize: 13.5, color: RastTokens.muted(context), fontWeight: FontWeight.w600),
           ),
         ],
-      ),
-    );
+        const SizedBox(height: 16),
+        PremiumPriceBlock(
+          amount: fromPrice > 0 ? fromPrice : null,
+          lang: lang,
+          from: widget.labId == null && count > 1,
+          trailing: trailing,
+        ),
+      ],
+    ).animate().fadeIn(duration: 350.ms, delay: 60.ms).slideY(begin: 0.06, end: 0, curve: Curves.easeOutCubic);
   }
 
-  Widget _buildLabsSection(BuildContext context, Map<String, dynamic> service) {
-    final settings =
-    context.watch<AppSettingsProvider>();
+  /// المعلومات السريعة كشارات + نقاط الولاء المتوقعة. شارة التحضير تفتح تبويب «التحضير».
+  Widget _buildFacts(BuildContext context, Map<String, dynamic> service, String lang) {
+    final resultTime = _resultTimeText(lang, service);
+    final needsPrep = service['requires_preparation'] == true ||
+        service['requires_preparation'] == 1 ||
+        service['requires_preparation']?.toString() == 'true';
+    final homeLabs = _providerServices.where((ps) => _homePriceForProviderService(ps) > 0).length;
+    final cheapest = _cheapestPs;
+    final price = widget.labId != null
+        ? ApiConfig.priceFromMap(service)
+        : (cheapest != null ? _priceForProviderService(cheapest) : 0.0);
 
-    final lang = settings.language;
+    final pills = <Widget>[
+      if (resultTime.isNotEmpty) RastPill(icon: Icons.schedule_rounded, label: resultTime, color: RastTokens.info),
+      if (needsPrep)
+        GestureDetector(
+          onTap: () => setState(() => _tab = 2),
+          child: RastPill(icon: Icons.no_food_rounded, label: L(lang, 'يحتاج تحضيراً', 'Needs preparation'), color: RastTokens.warning),
+        )
+      else if (service.containsKey('requires_preparation'))
+        RastPill(icon: Icons.check_circle_rounded, label: L(lang, 'لا يحتاج صياماً', 'No fasting needed'), color: RastTokens.success),
+      if (homeLabs > 0)
+        RastPill(
+          icon: Icons.home_rounded,
+          label: lang == 'en'
+              ? 'Home collection at $homeLabs ${homeLabs == 1 ? 'lab' : 'labs'}'
+              : (homeLabs == 1 ? 'سحب منزلي لدى مختبر' : 'سحب منزلي لدى $homeLabs مختبرات'),
+          color: RastTokens.brand,
+        ),
+    ];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (pills.isNotEmpty) Wrap(spacing: 8, runSpacing: 8, children: pills),
+        if (price > 0) ...[
+          const SizedBox(height: 10),
+          EarnPointsBadge(amount: price, lang: lang, dense: false),
+        ],
+      ],
+    ).animate().fadeIn(duration: 350.ms, delay: 120.ms);
+  }
+
+  Widget _buildLabsSection(
+    BuildContext context,
+    Map<String, dynamic> service,
+    String lang,
+    bool isArabic,
+  ) {
     final visible = _visibleProviderServices();
+    final cheapestId = _asInt(_cheapestPs?['id']);
+    final nearestId = _asInt(_nearestPs?['id']);
+    final selectedId = _asInt(_selectedPs?['id']);
+    final sorts = <String>['price_low', if (_userLoc != null) 'distance', 'rating'];
+    final hasExtraFilters = _providersHomeOnly || _providersMinPrice != null || _providersMaxPrice != null;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
           children: [
-            Container(
-              width: 4,
-              height: 22,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(2),
-                gradient: AppTheme.auroraGradient,
+            Expanded(
+              child: RastSectionHeader(
+                title: L(lang, 'قارن المختبرات', 'Compare labs'),
               ),
             ),
-            SizedBox(width: Responsive.spacing(context, 10)),
-            Text(
-              AppStrings.t('availableLabs', lang),
-              style: TextStyle(
-                fontSize: Responsive.fontSize(context, 16),
-                fontWeight: FontWeight.w600,
-                color: Theme.of(context).colorScheme.onSurface,
+            // عرض مختبرات هذا التحليل على الخريطة بأسعارها
+            if (service['id'] != null && _providerServices.isNotEmpty)
+              Padding(
+                padding: const EdgeInsetsDirectional.only(end: RastTokens.gutter),
+                child: MapEntryButton(
+                  size: 42,
+                  serviceId: _asInt(service['id']),
+                  serviceName: LocaleUtils.localizedName(service, isArabic),
+                ),
               ),
-            ),
           ],
         ),
-        SizedBox(height: Responsive.spacing(context, 14)),
+        const SizedBox(height: 12),
+        // أدوات الترتيب لا معنى لها عندما لا يقدّم أي مختبر التحليل
+        if (_providersLoading || _providerServices.isNotEmpty)
         Row(
           children: [
             Expanded(
-              child: SearchBox(
-                controller: _providersSearchController,
-                hintText: AppStrings.t(
-                  'searchLabOrArea',
-                  lang,
-                ),
-                onSearchTap: () => setState(() {}),
-                onSubmitted: (_) => setState(() {}),
+              child: RastChoiceChips<String>(
+                items: sorts,
+                selected: sorts.contains(_providersSort) ? _providersSort : null,
+                labelOf: (s) => switch (s) {
+                  'price_low' => L(lang, 'الأرخص', 'Cheapest'),
+                  'distance' => L(lang, 'الأقرب', 'Nearest'),
+                  _ => L(lang, 'الأعلى تقييماً', 'Top rated'),
+                },
+                iconOf: (s) => switch (s) {
+                  'price_low' => Icons.savings_rounded,
+                  'distance' => Icons.near_me_rounded,
+                  _ => Icons.star_rounded,
+                },
+                onSelected: (s) => setState(() => _providersSort = s),
+                padding: const EdgeInsetsDirectional.only(start: RastTokens.gutter, end: 8),
               ),
             ),
-            const SizedBox(width: 12),
-            _providerFilterButton(),
+            Padding(
+              padding: const EdgeInsetsDirectional.only(end: RastTokens.gutter),
+              child: Badge(
+                isLabelVisible: hasExtraFilters,
+                smallSize: 9,
+                backgroundColor: RastTokens.danger,
+                child: _headerButton(
+                  onTap: _showProvidersFilterSheet,
+                  child: const Icon(Icons.tune_rounded, color: RastTokens.brand, size: 20),
+                ),
+              ),
+            ),
           ],
         ),
-        SizedBox(height: Responsive.spacing(context, 10)),
-        _providerFilterSummary(visible.length),
-        SizedBox(height: Responsive.spacing(context, 12)),
-        if (_providerServices.isEmpty && !_isLoading)
-          _emptyProviders(
-            AppStrings.t(
-              'noLabs',
-              context.watch<AppSettingsProvider>().language,
-            ),
-          )
-        else if (visible.isEmpty)
-          _emptyProviders(
-            AppStrings.t(
-              'noLabsMatchFilters',
-              lang,
-            ),
-          )
-        else
-          ...visible.map(
-            (ps) => Padding(
-              padding: EdgeInsets.only(bottom: Responsive.spacing(context, 12)),
-              child: _ProviderCard(
-                providerService: ps,
-                serviceName: LocaleUtils.localizedName(
-                  service,
-                  context.watch<AppSettingsProvider>().isArabic,
-                ),
-                isArabic: context.watch<AppSettingsProvider>().isArabic,
-                price: _priceForProviderService(ps),
-                homePrice: _homePriceForProviderService(ps),
-              ),
+        if (_providerServices.length > 5) ...[
+          const SizedBox(height: 12),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: RastTokens.gutter),
+            child: RastSearchField(
+              hint: AppStrings.t('searchLabOrArea', lang),
+              controller: _providersSearchController,
+              onChanged: (_) => setState(() {}),
             ),
           ),
+        ],
+        const SizedBox(height: 12),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: RastTokens.gutter),
+          child: Builder(
+            builder: (context) {
+              if (_providersLoading && _providerServices.isEmpty) {
+                return Column(
+                  children: List.generate(
+                    3,
+                    (_) => const Padding(
+                      padding: EdgeInsets.only(bottom: 10),
+                      child: RastSkeleton(height: 96, radius: RastTokens.radius),
+                    ),
+                  ),
+                );
+              }
+              if (_providerServices.isEmpty) {
+                return SizedBox(
+                  width: double.infinity,
+                  child: RastCard(
+                    child: RastEmptyState(
+                      icon: Icons.apartment_rounded,
+                      title: L(lang, 'غير متوفر حالياً', 'Not available yet'),
+                      message: L(
+                        lang,
+                        'لا يقدّم أي مختبر هذا التحليل الآن. تصفّح تحاليل مشابهة أو اسألنا على واتساب.',
+                        'No lab offers this test right now. Browse similar tests or ask us on WhatsApp.',
+                      ),
+                    ),
+                  ),
+                );
+              }
+              if (visible.isEmpty) {
+                return SizedBox(width: double.infinity, child: RastCard(
+                  child: RastEmptyState(
+                    icon: Icons.filter_alt_off_rounded,
+                    title: AppStrings.t('noLabsMatchFilters', lang),
+                    actionLabel: AppStrings.t('clear', lang),
+                    onAction: () => setState(() {
+                      _providersHomeOnly = false;
+                      _providersMinPrice = null;
+                      _providersMaxPrice = null;
+                      _providersSearchController.clear();
+                    }),
+                  ),
+                ));
+              }
+              return Column(
+                children: [
+                  for (var i = 0; i < visible.length; i++)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: _LabOfferRow(
+                        key: ValueKey('ps-${visible[i]['id']}'),
+                        provider: _providerOf(visible[i]),
+                        isArabic: isArabic,
+                        lang: lang,
+                        price: _priceForProviderService(visible[i]),
+                        homePrice: _homePriceForProviderService(visible[i]),
+                        distanceKm: _distanceFor(visible[i]),
+                        isCheapest: _providerServices.length > 1 && _asInt(visible[i]['id']) == cheapestId,
+                        isNearest: _providerServices.length > 1 && _asInt(visible[i]['id']) == nearestId,
+                        selected: _providerServices.length > 1 && _asInt(visible[i]['id']) == selectedId,
+                        onSelect: () => setState(() => _selectedPsId = _asInt(visible[i]['id'])),
+                        onBook: () => _bookProviderService(context, service, visible[i]),
+                        onOpenLab: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (_) => LabDetailsScreen(lab: _providerOf(visible[i]))),
+                        ),
+                      ).entrance(i),
+                    ),
+                ],
+              );
+            },
+          ),
+        ),
       ],
     );
   }
 
-  Widget _emptyProviders(String text) {
-    return Container(
-      width: double.infinity,
-      padding: EdgeInsets.symmetric(
-        vertical: Responsive.spacing(context, 24),
-        horizontal: Responsive.spacing(context, 16),
-      ),
-      decoration: BoxDecoration(
-        color: AppTheme.surfaceVariant.withValues(alpha: 0.5),
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
+  Widget _buildAbout(BuildContext context, String description, String lang) {
+    return RastCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(
-            Icons.business_rounded,
-            size: 28,
-            color: AppTheme.onSurfaceVariant.withValues(alpha: 0.7),
-          ),
-          SizedBox(width: Responsive.spacing(context, 10)),
-          Flexible(
-            child: Text(
-              text,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: Responsive.fontSize(context, 14),
-                color: AppTheme.onSurfaceVariant,
+          Row(
+            children: [
+              const RastIconBox(icon: Icons.description_rounded, size: 36),
+              const SizedBox(width: 10),
+              Text(
+                L(lang, 'عن التحليل', 'About this test'),
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: RastTokens.ink(context)),
               ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          AnimatedSize(
+            duration: const Duration(milliseconds: 260),
+            alignment: Alignment.topCenter,
+            child: Text(
+              description.trim(),
+              maxLines: _aboutExpanded ? null : 4,
+              overflow: _aboutExpanded ? null : TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 14, height: 1.7, color: RastTokens.muted(context)),
+            ),
+          ),
+          if (description.trim().length > 180)
+            GestureDetector(
+              onTap: () => setState(() => _aboutExpanded = !_aboutExpanded),
+              child: Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: Text(
+                  _aboutExpanded ? L(lang, 'عرض أقل', 'Show less') : L(lang, 'اقرأ المزيد', 'Read more'),
+                  style: const TextStyle(color: RastTokens.brand, fontWeight: FontWeight.w800, fontSize: 13),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// شريط الحجز الثابت: يعرض سعر المختبر المختار واسمه، والحجز بضغطة واحدة.
+  Widget? _buildBottomBar(BuildContext context, Map<String, dynamic> service, String lang) {
+    final isArabic = context.read<AppSettingsProvider>().isArabic;
+    String? labLine;
+    double price;
+    bool enabled;
+    VoidCallback onBook;
+
+    if (widget.labId != null) {
+      price = ApiConfig.priceFromMap(service);
+      labLine = widget.labName;
+      enabled = true;
+      onBook = () => _showBookingOptions(context, service);
+    } else {
+      final ps = _selectedPs;
+      if (ps == null) {
+        if (_providersLoading || _isLoading) return null;
+        return RastStickyBar(
+          child: RastButton(
+            label: L(lang, 'غير متوفر حالياً', 'Not available yet'),
+            icon: Icons.event_busy_rounded,
+            onPressed: null,
+          ),
+        );
+      }
+      price = _priceForProviderService(ps);
+      labLine = LocaleUtils.localizedBusinessName(_providerOf(ps), isArabic);
+      enabled = true;
+      onBook = () => _bookProviderService(context, service, ps);
+    }
+
+    return RastStickyBar(
+      child: Row(
+        children: [
+          Expanded(
+            flex: 5,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                RastPrice(amount: price > 0 ? price : null, lang: lang, size: 19),
+                if (labLine != null && labLine.isNotEmpty)
+                  AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 220),
+                    child: Text(
+                      labLine,
+                      key: ValueKey(labLine),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontSize: 11.5, color: RastTokens.muted(context), fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                // نقاط الولاء المتوقعة لهذا الحجز
+                Padding(
+                  padding: const EdgeInsets.only(top: 3),
+                  child: EarnPointsBadge(amount: price > 0 ? price : null, lang: lang),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            flex: 6,
+            child: RastButton(
+              label: AppStrings.t('bookNow', lang),
+              icon: Icons.event_available_rounded,
+              onPressed: enabled ? onBook : null,
             ),
           ),
         ],
@@ -1020,101 +1147,54 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
     );
   }
 
-  Widget _providerFilterButton() {
-    return InkWell(
-      onTap: _showProvidersFilterSheet,
-      borderRadius: BorderRadius.circular(14),
-      child: Container(
-        width: 52,
-        height: 52,
-        decoration: BoxDecoration(
-          color: RastUi.cardSurface(context),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: RastUi.softBorder(context)),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.10),
-              blurRadius: 10,
-              offset: const Offset(0, 4),
-            ),
-          ],
-        ),
-        child: const Icon(Icons.tune_rounded, color: RastUi.purple, size: 22),
-      ),
-    );
-  }
-
-  Widget _providerFilterSummary(int count) {
-    final lang =
-        context.watch<AppSettingsProvider>().language;
-
-    final chips = <Widget>[
-      _providerMiniChip(
-        '$count ${AppStrings.t('laboratory', lang)}',
-        Icons.business_rounded,
-      ),
-    ];
-
-    if (_providersHomeOnly) {
-      chips.add(
-        _providerMiniChip(
-          AppStrings.t('homeService', lang),
-          Icons.home_rounded,
-        ),
-      );
-    }
-
-    if (_providersMinPrice != null ||
-        _providersMaxPrice != null) {
-      chips.add(
-        _providerMiniChip(
-          '${_providersMinPrice?.toStringAsFixed(0) ?? '0'}'
-              ' - '
-              '${_providersMaxPrice?.toStringAsFixed(0) ?? '∞'} '
-              '${AppStrings.t('sar', lang)}',
-          Icons.payments_outlined,
-        ),
-      );
-    }
-
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
+  /// عند فتح التحليل من صفحة مختبر: بطاقة المختبر بدل المقارنة.
+  Widget _buildLabChip(String labName) {
+    final lang = context.read<AppSettingsProvider>().language;
+    final lab = widget.lab;
+    final logo = lab == null
+        ? null
+        : (ApiConfig.imageFromMap(lab) ?? ApiConfig.resolveImageUrl(lab['logo_url'], lab['logo']));
+    return RastCard(
+      onTap: lab == null
+          ? null
+          : () => Navigator.push(context, MaterialPageRoute(builder: (_) => LabDetailsScreen(lab: lab))),
       child: Row(
-        children: chips
-            .map(
-              (chip) => Padding(
-            padding:
-            const EdgeInsetsDirectional.only(
-              end: 8,
-            ),
-            child: chip,
-          ),
-        )
-            .toList(),
-      ),
-    );
-  }
-
-  Widget _providerMiniChip(String label, IconData icon) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: RastUi.purple.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(14),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 14, color: RastUi.purple),
-          const SizedBox(width: 5),
-          Text(
-            label,
-            style: TextStyle(
-              color: RastUi.purple,
-              fontSize: Responsive.fontSize(context, 11),
-              fontWeight: FontWeight.w700,
+          SizedBox(
+            width: 52,
+            height: 52,
+            child: RastNetImage(url: logo, radius: 14, fallbackIcon: Icons.apartment_rounded, width: 52, height: 52),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  L(lang, 'تحجز لدى', 'Booking at'),
+                  style: TextStyle(fontSize: 11.5, color: RastTokens.muted(context)),
+                ),
+                Text(
+                  labName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: RastTokens.ink(context)),
+                ),
+                const SizedBox(height: 4),
+                RastPill(
+                  icon: Icons.verified_rounded,
+                  label: AppStrings.t('certifiedLaboratory', lang),
+                  color: RastTokens.success,
+                  dense: true,
+                ),
+              ],
             ),
           ),
+          if (lab != null)
+            Icon(
+              Directionality.of(context) == TextDirection.rtl ? Icons.chevron_left_rounded : Icons.chevron_right_rounded,
+              color: RastTokens.muted(context),
+            ),
         ],
       ),
     );
@@ -1504,217 +1584,6 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
         fontWeight: FontWeight.w600,
       ),
       onSelected: (_) => onSelected(value),
-    );
-  }
-
-  Widget _buildHeroBackground(BuildContext context, String? imageUrl) {
-    final hasImage = imageUrl != null && imageUrl.trim().isNotEmpty;
-    if (!hasImage) {
-      return _buildImagePlaceholder();
-    }
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        HeroImageBackground(
-          imageUrl: imageUrl,
-          placeholder: _buildImageLoadingPlaceholder(),
-          fit: BoxFit.cover,
-        ),
-        IgnorePointer(
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  Colors.black.withValues(alpha: 0.28),
-                  Colors.transparent,
-                  Colors.transparent,
-                ],
-                stops: const [0.0, 0.35, 1.0],
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildImageLoadingPlaceholder() {
-    return ColoredBox(
-      color: RastUi.subtleFill(context),
-      child: Center(
-        child: Icon(
-          Icons.medical_services_outlined,
-          size: 64,
-          color: AppTheme.primary.withValues(alpha: 0.35),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildBottomBar(BuildContext context, Map<String, dynamic> service) {
-    return Material(
-      elevation: 12,
-      shadowColor: Colors.black.withValues(alpha: 0.08),
-      color: RastUi.screenSurface(context),
-      child: SafeArea(
-        top: false,
-        child: Padding(
-          padding: EdgeInsets.fromLTRB(
-            Responsive.spacing(context, 20),
-            Responsive.spacing(context, 12),
-            Responsive.spacing(context, 20),
-            Responsive.spacing(context, 14),
-          ),
-          child: SizedBox(
-            width: double.infinity,
-          child: GradientFilledButton(
-            onPressed: () => _showBookingOptions(context, service),
-            style: FilledButton.styleFrom(
-              minimumSize: const Size(double.infinity, 54),
-              padding: const EdgeInsets.symmetric(vertical: 16),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(18),
-              ),
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Icon(Icons.calendar_today_rounded, size: 22),
-                const SizedBox(width: 10),
-                Text(
-                  AppStrings.t(
-                    'bookNow',
-                    context.watch<AppSettingsProvider>().language,
-                  ),
-                  style: TextStyle(
-                    fontSize: Responsive.fontSize(context, 16),
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildImagePlaceholder() {
-    return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            AppTheme.primary.withValues(alpha: 0.9),
-            AppTheme.primaryDark.withValues(alpha: 0.95),
-          ],
-        ),
-      ),
-      child: Center(
-        child: Icon(
-          Icons.medical_services_outlined,
-          size: 80,
-          color: Colors.white.withValues(alpha: 0.6),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildLabChip(String labName) {
-    return Container(
-      padding: EdgeInsets.all(Responsive.spacing(context, 16)),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: AppTheme.cardShadow,
-        border: Border.all(color: AppTheme.primary.withValues(alpha: 0.15)),
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: AppTheme.primary.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: Icon(
-              Icons.business_rounded,
-              color: AppTheme.primary,
-              size: 26,
-            ),
-          ),
-          SizedBox(width: Responsive.spacing(context, 14)),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  labName,
-                  style: TextStyle(
-                    fontSize: Responsive.fontSize(context, 15),
-                    fontWeight: FontWeight.w600,
-                    color: AppTheme.onSurface,
-                  ),
-                ),
-                SizedBox(height: 2),
-                Text(
-                  AppStrings.t(
-                  'certifiedLaboratory',
-                  context.watch<AppSettingsProvider>().language,
-                  ),
-                  style: TextStyle(
-                    fontSize: Responsive.fontSize(context, 12),
-                    color: AppTheme.onSurfaceVariant,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Icon(Icons.arrow_forward_ios, size: 14, color: AppTheme.primary),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildLoading() {
-    return Padding(
-      padding: EdgeInsets.all(Responsive.spacing(context, 16)),
-      child: Shimmer.fromColors(
-        baseColor: Theme.of(context).colorScheme.surfaceContainerHighest,
-        highlightColor: Theme.of(context).colorScheme.surface,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              height: 200,
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                borderRadius: BorderRadius.circular(20),
-              ),
-            ),
-            SizedBox(height: Responsive.spacing(context, 24)),
-            Container(
-              height: 80,
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                borderRadius: BorderRadius.circular(16),
-              ),
-            ),
-            SizedBox(height: Responsive.spacing(context, 16)),
-            Container(
-              height: 120,
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                borderRadius: BorderRadius.circular(16),
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 
@@ -2276,301 +2145,164 @@ class _LabPickerTile extends StatelessWidget {
   }
 }
 
-class _ProviderCard extends StatelessWidget {
-  final Map<String, dynamic> providerService;
-  final String serviceName;
-  final bool isArabic;
-  final double price;
-  final double homePrice;
-
-  const _ProviderCard({
-    required this.providerService,
-    required this.serviceName,
+/// صف مختبر في المقارنة: الشعار، الاسم، الموقع/المسافة، التقييم، السعر، الوسوم، وزر «احجز».
+/// الضغط على الصف يختاره لشريط الحجز السفلي، والضغط على الشعار يفتح صفحة المختبر.
+class _LabOfferRow extends StatelessWidget {
+  const _LabOfferRow({
+    super.key,
+    required this.provider,
     required this.isArabic,
+    required this.lang,
     required this.price,
     required this.homePrice,
+    required this.distanceKm,
+    required this.isCheapest,
+    required this.isNearest,
+    required this.selected,
+    required this.onSelect,
+    required this.onBook,
+    required this.onOpenLab,
   });
+
+  final Map<String, dynamic> provider;
+  final bool isArabic;
+  final String lang;
+  final double price;
+  final double homePrice;
+  final double? distanceKm;
+  final bool isCheapest;
+  final bool isNearest;
+  final bool selected;
+  final VoidCallback onSelect;
+  final VoidCallback onBook;
+  final VoidCallback onOpenLab;
 
   @override
   Widget build(BuildContext context) {
-    final lang =
-        context.watch<AppSettingsProvider>().language;
-    final lab = providerService['provider'] is Map
-        ? providerService['provider'] as Map<String, dynamic>
-        : <String, dynamic>{};
-    final avgRating = (lab['avg_rating'] is num ? lab['avg_rating'] as num : 0)
-        .toDouble();
-    final totalReviews = (lab['total_reviews'] is num
-        ? (lab['total_reviews'] as num).toInt()
-        : 0);
-    final logoUrl =
-        ApiConfig.imageFromMap(lab) ??
-        ApiConfig.resolveImageUrl(lab['logo_url'], lab['logo']);
-    final name = LocaleUtils.localizedBusinessName(lab, isArabic);
-    final city = lab['city']?.toString() ?? '';
-    final district = lab['district']?.toString() ?? '';
+    final name = LocaleUtils.localizedBusinessName(provider, isArabic);
+    final logo = ApiConfig.imageFromMap(provider) ?? ApiConfig.resolveImageUrl(provider['logo_url'], provider['logo']);
+    final rating = numOf(provider['avg_rating']) ?? 0;
+    final reviews = (numOf(provider['total_reviews']) ?? 0).toInt();
+    final city = (provider['city'] ?? '').toString().trim();
+    final district = (provider['district'] ?? '').toString().trim();
+    final place = [city, district].where((s) => s.isNotEmpty).join(' · ');
+    final km = distanceKm;
+    final distance = km == null
+        ? null
+        : (km < 1
+            ? '${(km * 1000).round()} ${L(lang, 'م', 'm')}'
+            : '${km.toStringAsFixed(1)} ${L(lang, 'كم', 'km')}');
+    final locationLine = distance != null ? (place.isEmpty ? distance : '$distance · $place') : place;
 
-    return Container(
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 220),
       decoration: BoxDecoration(
-        color: RastUi.cardSurface(context),
-        borderRadius: BorderRadius.circular(22),
-        boxShadow: AppTheme.cardShadowElevated,
-        border: Border.all(color: RastUi.softBorder(context)),
+        borderRadius: BorderRadius.circular(RastTokens.radius + 2),
+        border: Border.all(color: selected ? RastTokens.brand : Colors.transparent, width: 1.6),
       ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: () => Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => LabDetailsScreen(lab: lab)),
-          ),
-          borderRadius: BorderRadius.circular(22),
-          child: Padding(
-            padding: EdgeInsets.all(Responsive.spacing(context, 16)),
-            child: Column(
+      child: RastCard(
+        onTap: onSelect,
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  children: [
-                    _buildLogo(logoUrl),
-                    SizedBox(width: Responsive.spacing(context, 12)),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            name,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: Responsive.fontSize(context, 15),
-                              fontWeight: FontWeight.w800,
-                              color: RastUi.primaryText(context),
-                            ),
-                          ),
-                          SizedBox(height: Responsive.spacing(context, 4)),
-                          Text(
-                            '$city${district.isNotEmpty ? ' - $district' : ''}',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: Responsive.fontSize(context, 11),
-                              color: AppTheme.onSurfaceVariant,
-                            ),
-                          ),
-                          SizedBox(height: Responsive.spacing(context, 7)),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 6,
-                            ),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFFFF7E6),
-                              borderRadius: BorderRadius.circular(14),
-                              border: Border.all(
-                                color: const Color(0xFFFFE0A3),
-                                width: 1,
-                              ),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const Icon(
-                                  Icons.star_rounded,
-                                  color: Color(0xFFFFB000),
-                                  size: 16,
-                                ),
-
-                                const SizedBox(width: 5),
-
-                                Text(
-                                  avgRating.toStringAsFixed(1),
-                                  style: TextStyle(
-                                    color: const Color(0xFF27272A),
-                                    fontSize: Responsive.fontSize(
-                                      context,
-                                      11,
-                                    ),
-                                    fontWeight: FontWeight.w800,
-                                  ),
-                                ),
-
-                                if (totalReviews > 0) ...[
-                                  const SizedBox(width: 4),
-
-                                  Text(
-                                    '($totalReviews)',
-                                    style: TextStyle(
-                                      color: const Color(0xFF71717A),
-                                      fontSize: Responsive.fontSize(
-                                        context,
-                                        9.5,
-                                      ),
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                ],
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
+                GestureDetector(
+                  onTap: onOpenLab,
+                  child: Container(
+                    width: 50,
+                    height: 50,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: RastTokens.line(context)),
                     ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 8,
-                      ),
-                      decoration: BoxDecoration(
-                        color: RastUi.purple.withValues(alpha: 0.10),
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(
-                          color: RastUi.purple.withValues(alpha: 0.20),
-                        ),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.center,
-                        children: [
-                          Icon(
-                            Icons.payments_rounded,
-                            color: RastUi.purple,
-                            size: 16,
-                          ),
-
-                          const SizedBox(width: 6),
-
-                          Text(
-                            price > 0
-                                ? '${price.toStringAsFixed(0)} ${AppStrings.t('sar', lang)}'
-                                : AppStrings.t('priceAvailableLater', lang),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              color: RastUi.purple,
-                              fontSize: Responsive.fontSize(
-                                context,
-                                12,
-                              ),
-                              fontWeight: FontWeight.w900,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
+                    child: RastNetImage(url: logo, radius: 13, fallbackIcon: Icons.apartment_rounded, width: 50, height: 50),
+                  ),
                 ),
-                SizedBox(height: Responsive.spacing(context, 12)),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _providerMetaChip(
-                        context,
-                        Icons.science_outlined,
-                        serviceName,
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: RastTokens.ink(context)),
                       ),
-                    ),
-                    const SizedBox(width: 8),
-                    _providerMetaChip(
-                      context,
-                      Icons.home_rounded,
-                        homePrice > 0
-                            ? '${homePrice.toStringAsFixed(0)} '
-                            '${AppStrings.t('sar', lang)} · '
-                            '${AppStrings.t('homeService', lang)}'
-                            : AppStrings.t(
-                          'noHomeService',
-                          lang,
-                        ),
-                    ),
-                    const SizedBox(width: 8),
-                    Icon(
-                      Icons.arrow_forward_ios,
-                      size: 12,
-                      color: AppTheme.onSurfaceVariant,
-                    ),
-                  ],
+                      const SizedBox(height: 3),
+                      Row(
+                        children: [
+                          if (rating > 0) ...[
+                            const Icon(Icons.star_rounded, color: RastTokens.gold, size: 16),
+                            const SizedBox(width: 2),
+                            Text(
+                              rating.toStringAsFixed(1),
+                              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: RastTokens.ink(context)),
+                            ),
+                            if (reviews > 0)
+                              Text(' ($reviews)', style: TextStyle(fontSize: 11, color: RastTokens.muted(context))),
+                            const SizedBox(width: 8),
+                          ],
+                          Flexible(
+                            child: Text(
+                              locationLine,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(fontSize: 11.5, color: RastTokens.muted(context)),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                RastPrice(
+                  amount: price > 0 ? price : null,
+                  lang: lang,
+                  size: 18,
+                  crossAxisAlignment: CrossAxisAlignment.end,
                 ),
               ],
             ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _providerMetaChip(BuildContext context, IconData icon, String label) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
-      decoration: BoxDecoration(
-        color: RastUi.chipFill,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 14, color: RastUi.purple),
-          const SizedBox(width: 5),
-          Flexible(
-            child: Text(
-              label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: RastUi.textPurple,
-                fontSize: Responsive.fontSize(context, 10),
-                fontWeight: FontWeight.w700,
-              ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: [
+                      if (isCheapest)
+                        RastPill(icon: Icons.savings_rounded, label: L(lang, 'الأرخص', 'Cheapest'), color: RastTokens.success, dense: true),
+                      if (isNearest)
+                        RastPill(icon: Icons.near_me_rounded, label: L(lang, 'الأقرب', 'Nearest'), color: RastTokens.info, dense: true),
+                      if (homePrice > 0)
+                        RastPill(
+                          icon: Icons.home_rounded,
+                          label: '${L(lang, 'سحب منزلي', 'Home visit')} +${fmtPrice(homePrice)}',
+                          color: RastTokens.brand,
+                          dense: true,
+                        ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                SizedBox(
+                  width: 92,
+                  child: RastButton(
+                    label: L(lang, 'احجز', 'Book'),
+                    height: 38,
+                    onPressed: price > 0 ? onBook : null,
+                  ),
+                ),
+              ],
             ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildLogo(String? url) {
-    return Container(
-      width: 52,
-      height: 52,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(14),
-        boxShadow: AppTheme.cardShadow,
-        border: Border.all(
-          color: Colors.white.withValues(alpha: 0.9),
-          width: 1,
+          ],
         ),
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(14),
-        child: (url != null && url.isNotEmpty)
-            ? CachedNetworkImage(
-                imageUrl: url,
-                fit: BoxFit.cover,
-                placeholder: (_, __) => Container(
-                  color: AppTheme.surfaceVariant,
-                  child: Icon(
-                    Icons.business_rounded,
-                    color: AppTheme.primary,
-                    size: 24,
-                  ),
-                ),
-                errorWidget: (_, __, ___) => Container(
-                  color: AppTheme.surfaceVariant,
-                  child: Icon(
-                    Icons.business_rounded,
-                    color: AppTheme.primary,
-                    size: 24,
-                  ),
-                ),
-              )
-            : Container(
-                color: AppTheme.primary.withValues(alpha: 0.1),
-                child: Icon(
-                  Icons.business_rounded,
-                  color: AppTheme.primary,
-                  size: 24,
-                ),
-              ),
       ),
     );
   }

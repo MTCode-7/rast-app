@@ -56,6 +56,8 @@ android {
     buildTypes {
         release {
             signingConfig = signingConfigs.getByName("release")
+            // قواعد R8 الخاصة بنا (TikTok Business SDK) فوق قواعد Flutter الافتراضية
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
 }

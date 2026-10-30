@@ -1,8 +1,12 @@
+import 'dart:async';
+
 import 'package:firebase_analytics/firebase_analytics.dart';
 import 'package:firebase_remote_config/firebase_remote_config.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:rast/core/api/api_client.dart';
 import 'package:rast/core/services/snap_pixel_service.dart';
+import 'package:tiktok_events_sdk/tiktok_events_sdk.dart';
 
 /// تتبع الأحداث في Firebase / Google Analytics 4 (وتمريرها لقناة Snap الاختيارية).
 ///
@@ -31,6 +35,85 @@ class AnalyticsService {
 
     // إعدادات Snap من Remote Config لا تؤخر فتح التطبيق
     _initSnapPixel();
+    // TikTok App Events SDK (التثبيت وفتح التطبيق تلقائياً، وبقية الأحداث من هنا)
+    _initTikTok();
+  }
+
+  // ===================== TikTok =====================
+
+  // من TikTok Events Manager ← مصادر بيانات التطبيق (Android و iOS)
+  static const _ttAndroidAppId = 'com.rast.labs';
+  static const _ttAndroidTikTokId = '7683930319421997074';
+  static const _ttAndroidSecret = 'TTv1H1djqRBYUvGgYnGsBBOXZYcJpABv';
+  static const _ttIosAppId = '6760505768';
+  static const _ttIosTikTokId = '7683936541463920648';
+  // سر تطبيق آيفون من صفحة تطبيق iOS في TikTok (إن اختلف عن أندرويد)
+  static const String? _ttIosSecret = null;
+
+  static bool _ttReady = false;
+
+  static Future<void> _initTikTok() async {
+    if (kIsWeb) return;
+    try {
+      await TikTokEventsSdk.initSdk(
+        androidAppId: _ttAndroidAppId,
+        tikTokAndroidId: _ttAndroidTikTokId,
+        iosAppId: _ttIosAppId,
+        tiktokIosId: _ttIosTikTokId,
+        isDebugMode: kDebugMode,
+        logLevel: kDebugMode ? TikTokLogLevel.debug : TikTokLogLevel.none,
+        androidOptions: const TikTokAndroidOptions(appSecret: _ttAndroidSecret),
+        iosOptions: const TikTokIosOptions(
+          accessToken: _ttIosSecret,
+          // نافذة إذن التتبع في آيفون بعد ثوانٍ من الفتح (مطلوبة لقياس الإعلانات)
+          displayAtt: true,
+          attUserAuthorizationDelaySeconds: 3,
+        ),
+      );
+      _ttReady = true;
+      // المستخدم المسجّل مسبقاً (فتح التطبيق وهو داخل حسابه): نربطه بعد جاهزية الـ SDK
+      final pending = _pendingIdentity;
+      if (pending != null) {
+        _pendingIdentity = null;
+        await setUserId(pending.$1, email: pending.$2, phone: pending.$3);
+      }
+    } catch (e) {
+      debugPrint('TikTok init failed: $e');
+    }
+  }
+
+  static (String, String?, String?)? _pendingIdentity;
+
+  /// يرسل حدثاً لتيك توك. أحداث المحتوى (عرض/سلة/دفع/شراء) بنوعها القياسي،
+  /// والقيمة بالريال، ومعرّف المحتوى رقم فقط (بلا أسماء تحاليل: بيانات صحية).
+  static Future<void> _sendToTikTok(
+    String eventName, {
+    TTEventType type = TTEventType.none,
+    double? value,
+    String? contentId,
+    String? contentType,
+    int? quantity,
+    String? eventId,
+  }) async {
+    if (!_ttReady) return;
+    try {
+      await TikTokEventsSdk.logEvent(
+        event: TikTokEvent(
+          eventName: eventName,
+          eventType: type,
+          eventId: eventId,
+          properties: EventProperties(
+            value: value,
+            currency: value != null ? CurrencyCode.SAR : null,
+            contentId: contentId,
+            contentType: contentType,
+            quantity: quantity,
+          ),
+        ),
+      );
+    } catch (e) {
+      debugPrint('TikTok event failed: $e');
+    }
   }
 
   static Future<void> _initSnapPixel() async {
@@ -51,9 +134,40 @@ class AnalyticsService {
 
   // ===================== المستخدم =====================
 
-  static Future<void> setUserId(String? userId) async {
+  static Future<void> setUserId(String? userId, {String? email, String? phone}) async {
     await _safe(() => _firebase.setUserId(id: userId));
     await _sendToSnap('set_user_id', {'user_id': userId});
+    // تيك توك: ربط الأحداث بالحساب لتحسين المطابقة (البريد والجوال تُشفَّر داخل الـ SDK)
+    if (!_ttReady && userId != null) {
+      _pendingIdentity = (userId, email, phone);
+    }
+    if (_ttReady) {
+      try {
+        if (userId == null) {
+          await TikTokEventsSdk.logout();
+        } else {
+          await TikTokEventsSdk.identify(
+            identifier: TikTokIdentifier(
+              externalId: userId,
+              email: (email ?? '').trim().isEmpty ? null : email!.trim().toLowerCase(),
+              phoneNumber: _e164(phone),
+            ),
+          );
+        }
+      } catch (e) {
+        debugPrint('TikTok identify failed: $e');
+      }
+    }
+  }
+
+  /// 05xxxxxxxx → +9665xxxxxxxx (الصيغة الدولية المطلوبة للمطابقة)
+  static String? _e164(String? phone) {
+    var d = (phone ?? '').replaceAll(RegExp(r'\D'), '');
+    if (d.isEmpty) return null;
+    if (d.startsWith('00')) d = d.substring(2);
+    if (d.startsWith('05')) d = '966${d.substring(1)}';
+    if (d.length == 9 && d.startsWith('5')) d = '966$d';
+    return d.length >= 11 ? '+$d' : null;
   }
 
   static Future<void> setLanguage(String lang) =>
@@ -62,11 +176,13 @@ class AnalyticsService {
   static Future<void> logLogin({String method = 'phone'}) async {
     await _safe(() => _firebase.logLogin(loginMethod: method));
     await _sendToSnap('login', {'method': method});
+    await _sendToTikTok('Login');
   }
 
   static Future<void> logSignUp({String method = 'phone'}) async {
     await _safe(() => _firebase.logSignUp(signUpMethod: method));
     await _sendToSnap('sign_up', {'method': method});
+    await _sendToTikTok('Registration');
   }
 
   static Future<void> logLogout() => logEvent('logout');
@@ -135,6 +251,11 @@ class AnalyticsService {
           items: [item],
         ));
     await _sendToSnap('view_item', {'item_id': item.itemId, 'value': item.price, 'currency': currency});
+    await _sendToTikTok('ViewContent',
+        type: TTEventType.viewContent,
+        value: item.price?.toDouble(),
+        contentId: item.itemId,
+        contentType: 'product');
   }
 
   static Future<void> logSelectItem(AnalyticsEventItem item, {String list = 'list'}) =>
@@ -146,11 +267,17 @@ class AnalyticsService {
     await _safe(() => _firebase.logSearch(searchTerm: t, parameters: {'search_area': area}));
     // نص البحث يبقى في Firebase للتقارير فقط، ولا يُرسل لمنصة إعلانية (قد يكون اسم تحليل)
     await _sendToSnap('search', {'search_area': area});
+    await _sendToTikTok('Search');
   }
 
   static Future<void> logAddToWishlist(AnalyticsEventItem item) async {
     await _safe(() => _firebase.logAddToWishlist(currency: currency, value: item.price?.toDouble(), items: [item]));
     await _sendToSnap('add_to_wishlist', {'item_id': item.itemId});
+    await _sendToTikTok('AddToWishlist',
+        type: TTEventType.addToWishlist,
+        value: item.price?.toDouble(),
+        contentId: item.itemId,
+        contentType: 'product');
   }
 
   // ===================== السلة والشراء =====================
@@ -158,6 +285,12 @@ class AnalyticsService {
   static Future<void> logAddToCart(AnalyticsEventItem item) async {
     await _safe(() => _firebase.logAddToCart(currency: currency, value: item.price?.toDouble(), items: [item]));
     await _sendToSnap('add_to_cart', {'item_id': item.itemId, 'value': item.price, 'currency': currency});
+    await _sendToTikTok('AddToCart',
+        type: TTEventType.addToCart,
+        value: item.price?.toDouble(),
+        contentId: item.itemId,
+        contentType: 'product',
+        quantity: 1);
   }
 
   static Future<void> logRemoveFromCart(AnalyticsEventItem item) =>
@@ -178,6 +311,11 @@ class AnalyticsService {
           parameters: {'item_count': itemCount},
         ));
     await _sendToSnap('begin_checkout', {'item_count': itemCount, 'value': value, 'currency': currency});
+    await _sendToTikTok('Checkout',
+        type: TTEventType.checkout,
+        value: value,
+        contentType: 'product',
+        quantity: itemCount);
   }
 
   static Future<void> logPurchase({
@@ -199,6 +337,13 @@ class AnalyticsService {
       'currency': currency,
       'item_count': itemCount,
     });
+    // الشراء (حدث التحسين لحملات التطبيق). معرّف الحدث = رقم العملية لمنع التكرار
+    await _sendToTikTok('Purchase',
+        type: TTEventType.purchase,
+        value: value,
+        contentType: 'product',
+        quantity: itemCount ?? 1,
+        eventId: transactionId);
   }
 
   static Future<void> logSubscription({
@@ -244,11 +389,27 @@ class AnalyticsService {
     }
   }
 
+  /// أحداث سناب التي يمرّرها الخادم (Conversions API). الشراء يرسله الخادم بعد الدفع الفعلي.
+  static const _snapServerEvents = {
+    'view_item', 'search', 'add_to_wishlist', 'add_to_cart', 'begin_checkout', 'sign_up', 'login',
+  };
+
   static Future<void> _sendToSnap(
     String name,
     Map<String, Object?> parameters,
   ) async {
     if (kIsWeb) return;
+    if (_snapServerEvents.contains(name)) {
+      // التطبيق بلا SDK سناب: الخادم يرسل الحدث بمعلومات الجهاز (لا أسماء تحاليل ولا نص بحث)
+      final value = parameters['value'];
+      final items = parameters['item_count'];
+      unawaited(ApiClient().post('track/snap', body: {
+        'event': name,
+        if (value is num) 'value': value,
+        if (items is num) 'num_items': items.toInt(),
+      }).then((_) {}, onError: (_) {}));
+      return;
+    }
     try {
       await _snapChannel.invokeMethod<void>('track_event', {
         'name': name,

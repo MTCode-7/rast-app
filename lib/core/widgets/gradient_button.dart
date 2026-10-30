@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:rast/core/widgets/rast_motion.dart';
 import 'package:rast/core/providers/app_settings_provider.dart';
 import 'package:rast/core/widgets/rast_ui.dart';
 
@@ -20,7 +22,11 @@ class GradientFilledButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final settings = context.watch<AppSettingsProvider>();
     final gradient = settings.primaryGradient;
-    return DecoratedBox(
+    // ضغطة محسوسة: الزر يصغر قليلاً ويرتد مع اهتزاز خفيف
+    return Pressable(
+      scale: onPressed == null ? 1 : 0.97,
+      haptic: false,
+      child: DecoratedBox(
       decoration: BoxDecoration(
         gradient: gradient,
         borderRadius: BorderRadius.circular(28),
@@ -33,7 +39,7 @@ class GradientFilledButton extends StatelessWidget {
         ],
       ),
       child: FilledButton(
-        onPressed: onPressed,
+        onPressed: _withHaptic(onPressed),
         style: (style ?? const ButtonStyle()).copyWith(
           backgroundColor: WidgetStateProperty.all(Colors.transparent),
           foregroundColor: WidgetStateProperty.all(Colors.white),
@@ -42,9 +48,17 @@ class GradientFilledButton extends StatelessWidget {
         ),
         child: child,
       ),
+      ),
     );
   }
 }
+
+VoidCallback? _withHaptic(VoidCallback? onPressed) => onPressed == null
+    ? null
+    : () {
+        HapticFeedback.selectionClick();
+        onPressed();
+      };
 
 /// زر ممتلئ بتدرج مع أيقونة ونص — يستخدم لوني الإعدادات مع التدرج
 class GradientFilledButtonIcon extends StatelessWidget {
@@ -65,27 +79,31 @@ class GradientFilledButtonIcon extends StatelessWidget {
   Widget build(BuildContext context) {
     final settings = context.watch<AppSettingsProvider>();
     final gradient = settings.primaryGradient;
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        gradient: gradient,
-        borderRadius: BorderRadius.circular(28),
-        boxShadow: [
-          BoxShadow(
-            color: RastUi.purple.withValues(alpha: 0.28),
-            blurRadius: 14,
-            offset: const Offset(0, 5),
+    return Pressable(
+      scale: onPressed == null ? 1 : 0.97,
+      haptic: false,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: gradient,
+          borderRadius: BorderRadius.circular(28),
+          boxShadow: [
+            BoxShadow(
+              color: RastUi.purple.withValues(alpha: 0.28),
+              blurRadius: 14,
+              offset: const Offset(0, 5),
+            ),
+          ],
+        ),
+        child: FilledButton.icon(
+          onPressed: _withHaptic(onPressed),
+          icon: icon,
+          label: label,
+          style: (style ?? const ButtonStyle()).copyWith(
+            backgroundColor: WidgetStateProperty.all(Colors.transparent),
+            foregroundColor: WidgetStateProperty.all(Colors.white),
+            shadowColor: WidgetStateProperty.all(Colors.transparent),
+            surfaceTintColor: WidgetStateProperty.all(Colors.transparent),
           ),
-        ],
-      ),
-      child: FilledButton.icon(
-        onPressed: onPressed,
-        icon: icon,
-        label: label,
-        style: (style ?? const ButtonStyle()).copyWith(
-          backgroundColor: WidgetStateProperty.all(Colors.transparent),
-          foregroundColor: WidgetStateProperty.all(Colors.white),
-          shadowColor: WidgetStateProperty.all(Colors.transparent),
-          surfaceTintColor: WidgetStateProperty.all(Colors.transparent),
         ),
       ),
     );

@@ -5,6 +5,7 @@ import 'package:rast/core/api/api_services/auth_api.dart';
 import 'package:rast/core/api/api_services/bookings_api.dart';
 import 'package:rast/core/api/api_services/cart_api.dart';
 import 'package:rast/core/api/api_services/chat_api.dart';
+import 'package:rast/core/api/api_services/growth_api.dart';
 
 /// نقاط الوصول للـ API
 class Api {
@@ -15,4 +16,5 @@ class Api {
   static final bookings = BookingsApi();
   static final cart = CartApi();
   static final chat = ChatApi();
+  static final growth = GrowthApi();
 }

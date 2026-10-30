@@ -1,8 +1,15 @@
 import 'package:flutter/material.dart';
-import 'package:rast/core/theme/app_theme.dart';
 import 'package:rast/core/services/location_service.dart';
-import 'package:rast/core/widgets/gradient_button.dart';
-import 'package:rast/core/utils/responsive.dart';
+import 'package:flutter_animate/flutter_animate.dart';
+import 'package:provider/provider.dart';
+import 'package:rast/core/providers/app_settings_provider.dart';
+import 'package:rast/core/widgets/rast_kit.dart';
+import 'package:rast/core/widgets/rast_motion.dart';
+import 'package:rast/core/widgets/rast_ui.dart';
+import 'package:rast/core/services/app_events.dart';
+import 'package:rast/core/widgets/city_selector.dart';
+import 'package:rast/features/addresses/screens/addresses_screen.dart';
+import 'package:rast/features/auth/services/auth_service.dart';
 
 /// شاشة إعداد الموقع الافتراضي - للعثور على المختبرات القريبة
 class DefaultLocationScreen extends StatefulWidget {
@@ -48,6 +55,7 @@ class _DefaultLocationScreenState extends State<DefaultLocationScreen> {
         }
         return;
       }
+      AppEvents.notifyLocationChanged();
       if (mounted) {
         setState(() {
           _savedLocation = location;
@@ -66,8 +74,30 @@ class _DefaultLocationScreenState extends State<DefaultLocationScreen> {
     }
   }
 
+  Future<void> _pickOnMap() async {
+    final a = await pickAddress(context, saveToAccount: false);
+    final lat = numOf(a?['latitude']);
+    final lng = numOf(a?['longitude']);
+    if (a == null || lat == null || lng == null) return;
+    final place = [a['district'], a['city']].map((e) => e?.toString() ?? '').where((e) => e.isNotEmpty).join('، ');
+    await LocationService.setDefaultLocation(
+      latitude: lat,
+      longitude: lng,
+      label: place.isNotEmpty ? place : a['label']?.toString(),
+    );
+    AppEvents.notifyLocationChanged();
+    await _loadSaved();
+    if (mounted) {
+      setState(() {
+        _message = 'تم حفظ موقعك الافتراضي';
+        _isSuccess = true;
+      });
+    }
+  }
+
   Future<void> _clearLocation() async {
     await LocationService.clearDefaultLocation();
+    AppEvents.notifyLocationChanged();
     if (mounted) {
       setState(() {
         _savedLocation = null;
@@ -79,106 +109,153 @@ class _DefaultLocationScreenState extends State<DefaultLocationScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final settings = context.watch<AppSettingsProvider>();
+    final lang = settings.language;
     return Directionality(
-      textDirection: TextDirection.rtl,
-      child: Scaffold(
-        backgroundColor: Theme.of(context).colorScheme.surface,
-        appBar: AppBar(
-          title: const Text('الموقع الافتراضي'),
+      textDirection: settings.textDirection,
+      child: Container(
+        decoration: const BoxDecoration(gradient: RastUi.headerGradient),
+        child: Scaffold(
           backgroundColor: Colors.transparent,
-          elevation: 0,
-        ),
-        body: SingleChildScrollView(
-          padding: EdgeInsets.all(Responsive.spacing(context, 20)),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Container(
-                padding: EdgeInsets.all(Responsive.spacing(context, 20)),
-                decoration: AppTheme.cardDecorationFor(context),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
+          appBar: RastTopBar(title: L(lang, 'الموقع الافتراضي', 'Default location')),
+          body: ClipRRect(
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+            child: Container(
+              color: RastTokens.bg(context),
+              child: ListView(
+                padding: const EdgeInsets.all(16),
+                children: [
+                  RastCard(
+                    padding: const EdgeInsets.all(18),
+                    child: Row(
                       children: [
-                        Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: AppTheme.primary.withValues(alpha: 0.1),
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                          child: Icon(Icons.location_on_rounded, color: AppTheme.primary, size: 28),
-                        ),
-                        SizedBox(width: Responsive.spacing(context, 14)),
+                        const RastIconBox(icon: Icons.location_on_rounded, size: 52),
+                        const SizedBox(width: 14),
                         Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text('العثور على المختبرات القريبة', style: TextStyle(fontSize: Responsive.fontSize(context, 16), fontWeight: FontWeight.w600)),
-                              SizedBox(height: 4),
-                              Text('احفظ موقعك أو عنوانك الافتراضي لعرض المختبرات الأقرب لك', style: TextStyle(fontSize: Responsive.fontSize(context, 12), color: AppTheme.onSurfaceVariant)),
+                              Text(
+                                L(lang, 'العثور على المختبرات القريبة', 'Find nearby labs'),
+                                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: RastTokens.ink(context)),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                L(lang, 'احفظ موقعك لعرض المختبرات الأقرب لك وأقرب فرع لكل مختبر',
+                                    'Save your location to see the closest labs and branches'),
+                                style: TextStyle(fontSize: 12.5, height: 1.5, color: RastTokens.muted(context)),
+                              ),
                             ],
                           ),
                         ),
                       ],
                     ),
+                  ).entrance(0),
+                  const SizedBox(height: 14),
+                  AnimatedSize(
+                    duration: const Duration(milliseconds: 260),
+                    child: _savedLocation == null
+                        ? const SizedBox(width: double.infinity)
+                        : Padding(
+                            padding: const EdgeInsets.only(bottom: 14),
+                            child: RastCard(
+                              padding: const EdgeInsets.fromLTRB(14, 10, 8, 10),
+                              child: Row(
+                                children: [
+                                  const RastIconBox(icon: Icons.check_circle_rounded, color: RastTokens.success, size: 42),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          _savedLocation!.label ?? L(lang, 'موقع محفوظ', 'Saved location'),
+                                          style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: RastTokens.ink(context)),
+                                        ),
+                                        Text(
+                                          '${_savedLocation!.lat.toStringAsFixed(4)}, ${_savedLocation!.lng.toStringAsFixed(4)}',
+                                          textDirection: TextDirection.ltr,
+                                          style: TextStyle(fontSize: 11.5, color: RastTokens.muted(context)),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  TextButton(
+                                    onPressed: _isLoading ? null : _clearLocation,
+                                    style: TextButton.styleFrom(foregroundColor: RastTokens.danger),
+                                    child: Text(L(lang, 'إلغاء', 'Clear')),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                  ),
+                  RastButton(
+                    label: _savedLocation != null
+                        ? L(lang, 'تحديث بموقعي الحالي', 'Update to my current location')
+                        : L(lang, 'استخدم موقعي الحالي', 'Use my current location'),
+                    icon: Icons.my_location_rounded,
+                    loading: _isLoading,
+                    onPressed: _isLoading ? null : _useCurrentLocation,
+                  ),
+                  const SizedBox(height: 10),
+                  // اختيار مدينة أو عنوان محفوظ، أو تحديد نقطة على الخريطة (مثلاً حجز منزلي لأهلك في مدينة أخرى)
+                  RastButton(
+                    label: L(lang, 'اختر مدينة أو عنواناً محفوظاً', 'Choose a city or saved address'),
+                    icon: Icons.location_city_rounded,
+                    secondary: true,
+                    onPressed: _isLoading
+                        ? null
+                        : () async {
+                            await showLocationPickerSheet(context);
+                            _loadSaved();
+                          },
+                  ),
+                  const SizedBox(height: 10),
+                  RastButton(
+                    label: L(lang, 'حدّد على الخريطة', 'Pick on the map'),
+                    icon: Icons.map_rounded,
+                    secondary: true,
+                    onPressed: _isLoading ? null : _pickOnMap,
+                  ),
+                  if (AuthService.isLoggedIn) ...[
+                    const SizedBox(height: 4),
+                    TextButton.icon(
+                      onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AddressesScreen())),
+                      icon: const Icon(Icons.bookmarks_rounded, size: 18),
+                      label: Text(L(lang, 'إدارة عناويني', 'Manage my addresses')),
+                      style: TextButton.styleFrom(foregroundColor: RastTokens.brand),
+                    ),
                   ],
-                ),
-              ),
-              SizedBox(height: Responsive.spacing(context, 24)),
-              if (_savedLocation != null) ...[
-                Container(
-                  padding: EdgeInsets.all(Responsive.spacing(context, 16)),
-                  decoration: AppTheme.cardDecorationFor(context),
-                  child: Row(
-                    children: [
-                      Icon(Icons.check_circle, color: Colors.green, size: 28),
-                      SizedBox(width: 14),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(_savedLocation!.label ?? 'موقع محفوظ', style: TextStyle(fontSize: Responsive.fontSize(context, 14), fontWeight: FontWeight.w500)),
-                            Text('${_savedLocation!.lat.toStringAsFixed(4)}, ${_savedLocation!.lng.toStringAsFixed(4)}', style: TextStyle(fontSize: Responsive.fontSize(context, 11), color: AppTheme.onSurfaceVariant)),
-                          ],
-                        ),
+                  if (_message != null) ...[
+                    const SizedBox(height: 14),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: (_isSuccess ? RastTokens.success : RastTokens.danger).withValues(alpha: 0.09),
+                        borderRadius: BorderRadius.circular(14),
                       ),
-                      TextButton(
-                        onPressed: _isLoading ? null : _clearLocation,
-                        child: const Text('إلغاء'),
+                      child: Row(
+                        children: [
+                          Icon(
+                            _isSuccess ? Icons.check_circle_rounded : Icons.info_outline_rounded,
+                            color: _isSuccess ? RastTokens.success : RastTokens.danger,
+                            size: 22,
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              _message!,
+                              style: TextStyle(fontSize: 13, color: _isSuccess ? RastTokens.success : RastTokens.danger),
+                            ),
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
-                ),
-                SizedBox(height: Responsive.spacing(context, 20)),
-              ],
-              GradientFilledButtonIcon(
-                onPressed: _isLoading ? null : _useCurrentLocation,
-                icon: _isLoading ? SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) : const Icon(Icons.my_location),
-                label: Text(_savedLocation != null ? 'تحديث بموقعي الحالي' : 'استخدم موقعي الحالي'),
-                style: FilledButton.styleFrom(
-                  padding: EdgeInsets.symmetric(vertical: Responsive.spacing(context, 14)),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                ),
+                    ).animate().fadeIn().slideY(begin: 0.2, end: 0),
+                  ],
+                ],
               ),
-              if (_message != null) ...[
-                SizedBox(height: Responsive.spacing(context, 16)),
-                Container(
-                  padding: EdgeInsets.all(Responsive.spacing(context, 12)),
-                  decoration: BoxDecoration(
-                    color: _isSuccess ? Colors.green.withValues(alpha: 0.1) : AppTheme.error.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(_isSuccess ? Icons.check_circle : Icons.info_outline, color: _isSuccess ? Colors.green : AppTheme.error, size: 22),
-                      SizedBox(width: 10),
-                      Expanded(child: Text(_message!, style: TextStyle(fontSize: Responsive.fontSize(context, 13), color: _isSuccess ? Colors.green : AppTheme.error))),
-                    ],
-                  ),
-                ),
-              ],
-            ],
+            ),
           ),
         ),
       ),

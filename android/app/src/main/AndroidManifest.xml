@@ -76,6 +76,11 @@
             android:name="com.google.firebase.messaging.default_notification_color"
             android:resource="@color/notification_color" />
 
+        <!-- خرائط جوجل (خريطة المختبرات واختيار العنوان). المفتاح مقيّد بحزمة التطبيق من Google Cloud -->
+        <meta-data
+            android:name="com.google.android.geo.API_KEY"
+            android:value="AIzaSyDe7LQFE6sCn3RVdFOqCsn5aNuFNfUpOVo" />
+
     </application>
 
     <!-- Required to query activities that can process text, see:

@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
+
 import 'package:rast/core/api/api_client.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -8,7 +10,7 @@ class HomeApi {
 
   /// GET /api/home - الصفحة الرئيسية (كاروسيل، فئات، مختبرات مميزة، إلخ)
   Future<Map<String, dynamic>> getHome() async {
-    final platform = Platform.isIOS ? 'ios' : 'android';
+    final platform = kIsWeb ? 'web' : (Platform.isIOS ? 'ios' : 'android');
 
     final packageInfo = await PackageInfo.fromPlatform();
     final deviceInfo = DeviceInfoPlugin();
@@ -16,7 +18,9 @@ class HomeApi {
     String osVersion = '';
     String deviceModel = '';
 
-    if (Platform.isAndroid) {
+    if (kIsWeb) {
+      // نسخة الويب (للمعاينة) لا تدعم معلومات الجهاز
+    } else if (Platform.isAndroid) {
       final androidInfo = await deviceInfo.androidInfo;
 
       osVersion = androidInfo.version.release;

@@ -550,10 +550,11 @@ class _PackageDetailScreenState extends State<PackageDetailScreen>
                             context,
                             constraints,
                             ) {
+                          // السعر دائماً بجانب الاسم في سطر واحد (لا ينزل تحته إلا في شاشات ضيقة جداً)
                           final narrow =
                               constraints
                                   .maxWidth <
-                                  310;
+                                  220;
 
                           final titleWidget =
                           Column(
@@ -676,14 +677,17 @@ class _PackageDetailScreenState extends State<PackageDetailScreen>
                                   RastUi
                                       .softShadow,
                                 ),
-                                child: Text(
+                                child: FittedBox(
+                                  fit: BoxFit.scaleDown,
+                                  child: Text(
                                   price > 0
                                       ? '${price.toStringAsFixed(2)} ${AppStrings.t('sar', lang)}'
                                       : AppStrings.t(
                                     'contactForPrice',
                                     lang,
                                   ),
-                                  maxLines: 2,
+                                  maxLines: 1,
+                                  softWrap: false,
                                   overflow:
                                   TextOverflow
                                       .ellipsis,
@@ -704,6 +708,7 @@ class _PackageDetailScreenState extends State<PackageDetailScreen>
                                     FontWeight
                                         .w800,
                                   ),
+                                ),
                                 ),
                               ),
 

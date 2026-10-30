@@ -1,5 +1,8 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart' show kIsWeb, defaultTargetPlatform, TargetPlatform;
+import 'package:device_info_plus/device_info_plus.dart';
 import 'package:http/http.dart' as http;
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:rast/core/constants/api_config.dart';
 import 'package:rast/features/auth/services/auth_service.dart';
 
@@ -21,10 +24,33 @@ class ApiClient {
   final Map<String, String> _headers = {
     'Accept': 'application/json',
     'Content-Type': 'application/json',
+    // منصة التطبيق: الخادم يرسل بها مشتريات التطبيق المؤكدة لسناب (Conversions API) بالمعرّف الصحيح
+    'X-App-Platform': kIsWeb ? 'web' : (defaultTargetPlatform == TargetPlatform.iOS ? 'ios' : 'android'),
   };
 
   ApiClient._() {
     _baseUrl = ApiConfig.apiBaseUrl.endsWith('/') ? ApiConfig.apiBaseUrl : '${ApiConfig.apiBaseUrl}/';
+  }
+
+  /// معلومات التطبيق والجهاز ترافق الطلبات: سناب يشترطها لقبول مشتريات التطبيق
+  /// (Conversions API). تُحسب مرة واحدة عند فتح التطبيق.
+  Future<void> attachDeviceInfo() async {
+    if (kIsWeb) return;
+    try {
+      final pkg = await PackageInfo.fromPlatform();
+      _headers['X-App-Version'] = pkg.version;
+      _headers['X-App-Build'] = pkg.buildNumber;
+      final device = DeviceInfoPlugin();
+      if (defaultTargetPlatform == TargetPlatform.iOS) {
+        final ios = await device.iosInfo;
+        _headers['X-OS-Version'] = ios.systemVersion;
+        _headers['X-Device-Model'] = ios.utsname.machine;
+      } else {
+        final android = await device.androidInfo;
+        _headers['X-OS-Version'] = android.version.release;
+        _headers['X-Device-Model'] = android.model.replaceAll(RegExp(r'[^\x20-\x7E]'), '');
+      }
+    } catch (_) {}
   }
 
   void setToken(String? token) {

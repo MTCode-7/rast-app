@@ -4,6 +4,9 @@ import 'package:provider/provider.dart';
 import 'package:rast/core/providers/app_settings_provider.dart';
 import 'package:rast/core/utils/responsive.dart';
 import 'package:rast/core/widgets/rast_ui.dart';
+import 'package:rast/core/widgets/rast_kit.dart';
+import 'package:rast/core/widgets/rast_motion.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 import 'package:rast/core/api/api_services.dart';
 import 'package:rast/core/api/api_client.dart';
 import 'package:rast/features/auth/services/auth_service.dart';
@@ -164,7 +167,12 @@ class _ChatScreenState extends State<ChatScreen> {
                           ),
                           children: [
                             _dayLabel(context),
-                            for (final msg in _messages) _messageTile(context, msg),
+                            if (_messages.isEmpty) _suggestions(context),
+                            for (final msg in _messages)
+                              _messageTile(context, msg)
+                                  .animate(key: ValueKey(msg))
+                                  .fadeIn(duration: 260.ms)
+                                  .slideY(begin: 0.15, end: 0, curve: Curves.easeOutCubic),
                             if (_sending) _typingTile(context),
                           ],
                         ),
@@ -449,7 +457,7 @@ class _ChatScreenState extends State<ChatScreen> {
               ),
               decoration: BoxDecoration(
                 gradient: isUser ? RastUi.headerGradient : null,
-                color: isUser ? null : Colors.white,
+                color: isUser ? null : RastTokens.card(context),
                 borderRadius: BorderRadius.only(
                   topLeft: const Radius.circular(22),
                   topRight: const Radius.circular(22),
@@ -562,7 +570,7 @@ class _ChatScreenState extends State<ChatScreen> {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: RastTokens.card(context),
             borderRadius: const BorderRadius.only(
               topLeft: Radius.circular(22),
               topRight: Radius.circular(22),
@@ -581,14 +589,7 @@ class _ChatScreenState extends State<ChatScreen> {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              SizedBox(
-                width: 16,
-                height: 16,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  color: RastUi.purple,
-                ),
-              ),
+              const _TypingDots(),
               const SizedBox(width: 8),
               Text(
                 AppStrings.t('typingReply', lang),
@@ -636,23 +637,7 @@ class _ChatScreenState extends State<ChatScreen> {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              Container(
-                width: 44,
-                height: 44,
-                decoration: BoxDecoration(
-                  gradient: RastUi.headerGradient,
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: IconButton(
-                  onPressed: () {},
-                  icon: const Icon(
-                    Icons.mic_rounded,
-                    color: Colors.white,
-                    size: 22,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 10),
+              const SizedBox(width: 6),
 
               Expanded(
                 child: TextField(
@@ -713,10 +698,110 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
+  /// اقتراحات أسئلة جاهزة قبل أول رسالة: ضغطة واحدة ترسل السؤال.
+  Widget _suggestions(BuildContext context) {
+    final lang = context.watch<AppSettingsProvider>().language;
+    final items = [
+      L(lang, 'أشعر بتعب دائم، ما التحاليل المناسبة؟', 'I always feel tired, which tests should I do?'),
+      L(lang, 'هل أحتاج صيام قبل تحليل السكر التراكمي؟', 'Do I need to fast before an HbA1c test?'),
+      L(lang, 'ما الفرق بين باقة الفحص الشامل والتحاليل المنفردة؟', 'Full checkup package vs single tests?'),
+      L(lang, 'كيف أحجز سحب عينة من المنزل؟', 'How do I book home sample collection?'),
+    ];
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            L(lang, 'أسئلة شائعة', 'Common questions'),
+            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: RastTokens.muted(context)),
+          ),
+          const SizedBox(height: 10),
+          for (var i = 0; i < items.length; i++)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Pressable(
+                onTap: () {
+                  _controller.text = items[i];
+                  _sendMessage();
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+                  decoration: BoxDecoration(
+                    color: RastTokens.card(context),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: RastTokens.brand.withValues(alpha: 0.18)),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.auto_awesome_rounded, size: 17, color: RastTokens.brand),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          items[i],
+                          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: RastTokens.ink(context)),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ).entrance(i),
+            ),
+        ],
+      ),
+    );
+  }
+
   String _timeLabel(DateTime time) {
     final hour = time.hour % 12 == 0 ? 12 : time.hour % 12;
     final minute = time.minute.toString().padLeft(2, '0');
     final period = time.hour >= 12 ? 'PM' : 'AM';
     return '$hour:$minute $period';
+  }
+}
+
+/// مؤشر «يكتب الآن»: ثلاث نقاط تتموّج.
+class _TypingDots extends StatefulWidget {
+  const _TypingDots();
+
+  @override
+  State<_TypingDots> createState() => _TypingDotsState();
+}
+
+class _TypingDotsState extends State<_TypingDots> with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(vsync: this, duration: const Duration(milliseconds: 900))..repeat();
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _c,
+      builder: (_, __) => Row(
+        mainAxisSize: MainAxisSize.min,
+        children: List.generate(3, (i) {
+          final t = (_c.value - i * 0.18) % 1.0;
+          final lift = t < 0.5 ? (t / 0.5) : (1 - (t - 0.5) / 0.5);
+          return Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 2),
+            child: Transform.translate(
+              offset: Offset(0, -4 * lift),
+              child: Container(
+                width: 7,
+                height: 7,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: RastTokens.brand.withValues(alpha: 0.4 + 0.6 * lift),
+                ),
+              ),
+            ),
+          );
+        }),
+      ),
+    );
   }
 }

@@ -70,7 +70,7 @@ class _LoginScreenState extends State<LoginScreen> {
         userData is Map<String, dynamic> ? userData : <String, dynamic>{},
       );
       await AuthService.login(token, user);
-      await AnalyticsService.setUserId(user.id.toString());
+      await AnalyticsService.setUserId(user.id.toString(), email: user.email, phone: user.phone);
       await AnalyticsService.logLogin();
       if (!mounted) return;
       context.read<CartService>().refresh(silent: true);

@@ -8,7 +8,6 @@ import 'package:rast/core/utils/locale_utils.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:rast/core/api/api_services.dart';
-import 'package:rast/core/constants/dummy_data.dart';
 import 'package:rast/core/services/favorites_service.dart';
 import 'package:rast/core/services/location_service.dart';
 import 'package:rast/core/services/branches_index_service.dart';
@@ -37,6 +36,17 @@ import 'package:shimmer/shimmer.dart';
 import 'package:smooth_page_indicator/smooth_page_indicator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:rast/core/services/app_events.dart';
+import 'package:rast/core/widgets/city_selector.dart';
+import 'package:rast/core/widgets/rast_kit.dart';
+import 'package:rast/core/widgets/rast_motion.dart';
+import 'package:rast/features/map/widgets/map_entry_button.dart';
+import 'package:rast/features/loyalty/loyalty_config.dart';
+import 'package:rast/features/loyalty/loyalty_screen.dart';
+import 'package:rast/features/offers/screens/offers_screen.dart';
+import 'package:rast/features/offers/screens/offer_detail_screen.dart';
+import 'package:rast/features/offers/widgets/offer_card.dart';
+import 'package:rast/features/home/widgets/home_widgets.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -121,6 +131,13 @@ class _HomeScreenState extends State<HomeScreen> with OnboardingTourHost {
     _categoriesPageController = PageController();
     _loadFromCacheThenNetwork();
     BranchesIndexService.instance.ensureLoaded();
+    // تغيير المدينة من محدد المدينة يعيد ترتيب «الأقرب لك»
+    AppEvents.locationChanged.addListener(_onLocationChanged);
+    LoyaltyConfig.ensureLoaded();
+  }
+
+  void _onLocationChanged() {
+    if (mounted) _loadData(silent: true);
   }
 
   Future<void> _loadFromCacheThenNetwork() async {
@@ -189,11 +206,13 @@ class _HomeScreenState extends State<HomeScreen> with OnboardingTourHost {
 
   Future<({double lat, double lng, String? label})?>
   _resolveUserLocation() async {
+    // المدينة/العنوان الذي اختاره المستخدم أولاً، ثم موقعه الحالي
+    final chosen = await LocationService.getDefaultLocation();
+    if (chosen != null) return chosen;
     try {
-      final current = await LocationService.getCurrentLocation();
-      if (current != null) return current;
+      return await LocationService.getCurrentLocation();
     } catch (_) {}
-    return LocationService.getDefaultLocation();
+    return null;
   }
 
   Future<void> _loadData({bool silent = false}) async {
@@ -315,12 +334,9 @@ class _HomeScreenState extends State<HomeScreen> with OnboardingTourHost {
       final snap = HomeSnapshot(
         homeData: Map<String, dynamic>.from(homeData)
           ..['featured_providers'] = labsList,
-        carouselSlides: slidesList.isNotEmpty
-            ? slidesList
-            : DummyData.carouselSlides,
-        packages: packagesList.isEmpty
-            ? List.from(DummyData.packages)
-            : packagesList,
+        // بيانات حقيقية فقط (لا شرائح أو باقات تجريبية)
+        carouselSlides: slidesList,
+        packages: packagesList,
         offers: offersList,
         labs: labsList,
         totalPackages: totalPackagesFromApi,
@@ -353,6 +369,7 @@ class _HomeScreenState extends State<HomeScreen> with OnboardingTourHost {
 
   @override
   void dispose() {
+    AppEvents.locationChanged.removeListener(_onLocationChanged);
     _searchController.dispose();
     _categoriesPageController.dispose();
     super.dispose();
@@ -360,9 +377,9 @@ class _HomeScreenState extends State<HomeScreen> with OnboardingTourHost {
 
   List<dynamic> get _slides => _carouselSlides.isNotEmpty
       ? _carouselSlides
-      : (_homeData?['carousel_slides'] as List?) ?? DummyData.carouselSlides;
+      : (_homeData?['carousel_slides'] as List?) ?? const [];
   List<dynamic> get _categories =>
-      (_homeData?['categories'] as List?) ?? DummyData.categories;
+      (_homeData?['categories'] as List?) ?? const [];
   List<dynamic> get _labs => (_homeData?['featured_providers'] as List?) ?? [];
 
   Map<String, dynamic>? get _banner {
@@ -519,21 +536,6 @@ class _HomeScreenState extends State<HomeScreen> with OnboardingTourHost {
                   .animate()
                   .fadeIn(duration: 600.ms)
                   .slideY(begin: 0.05, end: 0, curve: Curves.easeOutCubic),
-              if (_offers.isNotEmpty) ...[
-                SizedBox(height: Responsive.spacing(context, 18)),
-                _buildSectionShell(
-                  AppStrings.t(
-                    'offers',
-                    context.watch<AppSettingsProvider>().language,
-                  ),
-                  AppStrings.t(
-                    'viewAll',
-                    context.watch<AppSettingsProvider>().language,
-                  ),
-                  onActionTap: _navigateToAnalyses,
-                  child: _buildOffers(),
-                ).animate().fadeIn(duration: 500.ms, delay: 200.ms),
-              ],
               SizedBox(height: Responsive.spacing(context, 18)),
               KeyedSubtree(
                 key: _categoriesKey,
@@ -550,27 +552,68 @@ class _HomeScreenState extends State<HomeScreen> with OnboardingTourHost {
                   child: _buildCategories(),
                 ),
               ).animate().fadeIn(duration: 500.ms, delay: 250.ms),
-              SizedBox(height: Responsive.spacing(context, 18)),
-              _buildSectionShell(
-                AppStrings.t(
-                  'packages',
-                  context.watch<AppSettingsProvider>().language,
-                ),
-                AppStrings.t(
-                  'viewAll',
-                  context.watch<AppSettingsProvider>().language,
-                ),
-                onActionTap: _navigateToPackages,
-                child: _buildPackages(),
-              ).animate().fadeIn(duration: 500.ms, delay: 300.ms),
+              if (_packages.isNotEmpty) ...[
+                SizedBox(height: Responsive.spacing(context, 18)),
+                _buildSectionShell(
+                  AppStrings.t(
+                    'packages',
+                    context.watch<AppSettingsProvider>().language,
+                  ),
+                  AppStrings.t(
+                    'viewAll',
+                    context.watch<AppSettingsProvider>().language,
+                  ),
+                  onActionTap: _navigateToPackages,
+                  child: _buildPackages(),
+                ).animate().fadeIn(duration: 500.ms, delay: 300.ms),
+              ],
+              // عروض المختبرات: تظهر فقط عند وجود عروض فعلية
+              if (_offers.isNotEmpty) ...[
+                SizedBox(height: Responsive.spacing(context, 18)),
+                _buildSectionShell(
+                  L(context.watch<AppSettingsProvider>().language, 'عروض اليوم', "Today's offers"),
+                  AppStrings.t(
+                    'viewAll',
+                    context.watch<AppSettingsProvider>().language,
+                  ),
+                  onActionTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const OffersScreen()),
+                  ),
+                  child: _buildOffers(),
+                ).animate().fadeIn(duration: 500.ms, delay: 320.ms),
+              ],
+              // ادعُ أصدقاءك (بطاقة بسيطة)
+              ValueListenableBuilder<Map<String, dynamic>?>(
+                valueListenable: LoyaltyConfig.data,
+                builder: (context, _, __) {
+                  if (!LoyaltyConfig.enabled || LoyaltyConfig.referralBonus <= 0) {
+                    return const SizedBox.shrink();
+                  }
+                  return Padding(
+                    padding: EdgeInsets.only(top: Responsive.spacing(context, 18)),
+                    child: HomeReferralCard(
+                      lang: context.watch<AppSettingsProvider>().language,
+                      bonus: LoyaltyConfig.referralBonus,
+                      onTap: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const LoyaltyScreen()),
+                      ),
+                    ),
+                  );
+                },
+              ),
               SizedBox(height: Responsive.spacing(context, 18)),
               KeyedSubtree(
                 key: _labsSectionKey,
                 child: _buildSectionShell(
-                  AppStrings.t(
-                    'featuredLabs',
-                    context.watch<AppSettingsProvider>().language,
-                  ),
+                  // عند معرفة الموقع: «الأقرب لك» (والمسافة مكان التقييم)
+                  _userLat != null && _userLng != null
+                      ? L(context.watch<AppSettingsProvider>().language, 'الأقرب لك', 'Nearest to you')
+                      : AppStrings.t(
+                          'featuredLabs',
+                          context.watch<AppSettingsProvider>().language,
+                        ),
                   AppStrings.t(
                     'viewAll',
                     context.watch<AppSettingsProvider>().language,
@@ -661,31 +704,23 @@ class _HomeScreenState extends State<HomeScreen> with OnboardingTourHost {
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
                     Text(
-                      AppStrings.t('welcomeBack', settings.language),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: Responsive.fontSize(context, 11),
-                        fontWeight: FontWeight.w400,
-                        color: theme.colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-
-                    const SizedBox(height: 1),
-
-                    Text(
                       firstName.isNotEmpty
-                          ? firstName
-                          : AppStrings.t('guest', settings.language),
+                          ? '${AppStrings.t('welcomeBack', settings.language)} $firstName'
+                          : AppStrings.t('welcomeBack', settings.language),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        fontSize: Responsive.fontSize(context, 16),
+                        fontSize: Responsive.fontSize(context, 15),
                         fontWeight: FontWeight.w700,
                         color: theme.colorScheme.onSurface,
                         height: 1.2,
                       ),
                     ),
+
+                    const SizedBox(height: 2),
+
+                    // المدينة الحالية (يمكن تغييرها) بدل السطر الثابت
+                    const CitySelectorChip(),
                   ],
                 ),
               ),
@@ -774,18 +809,26 @@ class _HomeScreenState extends State<HomeScreen> with OnboardingTourHost {
       padding: EdgeInsets.symmetric(
         horizontal: Responsive.spacing(context, 16),
       ),
-      child: SearchBox(
-        controller: _searchController,
-        hintText: AppStrings.t(
-          'searchHint',
-          context.watch<AppSettingsProvider>().language,
-        ),
-        onSearchTap: _submitHomeSearch,
-        onSubmitted: (v) {
- AnalyticsService.logSearch(v, area: 'home');
- _submitHomeSearch();
-},
-        onFilterTap: _showFilterBottomSheet,
+      child: Row(
+        children: [
+          Expanded(
+            child: SearchBox(
+              controller: _searchController,
+              hintText: AppStrings.t(
+                'searchHint',
+                context.watch<AppSettingsProvider>().language,
+              ),
+              onSearchTap: _submitHomeSearch,
+              onSubmitted: (v) {
+                AnalyticsService.logSearch(v, area: 'home');
+                _submitHomeSearch();
+              },
+            ),
+          ),
+          const SizedBox(width: 10),
+          // خريطة المختبرات بجانب البحث (بدل زر الفلترة الشكلي)
+          MapEntryButton(size: 52, background: Theme.of(context).cardColor),
+        ],
       ),
     );
   }
@@ -793,135 +836,26 @@ class _HomeScreenState extends State<HomeScreen> with OnboardingTourHost {
   Widget _buildOffers() {
     final offers = _offers;
     if (offers.isEmpty) return const SizedBox.shrink();
-    final cardWidth = Responsive.packageCardWidth(context) * 0.95;
-    final cardHeight = (cardWidth * 0.85).clamp(120.0, 160.0);
+    final lang = context.watch<AppSettingsProvider>().language;
+    final cardWidth = (MediaQuery.sizeOf(context).width * 0.66).clamp(230.0, 280.0);
     return SizedBox(
-      height: cardHeight,
-      child: ListView.builder(
+      height: 346,
+      child: ListView.separated(
         scrollDirection: Axis.horizontal,
-        padding: EdgeInsets.symmetric(
-          horizontal: Responsive.spacing(context, 16),
-        ),
+        padding: EdgeInsets.symmetric(horizontal: Responsive.spacing(context, 16), vertical: 4),
         itemCount: offers.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 12),
         itemBuilder: (context, index) {
           final offer = offers[index] is Map
-              ? offers[index] as Map<String, dynamic>
+              ? Map<String, dynamic>.from(offers[index] as Map)
               : <String, dynamic>{};
-          final displayName = LocaleUtils.localizedName(
-            offer,
-            context.watch<AppSettingsProvider>().isArabic,
-          );
-          final imageUrl = ApiConfig.resolveImageUrl(
-            offer['image_url'],
-            offer['image'],
-          );
-          final discount = offer['discount_percent'] ?? offer['discount'];
-          final discountStr = discount != null
-              ? '${discount is num ? discount.toInt() : discount}%'
-              : null;
-          return SizedBox(
+          return OfferCard(
+            offer: offer,
+            lang: lang,
             width: cardWidth,
-            child: Padding(
-              padding: EdgeInsets.only(left: Responsive.spacing(context, 12)),
-              child: Container(
-                decoration: AppTheme.cardDecorationFor(context),
-                clipBehavior: Clip.antiAlias,
-                child: Material(
-                  color: Colors.transparent,
-                  child: InkWell(
-                    onTap: () => _navigateToAnalyses(),
-                    borderRadius: BorderRadius.circular(AppTheme.radiusCard),
-                    child: Stack(
-                      fit: StackFit.expand,
-                      children: [
-                        if (imageUrl != null && imageUrl.isNotEmpty)
-                          CachedNetworkImage(
-                            imageUrl: imageUrl,
-                            fit: BoxFit.cover,
-                            width: double.infinity,
-                            placeholder: (_, __) =>
-                                Container(color: AppTheme.surfaceVariant),
-                            errorWidget: (_, __, ___) => Container(
-                              color: AppTheme.primary.withValues(alpha: 0.12),
-                              child: Icon(
-                                Icons.local_offer_rounded,
-                                size: 40,
-                                color: AppTheme.primary,
-                              ),
-                            ),
-                          )
-                        else
-                          Container(
-                            color: AppTheme.accent.withValues(alpha: 0.15),
-                            child: Icon(
-                              Icons.local_offer_rounded,
-                              size: 40,
-                              color: AppTheme.accent,
-                            ),
-                          ),
-                        Positioned(
-                          left: 0,
-                          right: 0,
-                          bottom: 0,
-                          child: Container(
-                            padding: EdgeInsets.all(
-                              Responsive.spacing(context, 10),
-                            ),
-                            decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                begin: Alignment.topCenter,
-                                end: Alignment.bottomCenter,
-                                colors: [
-                                  Colors.transparent,
-                                  Colors.black.withValues(alpha: 0.8),
-                                ],
-                              ),
-                            ),
-                            child: Text(
-                              displayName,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: Responsive.fontSize(context, 12),
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                        ),
-                        if (discountStr != null)
-                          Positioned(
-                            top: 8,
-                            right: 8,
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 4,
-                              ),
-                              decoration: BoxDecoration(
-                                gradient: AppTheme.accentGradient,
-                                borderRadius: BorderRadius.circular(10),
-                                boxShadow: AppTheme.goldGlow,
-                              ),
-                              child: Text(
-                                AppStrings.tParam(
-                                  'discountPercent',
-                                  context.watch<AppSettingsProvider>().language,
-                                  discountStr,
-                                ),
-                                style: TextStyle(
-                                  fontSize: Responsive.fontSize(context, 10),
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => OfferDetailScreen(offer: offer)),
             ),
           );
         },
@@ -1151,7 +1085,7 @@ class _HomeScreenState extends State<HomeScreen> with OnboardingTourHost {
   }
 
   Widget _buildPackages() {
-    final packages = _packages.isEmpty ? DummyData.packages : _packages;
+    final packages = _packages;
     final cardWidth = MediaQuery.sizeOf(context).width * 0.75;
     final textScale = MediaQuery.textScalerOf(context)
         .scale(1.0)
@@ -1174,6 +1108,9 @@ class _HomeScreenState extends State<HomeScreen> with OnboardingTourHost {
           final pkg = packages[index] is Map
               ? packages[index] as Map<String, dynamic>
               : <String, dynamic>{};
+
+          // تقييم حقيقي فقط (كان يُعرض 4.8 ثابتاً لكل باقة)
+          final pkgRating = numOf(pkg['avg_rating'] ?? pkg['rating']) ?? 0;
 
           final displayName = LocaleUtils.localizedName(
             pkg,
@@ -1380,7 +1317,7 @@ class _HomeScreenState extends State<HomeScreen> with OnboardingTourHost {
                                   const Spacer(),
 
                                   // Rating
-                                  Container(
+                                  if (pkgRating > 0) Container(
                                     padding: const EdgeInsets.symmetric(
                                       horizontal: 8,
                                       vertical: 4,
@@ -1396,7 +1333,7 @@ class _HomeScreenState extends State<HomeScreen> with OnboardingTourHost {
                                       mainAxisSize: MainAxisSize.min,
                                       children: [
                                         Text(
-                                          '4.8',
+                                          pkgRating.toStringAsFixed(1),
                                           style: TextStyle(
                                             color: Colors.white,
                                             fontSize:
@@ -1489,6 +1426,22 @@ class _HomeScreenState extends State<HomeScreen> with OnboardingTourHost {
             .toDouble();
 
         final homeService = lab['home_service_available'] == true;
+
+        // المسافة لأقرب فرع (تُعرض مكان التقييم عند معرفة موقع المستخدم)
+        final distanceKm = (_userLat != null && _userLng != null)
+            ? LabLocationUtils.distanceKmToNearest(
+                lab: lab,
+                userLat: _userLat!,
+                userLng: _userLng!,
+                branches: BranchesIndexService.instance.branchesFor(lab) ??
+                    (lab['branches'] is List ? lab['branches'] as List<dynamic> : null),
+              )
+            : null;
+        final distanceText = distanceKm == null
+            ? null
+            : (distanceKm < 1
+                ? (isArabic ? '${(distanceKm * 1000).round()} م' : '${(distanceKm * 1000).round()} m')
+                : (isArabic ? '${distanceKm.toStringAsFixed(1)} كم' : '${distanceKm.toStringAsFixed(1)} km'));
 
         return Container(
           padding: EdgeInsets.only(bottom: 10),
@@ -1626,11 +1579,8 @@ class _HomeScreenState extends State<HomeScreen> with OnboardingTourHost {
                                   setState(() {});
                                 }
                               },
-                              icon: Icon(
-                                isFavorite
-                                    ? Icons.favorite_rounded
-                                    : Icons.favorite_border_rounded,
-                                color: const Color(0xFFFF4D61),
+                              icon: AnimatedFavoriteIcon(
+                                active: isFavorite,
                                 size: Responsive.fontSize(context, 22),
                               ),
                             ),
@@ -1639,7 +1589,8 @@ class _HomeScreenState extends State<HomeScreen> with OnboardingTourHost {
                       ),
                     ),
 
-                    // RATING
+                    // المسافة (أو التقييم الحقيقي إن لم يُعرف الموقع)
+                    if (distanceText != null || avgRating > 0)
                     PositionedDirectional(
                       end: 0,
                       bottom: 0,
@@ -1647,9 +1598,7 @@ class _HomeScreenState extends State<HomeScreen> with OnboardingTourHost {
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Text(
-                            avgRating > 0
-                                ? avgRating.toStringAsFixed(1)
-                                : '4.8',
+                            distanceText ?? avgRating.toStringAsFixed(1),
                             style: TextStyle(
                               color: RastUi.textPurple,
                               fontSize: Responsive.fontSize(context, 10),
@@ -1657,11 +1606,9 @@ class _HomeScreenState extends State<HomeScreen> with OnboardingTourHost {
                             ),
                           ),
                           const SizedBox(width: 4),
-                          const Icon(
-                            Icons.star_rounded,
-                            size: 16,
-                            color: AppTheme.accent,
-                          ),
+                          distanceText != null
+                              ? const Icon(Icons.near_me_rounded, size: 15, color: RastUi.purple)
+                              : const Icon(Icons.star_rounded, size: 16, color: AppTheme.accent),
                         ],
                       ),
                     ),
@@ -1935,106 +1882,6 @@ class _HomeScreenState extends State<HomeScreen> with OnboardingTourHost {
     }
   }
 
-  void _showFilterBottomSheet() {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) => Directionality(
-        textDirection: TextDirection.rtl,
-        child: Container(
-          padding: EdgeInsets.all(Responsive.spacing(context, 24)),
-          decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.surface,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-            boxShadow: AppTheme.cardShadowElevated,
-          ),
-          child: SafeArea(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Center(
-                  child: Container(
-                    width: 44,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: AppTheme.surfaceVariant,
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                ),
-                SizedBox(height: Responsive.spacing(context, 20)),
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: AppTheme.primary.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      child: Icon(
-                        Icons.tune_rounded,
-                        color: AppTheme.primary,
-                        size: 22,
-                      ),
-                    ),
-                    SizedBox(width: Responsive.spacing(context, 12)),
-                    Text(
-                      AppStrings.t(
-                        'filterResults',
-                        context.watch<AppSettingsProvider>().language,
-                      ),
-                      style: TextStyle(
-                        fontSize: Responsive.fontSize(context, 15),
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ],
-                ),
-                SizedBox(height: Responsive.spacing(context, 20)),
-                ...DummyData.filterOptions.map(
-                  (opt) => ListTile(
-                    contentPadding: EdgeInsets.symmetric(
-                      horizontal: 0,
-                      vertical: 4,
-                    ),
-                    leading: Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: AppTheme.primary.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Icon(
-                        Icons.filter_list_rounded,
-                        size: 20,
-                        color: AppTheme.primary,
-                      ),
-                    ),
-                    title: Text(
-                      LocaleUtils.localizedName(
-                        opt,
-                        context.watch<AppSettingsProvider>().isArabic,
-                      ),
-                      style: TextStyle(
-                        fontSize: Responsive.fontSize(context, 13),
-                        fontWeight: FontWeight.w400,
-                      ),
-                    ),
-                    trailing: Icon(
-                      Icons.arrow_forward_ios,
-                      size: 14,
-                      color: AppTheme.onSurfaceVariant,
-                    ),
-                    onTap: () => Navigator.pop(ctx),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
 
   void _navigateToAnalyses() {
     Navigator.push(

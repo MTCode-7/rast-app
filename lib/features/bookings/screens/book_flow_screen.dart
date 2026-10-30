@@ -1,6 +1,10 @@
+import 'dart:async';
 import 'dart:ui' as ui show TextDirection;
 import 'package:firebase_analytics/firebase_analytics.dart' show AnalyticsEventItem;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_animate/flutter_animate.dart';
+import 'package:rast/core/widgets/rast_kit.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:rast/core/providers/app_settings_provider.dart';
@@ -16,14 +20,18 @@ import 'package:rast/core/onboarding/onboarding_catalog.dart';
 import 'package:rast/core/onboarding/onboarding_host.dart';
 import 'package:rast/core/onboarding/onboarding_step.dart';
 import 'package:rast/core/onboarding/onboarding_tour_ids.dart';
-import 'package:rast/core/widgets/gradient_button.dart';
 import 'package:rast/core/widgets/rast_ui.dart';
 import 'package:rast/features/auth/services/auth_service.dart';
 import 'package:rast/features/auth/screens/login_screen.dart';
 import 'package:rast/core/services/branches_index_service.dart';
 import 'package:rast/core/services/location_service.dart';
+import 'package:rast/features/addresses/widgets/home_address_chooser.dart';
 import 'package:rast/core/utils/lab_location_utils.dart';
 import 'package:rast/core/services/cart_service.dart';
+import 'package:rast/core/services/app_events.dart';
+import 'package:rast/core/widgets/cart_added_toast.dart';
+import 'package:rast/core/widgets/fly_to_cart.dart';
+import 'package:rast/core/widgets/rast_motion.dart';
 import 'package:rast/features/bookings/screens/booking_detail_screen.dart';
 import 'package:rast/features/bookings/screens/payment_webview_screen.dart';
 import 'package:rast/features/cart/screens/cart_screen.dart';
@@ -86,12 +94,18 @@ class _BookFlowScreenState extends State<BookFlowScreen>
   bool _loadingSlots = false;
   bool _creating = false;
   bool _addingToCart = false;
+  final _addToCartButtonKey = GlobalKey();
   String? _error;
   String? _timeSlotsError;
   Map<String, dynamic>? _createdBooking;
   NearestBranchInfo? _nearestBranch;
   double? _userLat;
   double? _userLng;
+
+  /// موقع السحب المنزلي المختار (عنوان محفوظ أو جديد أو GPS) — قد يختلف عن موقع المستخدم الحالي
+  double? _homeLat;
+  double? _homeLng;
+  String? _homeAddressKey;
 
   /// نسب من API: platform_discount_rate, vat_rate (بديل عن ApiConfig.globalDiscountPercent)
   Map<String, dynamic>? _bookingConfig;
@@ -657,8 +671,10 @@ class _BookFlowScreenState extends State<BookFlowScreen>
 
   Future<Map<String, dynamic>> _buildBookingBody() async {
     final savedLoc = await LocationService.getDefaultLocation();
-    final lat = _userLat ?? savedLoc?.lat;
-    final lng = _userLng ?? savedLoc?.lng;
+    // السحب المنزلي: موقع العنوان المختار هو المرجع (لاختيار أقرب فرع ولزيارة فريق السحب)
+    final useHome = _serviceType == 'home_service' && _homeLat != null && _homeLng != null;
+    final lat = useHome ? _homeLat : (_userLat ?? savedLoc?.lat);
+    final lng = useHome ? _homeLng : (_userLng ?? savedLoc?.lng);
 
     if (_serviceType == 'in_clinic' &&
         _bookingBranchId == null &&
@@ -725,34 +741,26 @@ class _BookFlowScreenState extends State<BookFlowScreen>
 
       if (!mounted) return;
 
-      final messenger = ScaffoldMessenger.of(context);
-      // نحتفظ بالـ Navigator قبل إغلاق هذه الشاشة: بعد pop يصبح context هذه الشاشة غير صالح
-      // فكان زر «عرض السلة» لا يفعل شيئاً
+      // نحتفظ بالـ Navigator وطبقته قبل إغلاق هذه الشاشة: بعد pop يصبح context هذه الشاشة غير صالح
       final navigator = Navigator.of(context);
-
-      messenger.hideCurrentSnackBar();
-
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text(_tr('addedToCart')),
-          action: SnackBarAction(
-            label: _tr('viewCart'),
-            onPressed: () {
-              messenger.hideCurrentSnackBar();
-
-              navigator.push(
-                MaterialPageRoute(builder: (_) => const CartScreen()),
-              );
-            },
-          ),
-        ),
-      );
-
-      Future.delayed(const Duration(seconds: 3), () {
-        messenger.hideCurrentSnackBar();
-      });
+      final overlay = navigator.overlay!;
+      final lang = context.read<AppSettingsProvider>().language;
+      final from = FlyToCart.rectOf(_addToCartButtonKey);
+      final service = widget.providerService['service'];
+      final imageUrl = ApiConfig.imageFromMap(widget.providerService) ??
+          (service is Map ? ApiConfig.imageFromMap(Map<String, dynamic>.from(service)) : null);
 
       Navigator.pop(context);
+
+      // العنصر يطير من زر الإضافة إلى أيقونة السلة، ثم يظهر إشعار أنيق فيه «عرض السلة»
+      unawaited(FlyToCart.run(overlay: overlay, from: from, imageUrl: imageUrl));
+      CartAddedToast.show(
+        overlay: overlay,
+        lang: lang,
+        onViewCart: () => navigator.push(
+          MaterialPageRoute(builder: (_) => const CartScreen()),
+        ),
+      );
     } on ApiException catch (e) {
       if (!mounted) return;
 
@@ -803,6 +811,8 @@ class _BookFlowScreenState extends State<BookFlowScreen>
       final booking = await Api.bookings.create(body);
 
       final b = _toBookingMap(booking, isArabic: isArabic);
+      // الحجز الجديد يظهر في «حجوزاتي» فوراً حتى قبل الدفع
+      AppEvents.notifyBookingsChanged();
 
       if (!mounted) return;
 
@@ -1013,6 +1023,7 @@ class _BookFlowScreenState extends State<BookFlowScreen>
               items: [_analyticsItem(amount)],
             );
           }
+          AppEvents.notifyBookingsChanged();
           if (!mounted) return;
           if (isPaid) {
             setState(
@@ -1022,6 +1033,7 @@ class _BookFlowScreenState extends State<BookFlowScreen>
                 if (bookingStatus != null) 'status': bookingStatus,
               },
             );
+            Celebration.show(context);
           }
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -1077,70 +1089,33 @@ class _BookFlowScreenState extends State<BookFlowScreen>
     if (!AuthService.isLoggedIn) {
       return Directionality(
         textDirection: settings.textDirection,
-        child: Container(
-          decoration: const BoxDecoration(color: Color(0xFF1A0665)),
-          child: Scaffold(
-            backgroundColor: Colors.transparent,
-            appBar: RastTopBar(
-              title: AppStrings.t('bookFlowTitle', lang),
-              helpTourId: OnboardingTourIds.bookFlow,
-              helpTourSteps: OnboardingCatalog.bookFlowTour,
-              backgroundColor: const Color(0xFF1A0665),
-            ),
-            body: ClipRRect(
-              borderRadius: const BorderRadius.vertical(
-                top: Radius.circular(28),
-              ),
-              child: Container(
-                color: RastUi.screenSurface(context),
-                child: Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Container(
-                          width: 104,
-                          height: 104,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            gradient: RastUi.brandGradient,
-                            boxShadow: RastUi.softShadow,
-                          ),
-                          child: const Icon(
-                            Icons.login_rounded,
-                            size: 54,
-                            color: Colors.white,
-                          ),
-                        ),
-                        const SizedBox(height: 20),
-                        Text(
-                          AppStrings.t('signInToBook', lang),
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            color: RastUi.primaryText(context),
-                            fontSize: Responsive.fontSize(context, 20),
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        const SizedBox(height: 24),
-                        GradientFilledButtonIcon(
-                          onPressed: () async {
-                            final ok = await Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => const LoginScreen(),
-                              ),
-                            );
-                            if (ok == true && mounted) setState(() {});
-                          },
-                          icon: const Icon(Icons.login),
-                          label: Text(AppStrings.t('signIn', lang)),
-                        ),
-                      ],
-                    ),
-                  ),
+        child: Scaffold(
+          backgroundColor: RastTokens.bg(context),
+          appBar: RastTopBar(
+            title: AppStrings.t('bookFlowTitle', lang),
+            helpTourId: OnboardingTourIds.bookFlow,
+            helpTourSteps: OnboardingCatalog.bookFlowTour,
+          ),
+          body: Center(
+            child: SingleChildScrollView(
+              child: RastEmptyState(
+                icon: Icons.lock_person_rounded,
+                title: AppStrings.t('signInToBook', lang),
+                message: L(
+                  lang,
+                  'سجّل دخولك برقم جوالك لإكمال الحجز ومتابعة نتائجك.',
+                  'Sign in with your phone number to complete the booking and follow your results.',
                 ),
+                actionLabel: AppStrings.t('signIn', lang),
+                onAction: () async {
+                  final ok = await Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const LoginScreen(),
+                    ),
+                  );
+                  if (ok == true && mounted) setState(() {});
+                },
               ),
             ),
           ),
@@ -1148,12 +1123,13 @@ class _BookFlowScreenState extends State<BookFlowScreen>
       );
     }
 
+    final showActions =
+        !(_error != null && _step < 4) && _createdBooking == null && _step < 4;
+
     return Directionality(
       textDirection: settings.textDirection,
-      child: Container(
-        decoration: const BoxDecoration(color: Color(0xFF1A0665)),
-        child: Scaffold(
-          backgroundColor: Colors.transparent,
+      child: Scaffold(
+          backgroundColor: RastTokens.bg(context),
           appBar: RastTopBar(
             title: _createdBooking != null
                 ? AppStrings.t('bookingCompletedTitle', lang)
@@ -1161,46 +1137,181 @@ class _BookFlowScreenState extends State<BookFlowScreen>
             helpTourId: OnboardingTourIds.bookFlow,
             helpTourSteps: OnboardingCatalog.bookFlowTour,
             iconColor: Colors.white,
-            backgroundColor: const Color(0xFF1A0665),
           ),
+          // أزرار التنقل ثابتة أسفل الشاشة: متاحة دائماً دون تمرير
+          bottomNavigationBar: showActions
+              ? RastStickyBar(child: _buildNextButton())
+              : null,
           body: _error != null && _step < 4
               ? _buildErrorBody()
               : _createdBooking != null
               ? _buildSuccessBody()
               : SingleChildScrollView(
                   padding: EdgeInsets.fromLTRB(
-                    Responsive.spacing(context, 20),
                     Responsive.spacing(context, 16),
-                    Responsive.spacing(context, 20),
-                    Responsive.spacing(context, 28),
+                    Responsive.spacing(context, 14),
+                    Responsive.spacing(context, 16),
+                    Responsive.spacing(context, 24),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
+                      _buildBookingSummaryHeader()
+                          .animate()
+                          .fadeIn(duration: 350.ms)
+                          .slideY(begin: -0.06, end: 0, curve: Curves.easeOutCubic),
+
+                      SizedBox(height: Responsive.spacing(context, 12)),
+
                       _buildStepIndicator(),
 
-                      SizedBox(height: Responsive.spacing(context, 24)),
+                      SizedBox(height: Responsive.spacing(context, 12)),
 
                       _buildStepCard(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            if (_step == 0) _buildStepServiceType(),
-                            if (_step == 1) _buildStepDate(),
-                            if (_step == 2) _buildStepTime(),
-                            if (_step == 3) _buildStepConfirm(),
-
-                            if (_step < 4 && _createdBooking == null) ...[
-                              SizedBox(height: Responsive.spacing(context, 28)),
-                              _buildNextButton(),
-                            ],
+                            // الانتقال بين الخطوات: الخطوة الجديدة تنزلق وتظهر بدل التبديل المفاجئ
+                            AnimatedSize(
+                              duration: const Duration(milliseconds: 320),
+                              curve: Curves.easeOutCubic,
+                              alignment: Alignment.topCenter,
+                              child: AnimatedSwitcher(
+                                duration: const Duration(milliseconds: 340),
+                                switchInCurve: Curves.easeOutCubic,
+                                switchOutCurve: Curves.easeInCubic,
+                                layoutBuilder: (current, previous) => Stack(
+                                  alignment: Alignment.topCenter,
+                                  children: [...previous, ?current],
+                                ),
+                                transitionBuilder: (child, anim) => FadeTransition(
+                                  opacity: anim,
+                                  child: SlideTransition(
+                                    position: Tween<Offset>(
+                                      begin: const Offset(0, 0.04),
+                                      end: Offset.zero,
+                                    ).animate(anim),
+                                    child: child,
+                                  ),
+                                ),
+                                child: KeyedSubtree(
+                                  key: ValueKey('step-$_step'),
+                                  child: switch (_step) {
+                                    0 => _buildStepServiceType(),
+                                    1 => _buildStepDate(),
+                                    2 => _buildStepTime(),
+                                    3 => _buildStepConfirm(),
+                                    _ => const SizedBox.shrink(),
+                                  },
+                                ),
+                              ),
+                            ),
                           ],
                         ),
                       ),
                     ],
                   ),
                 ),
-        ),
+      ),
+    );
+  }
+
+  /// بطاقة «ماذا تحجز»: صورة التحليل، اسمه، المختبر والفرع، والسعر حسب نوع الزيارة.
+  Widget _buildBookingSummaryHeader() {
+    final isArabic = context.watch<AppSettingsProvider>().isArabic;
+    final service = widget.providerService['service'];
+    final imageUrl = ApiConfig.imageFromMap(widget.providerService) ??
+        (service is Map
+            ? ApiConfig.imageFromMap(Map<String, dynamic>.from(service))
+            : null);
+    final labDisplay = LocaleUtils.localizedBusinessName(_lab, isArabic);
+    final labName = labDisplay.isNotEmpty ? labDisplay : (widget.labName ?? '');
+    final branchLine = _serviceType == 'in_clinic' && _nearestBranch != null
+        ? _nearestBranch!.displayLine(isArabic)
+        : (_serviceType == 'home_service'
+            ? L(_lang, 'سحب العينة من منزلك', 'Sample collected at your home')
+            : '');
+    final total = _displayTotalForServiceType(_serviceType);
+
+    return RastCard(
+      padding: const EdgeInsets.all(12),
+      child: Row(
+        children: [
+          RastNetImage(url: imageUrl, width: 58, height: 58, radius: 16),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  _serviceNameDisplay(),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                    height: 1.3,
+                    color: RastTokens.ink(context),
+                  ),
+                ),
+                if (labName.isNotEmpty) ...[
+                  const SizedBox(height: 3),
+                  Row(
+                    children: [
+                      Icon(Icons.apartment_rounded, size: 14, color: RastTokens.brand),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text(
+                          labName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: RastTokens.muted(context)),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+                if (branchLine.isNotEmpty) ...[
+                  const SizedBox(height: 2),
+                  Row(
+                    children: [
+                      Icon(
+                        _serviceType == 'home_service' ? Icons.home_rounded : Icons.location_on_rounded,
+                        size: 14,
+                        color: RastTokens.muted(context),
+                      ),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text(
+                          branchLine,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(fontSize: 11.5, color: RastTokens.muted(context)),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 260),
+            transitionBuilder: (c, a) => FadeTransition(
+              opacity: a,
+              child: ScaleTransition(scale: Tween(begin: 0.9, end: 1.0).animate(a), child: c),
+            ),
+            child: RastPrice(
+              key: ValueKey('$_serviceType-$total'),
+              amount: total,
+              lang: _lang,
+              size: 18,
+              crossAxisAlignment: CrossAxisAlignment.end,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -1209,19 +1320,14 @@ class _BookFlowScreenState extends State<BookFlowScreen>
     return Container(
       width: double.infinity,
       padding: EdgeInsets.symmetric(
-        horizontal: Responsive.spacing(context, 18),
-        vertical: Responsive.spacing(context, 24),
+        horizontal: Responsive.spacing(context, 16),
+        vertical: Responsive.spacing(context, 20),
       ),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(24),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.08),
-            blurRadius: 18,
-            offset: const Offset(0, 6),
-          ),
-        ],
+        color: RastTokens.card(context),
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: RastTokens.line(context)),
+        boxShadow: RastTokens.shadow(context),
       ),
       child: child,
     );
@@ -1229,36 +1335,14 @@ class _BookFlowScreenState extends State<BookFlowScreen>
 
   Widget _buildErrorBody() {
     return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(
-              Icons.error_outline_rounded,
-              size: 56,
-              color: Colors.white,
-            ),
-            const SizedBox(height: 16),
-            Text(
-              _error!,
-              maxLines: 4,
-              overflow: TextOverflow.ellipsis,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: Responsive.fontSize(context, 14),
-                fontWeight: FontWeight.w600,
-                height: 1.5,
-              ),
-            ),
-            const SizedBox(height: 16),
-            FilledButton.icon(
-              onPressed: () => setState(() => _error = null),
-              icon: const Icon(Icons.refresh),
-              label: const Text('إعادة المحاولة'),
-            ),
-          ],
+      child: SingleChildScrollView(
+        child: RastEmptyState(
+          icon: Icons.error_outline_rounded,
+          color: RastTokens.danger,
+          title: L(_lang, 'تعذّر إكمال الطلب', 'Could not complete the request'),
+          message: _error,
+          actionLabel: _tr('retry'),
+          onAction: () => setState(() => _error = null),
         ),
       ),
     );
@@ -1305,159 +1389,144 @@ class _BookFlowScreenState extends State<BookFlowScreen>
     final isHomeService = _createdBooking?['service_type'] == 'home_service';
 
     final bookingNumber = _createdBooking?['booking_number']?.toString() ?? '';
+    final statusColor = paid ? RastTokens.success : RastTokens.warning;
 
     return SingleChildScrollView(
       padding: EdgeInsets.fromLTRB(
+        Responsive.spacing(context, 16),
         Responsive.spacing(context, 18),
-        Responsive.spacing(context, 18),
-        Responsive.spacing(context, 18),
+        Responsive.spacing(context, 16),
         Responsive.spacing(context, 28),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // SUCCESS CARD
-          Container(
-            width: double.infinity,
+          // بطاقة النجاح: علامة تنبض، رقم الحجز قابل للنسخ، وحالة الدفع
+          RastCard(
             padding: EdgeInsets.symmetric(
               horizontal: Responsive.spacing(context, 18),
               vertical: Responsive.spacing(context, 24),
             ),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(24),
-              border: Border.all(color: const Color(0xFFF0EEF5)),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.06),
-                  blurRadius: 18,
-                  offset: const Offset(0, 6),
-                ),
-              ],
-            ),
             child: Column(
               children: [
                 Container(
-                  width: 66,
-                  height: 66,
-                  alignment: Alignment.center,
+                  width: 84,
+                  height: 84,
                   decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [Color(0xFF7B39F5), Color(0xFF5A1BC8)],
-                    ),
                     shape: BoxShape.circle,
-                    boxShadow: [
-                      BoxShadow(
-                        color: const Color(0xFF6C2BE3).withValues(alpha: 0.28),
-                        blurRadius: 18,
-                        offset: const Offset(0, 6),
+                    color: statusColor.withValues(alpha: 0.12),
+                  ),
+                  child: Center(
+                    child: Container(
+                      width: 60,
+                      height: 60,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: statusColor,
+                        boxShadow: [
+                          BoxShadow(
+                            color: statusColor.withValues(alpha: 0.35),
+                            blurRadius: 18,
+                            offset: const Offset(0, 6),
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
-                  child: Container(
-                    width: 30,
-                    height: 30,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      border: Border.all(color: Colors.white, width: 2.4),
-                    ),
-                    child: const Icon(
-                      Icons.check_rounded,
-                      size: 19,
-                      color: Colors.white,
+                      child: Icon(
+                        paid ? Icons.check_rounded : Icons.event_available_rounded,
+                        size: 34,
+                        color: Colors.white,
+                      ),
                     ),
                   ),
-                ),
+                )
+                    .animate()
+                    .scale(begin: const Offset(0.4, 0.4), duration: 650.ms, curve: Curves.elasticOut)
+                    .fadeIn(duration: 250.ms),
 
-                SizedBox(height: Responsive.spacing(context, 18)),
+                SizedBox(height: Responsive.spacing(context, 16)),
 
                 Text(
-                  _tr('bookingCreatedSuccessfully'),
+                  paid ? _tr('paymentSuccess') : _tr('bookingCreatedSuccessfully'),
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   textAlign: TextAlign.center,
                   style: TextStyle(
-                    color: const Color(0xFF211D46),
+                    color: RastTokens.ink(context),
                     fontSize: Responsive.fontSize(context, 19),
                     fontWeight: FontWeight.w900,
-                    height: 1.25,
+                    height: 1.3,
                   ),
-                ),
+                ).animate().fadeIn(delay: 150.ms).slideY(begin: 0.3, end: 0),
 
-                SizedBox(height: Responsive.spacing(context, 6)),
+                SizedBox(height: Responsive.spacing(context, 10)),
 
-                if (bookingNumber.isNotEmpty)
-                  Text(
-                    bookingNumber,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: const Color(0xFFC9A7FF),
-                      fontSize: Responsive.fontSize(context, 13),
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 0.4,
+                Wrap(
+                  alignment: WrapAlignment.center,
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    if (bookingNumber.isNotEmpty)
+                      GestureDetector(
+                        onTap: () {
+                          Clipboard.setData(ClipboardData(text: bookingNumber));
+                          HapticFeedback.selectionClick();
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text(L(_lang, 'تم نسخ رقم الحجز', 'Booking number copied'))),
+                          );
+                        },
+                        child: RastPill(label: bookingNumber, icon: Icons.copy_rounded),
+                      ),
+                    RastPill(
+                      label: paid
+                          ? L(_lang, 'مدفوع', 'Paid')
+                          : L(_lang, 'بانتظار الدفع', 'Awaiting payment'),
+                      icon: paid ? Icons.verified_rounded : Icons.hourglass_top_rounded,
+                      color: statusColor,
                     ),
-                  ),
+                  ],
+                ),
 
                 if (!paid) ...[
                   SizedBox(height: Responsive.spacing(context, 18)),
-
-                  ConstrainedBox(
-                    constraints: const BoxConstraints(minWidth: 150),
-                    child: GradientFilledButtonIcon(
-                      onPressed: _openPayment,
-                      icon: const Icon(Icons.credit_card_rounded, size: 18),
-                      label: Text(
-                        _tr('payNow'),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      style: FilledButton.styleFrom(
-                        minimumSize: const Size(170, 54),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 22,
-                          vertical: 12,
-                        ),
-                        elevation: 0,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                      ),
-                    ),
+                  RastButton(
+                    label: _tr('payNow'),
+                    icon: Icons.lock_rounded,
+                    onPressed: _openPayment,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    L(_lang, 'أكمل الدفع لتأكيد موعدك لدى المختبر.', 'Complete payment to confirm your appointment.'),
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 12, color: RastTokens.muted(context)),
                   ),
                 ],
               ],
             ),
           ),
 
-          SizedBox(height: Responsive.spacing(context, 22)),
+          SizedBox(height: Responsive.spacing(context, 14)),
 
-          Container(
-            width: double.infinity,
-            padding: EdgeInsets.all(Responsive.spacing(context, 18)),
-            decoration: BoxDecoration(
-              color: const Color(0xFFF5F7FB),
-              borderRadius: BorderRadius.circular(22),
-            ),
+          RastCard(
+            padding: EdgeInsets.all(Responsive.spacing(context, 16)),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Text(
-                  _tr('invoiceDetails'),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  textAlign: TextAlign.start,
-                  style: TextStyle(
-                    color: const Color(0xFF17142C),
-                    fontSize: Responsive.fontSize(context, 15),
-                    fontWeight: FontWeight.w900,
-                  ),
+                Row(
+                  children: [
+                    Icon(Icons.receipt_long_rounded, size: 18, color: RastTokens.brand),
+                    const SizedBox(width: 6),
+                    Text(
+                      _tr('invoiceDetails'),
+                      style: TextStyle(
+                        color: RastTokens.ink(context),
+                        fontSize: Responsive.fontSize(context, 15),
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ],
                 ),
 
-                SizedBox(height: Responsive.spacing(context, 16)),
+                SizedBox(height: Responsive.spacing(context, 10)),
 
                 _successInvoiceRow(
                   label: _tr('testPrice'),
@@ -1470,108 +1539,57 @@ class _BookFlowScreenState extends State<BookFlowScreen>
                     value: '+ ${_sar(homeFee)}',
                   ),
 
-                _successInvoiceRow(
-                  label: _tr('platformDiscount'),
-                  value: '- ${_sar(discountAmount)}',
-                  valueColor: const Color(0xFF009B69),
-                ),
+                if (discountAmount > 0)
+                  _successInvoiceRow(
+                    label: _tr('platformDiscount'),
+                    value: '- ${_sar(discountAmount)}',
+                    valueColor: RastTokens.success,
+                  ),
 
-                _successInvoiceRow(
-                  label: _tr('vat'),
-                  value: '+ ${_sar(vatAmount)}',
-                  valueColor: const Color(0xFF28234D),
-                ),
+                if (vatAmount > 0)
+                  _successInvoiceRow(
+                    label: _tr('vat'),
+                    value: '+ ${_sar(vatAmount)}',
+                  ),
 
                 Padding(
-                  padding: EdgeInsets.symmetric(
-                    vertical: Responsive.spacing(context, 7),
-                  ),
-                  child: const Divider(
-                    height: 1,
-                    thickness: 1,
-                    color: Color(0xFFDDE3ED),
-                  ),
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Divider(height: 1, color: RastTokens.line(context)),
                 ),
 
-                Padding(
-                  padding: const EdgeInsets.only(top: 8),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                      Expanded(
-                        child: Align(
-                          alignment: AlignmentDirectional.centerStart,
-                          child: Text(
-                            _tr('totalAmount'),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            textAlign: TextAlign.start,
-                            style: TextStyle(
-                              color: const Color(0xFF17142C),
-                              fontSize: Responsive.fontSize(context, 14),
-                              fontWeight: FontWeight.w900,
-                            ),
-                          ),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        _tr('totalAmount'),
+                        style: TextStyle(
+                          color: RastTokens.ink(context),
+                          fontSize: Responsive.fontSize(context, 14),
+                          fontWeight: FontWeight.w900,
                         ),
                       ),
-
-                      const SizedBox(width: 12),
-
-                      Flexible(
-                        child: Align(
-                          alignment: AlignmentDirectional.centerEnd,
-                          child: Text(
-                            _sar(totalAmount),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            textAlign: TextAlign.end,
-                            style: TextStyle(
-                              color: const Color(0xFF6D28D9),
-                              fontSize: Responsive.fontSize(context, 17),
-                              fontWeight: FontWeight.w900,
-                            ),
-                          ),
-                        ),
+                    ),
+                    Text(
+                      _sar(totalAmount),
+                      style: TextStyle(
+                        color: RastTokens.brand,
+                        fontSize: Responsive.fontSize(context, 18),
+                        fontWeight: FontWeight.w900,
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
               ],
             ),
           ),
 
-          SizedBox(height: Responsive.spacing(context, 28)),
+          SizedBox(height: Responsive.spacing(context, 18)),
 
-          // BOOKING DETAILS BUTTON
-          Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(minWidth: 220, maxWidth: 290),
-              child: OutlinedButton.icon(
-                onPressed: _goToBookingDetail,
-                icon: const Icon(Icons.format_list_bulleted_rounded, size: 19),
-                label: Text(
-                  _tr('viewBookingDetails'),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: Responsive.fontSize(context, 13),
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: const Color(0xFF762FE9),
-                  backgroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 18,
-                    vertical: 14,
-                  ),
-                  side: const BorderSide(color: Color(0xFFDCC8FF), width: 1.5),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                ),
-              ),
-            ),
+          RastButton(
+            label: _tr('viewBookingDetails'),
+            icon: Icons.format_list_bulleted_rounded,
+            secondary: true,
+            onPressed: _goToBookingDetail,
           ),
         ],
       ),
@@ -1584,45 +1602,28 @@ class _BookFlowScreenState extends State<BookFlowScreen>
     Color? valueColor,
   }) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 7),
+      padding: const EdgeInsets.symmetric(vertical: 5),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Expanded(
-            child: Align(
-              alignment: AlignmentDirectional.centerStart,
-              child: Text(
-                label,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.start,
-                style: TextStyle(
-                  color: const Color(0xFF3E4050),
-                  fontSize: Responsive.fontSize(context, 12),
-                  fontWeight: FontWeight.w700,
-                  height: 1.35,
-                ),
+            child: Text(
+              label,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: RastTokens.muted(context),
+                fontSize: Responsive.fontSize(context, 13),
               ),
             ),
           ),
-
           const SizedBox(width: 12),
-
-          Flexible(
-            child: Align(
-              alignment: AlignmentDirectional.centerEnd,
-              child: Text(
-                value,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.end,
-                style: TextStyle(
-                  color: valueColor ?? const Color(0xFF17142C),
-                  fontSize: Responsive.fontSize(context, 12),
-                  fontWeight: FontWeight.w900,
-                  height: 1.35,
-                ),
-              ),
+          Text(
+            value,
+            maxLines: 1,
+            style: TextStyle(
+              color: valueColor ?? RastTokens.ink(context),
+              fontSize: Responsive.fontSize(context, 13),
+              fontWeight: FontWeight.w800,
             ),
           ),
         ],
@@ -1639,89 +1640,133 @@ class _BookFlowScreenState extends State<BookFlowScreen>
       AppStrings.t('stepTime', lang),
       AppStrings.t('stepConfirm', lang),
     ];
+    final icons = [
+      Icons.medical_services_rounded,
+      Icons.calendar_month_rounded,
+      Icons.schedule_rounded,
+      Icons.receipt_long_rounded,
+    ];
 
-    return Container(
-      width: double.infinity,
-      padding: EdgeInsets.symmetric(
-        horizontal: Responsive.spacing(context, 14),
-        vertical: Responsive.spacing(context, 16),
-      ),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.10),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
-      ),
-      child: Row(
-        children: List.generate(4, (i) {
-          final active = i == _step;
-          final done = i < _step;
-
-          return Expanded(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                AnimatedContainer(
-                  duration: const Duration(milliseconds: 180),
-                  width: 34,
-                  height: 34,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: done
-                        ? const Color(0xFF444DF8)
-                        : active
-                        ? Color(0xFF444DF8)
-                        : Colors.white,
-                    boxShadow: active
-                        ? [
-                            BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.10),
-                              blurRadius: 8,
-                              offset: const Offset(0, 3),
-                            ),
-                          ]
-                        : null,
+    // مؤشر تقدّم: دوائر مرقّمة يربطها خط يمتلئ بالتدرج كلما تقدّمت الخطوات
+    return RastCard(
+      padding: const EdgeInsets.fromLTRB(10, 14, 10, 12),
+      child: Column(
+        children: [
+          Row(
+            children: List.generate(7, (k) {
+              if (k.isOdd) {
+                final filled = (k ~/ 2) < _step;
+                return Expanded(
+                  child: Container(
+                    height: 4,
+                    margin: const EdgeInsets.symmetric(horizontal: 4),
+                    decoration: BoxDecoration(
+                      color: RastTokens.fill(context),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: AnimatedFractionallySizedBox(
+                      duration: const Duration(milliseconds: 420),
+                      curve: Curves.easeOutCubic,
+                      alignment: AlignmentDirectional.centerStart,
+                      widthFactor: filled ? 1 : 0,
+                      child: Container(
+                        decoration: BoxDecoration(
+                          gradient: RastTokens.brandGradient,
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                      ),
+                    ),
                   ),
-                  child: Center(
+                );
+              }
+              final i = k ~/ 2;
+              final active = i == _step;
+              final done = i < _step;
+              return AnimatedContainer(
+                duration: const Duration(milliseconds: 300),
+                curve: Curves.easeOutBack,
+                width: active ? 42 : 34,
+                height: active ? 42 : 34,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: active ? RastTokens.brandGradient : null,
+                  color: active
+                      ? null
+                      : done
+                      ? RastTokens.success
+                      : RastTokens.fill(context),
+                  boxShadow: active
+                      ? [
+                          BoxShadow(
+                            color: RastTokens.brand.withValues(alpha: 0.32),
+                            blurRadius: 12,
+                            offset: const Offset(0, 4),
+                          ),
+                        ]
+                      : null,
+                ),
+                child: Center(
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 220),
+                    transitionBuilder: (c, a) => ScaleTransition(scale: a, child: c),
                     child: done
-                        ? const Icon(
-                            Icons.check_rounded,
-                            size: 18,
-                            color: Colors.white,
-                          )
-                        : Text(
-                            '${i + 1}',
-                            style: TextStyle(
-                              color: active ? Colors.white : Colors.black,
-                              fontSize: Responsive.fontSize(context, 12),
-                              fontWeight: FontWeight.w800,
-                            ),
+                        ? const Icon(Icons.check_rounded, key: ValueKey('done'), size: 18, color: Colors.white)
+                        : Icon(
+                            icons[i],
+                            key: ValueKey('i$i$active'),
+                            size: active ? 20 : 16,
+                            color: active ? Colors.white : RastTokens.muted(context),
                           ),
                   ),
                 ),
-
-                const SizedBox(height: 7),
-
-                Text(
-                  labels[i],
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: active
-                        ? const Color(0xFF8FA0FF)
-                        : done
-                        ? const Color(0xFFB8C0FF)
-                        : Colors.white.withValues(alpha: 0.95),
-                    fontSize: Responsive.fontSize(context, 10),
-                    fontWeight: FontWeight.bold,
+              );
+            }),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Text(
+                L(lang, 'الخطوة ${_step + 1} من 4', 'Step ${_step + 1} of 4'),
+                style: TextStyle(fontSize: 11.5, color: RastTokens.muted(context), fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(width: 6),
+              Container(width: 4, height: 4, decoration: BoxDecoration(shape: BoxShape.circle, color: RastTokens.line(context))),
+              const SizedBox(width: 6),
+              Expanded(
+                child: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 250),
+                  layoutBuilder: (current, previous) => Stack(
+                    alignment: AlignmentDirectional.centerStart,
+                    children: [...previous, ?current],
+                  ),
+                  child: Text(
+                    labels[_step.clamp(0, 3)],
+                    key: ValueKey(_step),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: RastTokens.ink(context)),
                   ),
                 ),
-              ],
-            ),
-          );
-        }),
+              ),
+            ],
+          ),
+        ],
       ),
     );
+  }
+
+  void _applyHomeAddress(Map<String, dynamic> a) {
+    final line = a['address_line']?.toString().trim() ?? '';
+    final label = a['label']?.toString().trim() ?? '';
+    setState(() {
+      _homeLat = numOf(a['latitude']);
+      _homeLng = numOf(a['longitude']);
+      _homeAddressKey = a['id']?.toString();
+      _addressController.text = line.isNotEmpty ? line : label;
+      final city = a['city']?.toString().trim() ?? '';
+      if (city.isNotEmpty) _cityController.text = city;
+      _districtController.text = a['district']?.toString().trim() ?? '';
+    });
   }
 
   Widget _buildStepServiceType() {
@@ -1764,6 +1809,14 @@ class _BookFlowScreenState extends State<BookFlowScreen>
 
           SizedBox(height: Responsive.spacing(context, 14)),
 
+          // عناويني المحفوظة / موقعي الحالي / عنوان جديد من الخريطة — تملأ الحقول أدناه تلقائياً
+          HomeAddressChooser(
+            selectedKey: _homeAddressKey,
+            onChanged: _applyHomeAddress,
+          ),
+
+          SizedBox(height: Responsive.spacing(context, 14)),
+
           _modernBookingField(
             controller: _addressController,
             label: _tr('address'),
@@ -1801,152 +1854,123 @@ class _BookFlowScreenState extends State<BookFlowScreen>
     required String price,
   }) {
     final selected = _serviceType == value;
+    final r = BorderRadius.circular(20);
 
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: () {
-          setState(() {
-            _serviceType = value;
-          });
-        },
-        borderRadius: BorderRadius.circular(20),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 180),
-          width: double.infinity,
-          padding: EdgeInsets.all(Responsive.spacing(context, 14)),
-          decoration: BoxDecoration(
-            color: selected ? const Color(0xFFF3F1FF) : const Color(0xFFF8F8FB),
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(
-              color: selected
-                  ? const Color(0xFF6254E7)
-                  : const Color(0xFFE4E3EA),
-              width: selected ? 1.6 : 1,
-            ),
-            boxShadow: selected
-                ? [
-                    BoxShadow(
-                      color: const Color(0xFF6254E7).withValues(alpha: 0.14),
-                      blurRadius: 14,
-                      offset: const Offset(0, 5),
-                    ),
-                  ]
-                : null,
+    // بطاقة اختيار كبيرة: توهج وحد بالهوية عند الاختيار، وعلامة صح تظهر بحركة
+    return Pressable(
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 260),
+        curve: Curves.easeOutCubic,
+        decoration: BoxDecoration(
+          color: selected ? RastTokens.brandSoft(context) : RastTokens.card(context),
+          borderRadius: r,
+          border: Border.all(
+            color: selected ? RastTokens.brand : RastTokens.line(context),
+            width: selected ? 1.8 : 1,
           ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              // ICON
-              Container(
-                width: 48,
-                height: 48,
-                decoration: BoxDecoration(
-                  color: selected
-                      ? const Color(0xFF6254E7)
-                      : const Color(0xFFEDECF2),
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                alignment: Alignment.center,
-                child: Icon(
-                  icon,
-                  size: 24,
-                  color: selected ? Colors.white : const Color(0xFF686577),
-                ),
-              ),
-
-              SizedBox(width: Responsive.spacing(context, 12)),
-
-              // TEXT
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      label,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: const Color(0xFF242230),
-                        fontSize: Responsive.fontSize(context, 14),
-                        fontWeight: FontWeight.w800,
-                      ),
+          boxShadow: selected
+              ? [
+                  BoxShadow(
+                    color: RastTokens.brand.withValues(alpha: 0.16),
+                    blurRadius: 18,
+                    offset: const Offset(0, 6),
+                  ),
+                ]
+              : RastTokens.shadow(context, strength: 0.5),
+        ),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: r,
+            onTap: () {
+              HapticFeedback.selectionClick();
+              setState(() {
+                _serviceType = value;
+              });
+            },
+            child: Padding(
+              padding: EdgeInsets.all(Responsive.spacing(context, 14)),
+              child: Row(
+                children: [
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 260),
+                    width: 52,
+                    height: 52,
+                    decoration: BoxDecoration(
+                      gradient: selected ? RastTokens.brandGradient : null,
+                      color: selected ? null : RastTokens.fill(context),
+                      borderRadius: BorderRadius.circular(16),
                     ),
-
-                    const SizedBox(height: 4),
-
-                    Text(
-                      subtitle,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: const Color(0xFF777486),
-                        fontSize: Responsive.fontSize(context, 11),
-                        fontWeight: FontWeight.w500,
-                        height: 1.3,
-                      ),
+                    child: Icon(
+                      icon,
+                      size: 26,
+                      color: selected ? Colors.white : RastTokens.muted(context),
                     ),
-                  ],
-                ),
-              ),
-
-              SizedBox(width: Responsive.spacing(context, 10)),
-
-              // PRICE + SELECTED INDICATOR
-              SizedBox(
-                width: 88,
-                child: Align(
-                  alignment: AlignmentDirectional.centerEnd,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      Text(
-                        price,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        textAlign: TextAlign.end,
-                        style: TextStyle(
-                          color: selected
-                              ? const Color(0xFF6254E7)
-                              : const Color(0xFF242230),
-                          fontSize: Responsive.fontSize(context, 13),
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-
-                      const SizedBox(height: 8),
-
-                      AnimatedContainer(
-                        duration: const Duration(milliseconds: 180),
-                        width: 24,
-                        height: 24,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: selected
-                              ? const Color(0xFF6254E7)
-                              : Colors.transparent,
-                          border: Border.all(
-                            color: selected
-                                ? const Color(0xFF6254E7)
-                                : const Color(0xFFB8B6C2),
-                            width: 1.5,
+                  ),
+                  SizedBox(width: Responsive.spacing(context, 12)),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: RastTokens.ink(context),
+                            fontSize: Responsive.fontSize(context, 15),
+                            fontWeight: FontWeight.w800,
                           ),
                         ),
-                        child: selected
-                            ? const Icon(
-                                Icons.check_rounded,
-                                size: 15,
-                                color: Colors.white,
-                              )
-                            : null,
-                      ),
-                    ],
+                        const SizedBox(height: 3),
+                        Text(
+                          subtitle,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: RastTokens.muted(context),
+                            fontSize: Responsive.fontSize(context, 11.5),
+                            height: 1.35,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          price,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: selected ? RastTokens.brand : RastTokens.ink(context),
+                            fontSize: Responsive.fontSize(context, 14),
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
+                  const SizedBox(width: 8),
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 220),
+                    width: 26,
+                    height: 26,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: selected ? RastTokens.brand : Colors.transparent,
+                      border: Border.all(
+                        color: selected ? RastTokens.brand : RastTokens.line(context),
+                        width: 2,
+                      ),
+                    ),
+                    child: AnimatedScale(
+                      scale: selected ? 1 : 0,
+                      duration: const Duration(milliseconds: 260),
+                      curve: Curves.easeOutBack,
+                      child: const Icon(Icons.check_rounded, size: 16, color: Colors.white),
+                    ),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
         ),
       ),
@@ -1959,36 +1983,20 @@ class _BookFlowScreenState extends State<BookFlowScreen>
     String? hint,
     required IconData icon,
   }) {
+    final r = BorderRadius.circular(16);
     return TextField(
       controller: controller,
+      style: TextStyle(color: RastTokens.ink(context), fontSize: 14),
       decoration: InputDecoration(
         labelText: label,
         hintText: hint,
-
-        prefixIcon: Icon(icon, size: 20, color: const Color(0xFF6254E7)),
-
+        prefixIcon: Icon(icon, size: 20, color: RastTokens.brand),
         filled: true,
-        fillColor: const Color(0xFFF8F8FB),
-
-        contentPadding: const EdgeInsets.symmetric(
-          horizontal: 16,
-          vertical: 16,
-        ),
-
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: const BorderSide(color: Color(0xFFE4E3EA)),
-        ),
-
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: const BorderSide(color: Color(0xFFE4E3EA)),
-        ),
-
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: const BorderSide(color: Color(0xFF6254E7), width: 1.5),
-        ),
+        fillColor: RastTokens.fill(context),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+        border: OutlineInputBorder(borderRadius: r, borderSide: BorderSide(color: RastTokens.line(context))),
+        enabledBorder: OutlineInputBorder(borderRadius: r, borderSide: BorderSide(color: RastTokens.line(context))),
+        focusedBorder: OutlineInputBorder(borderRadius: r, borderSide: const BorderSide(color: RastTokens.brand, width: 1.6)),
       ),
     );
   }
@@ -1996,22 +2004,18 @@ class _BookFlowScreenState extends State<BookFlowScreen>
   Widget _buildSectionTitle(String title, IconData icon) {
     return Row(
       children: [
-        Container(
-          width: 36,
-          height: 36,
-          decoration: BoxDecoration(
-            gradient: RastUi.brandGradient,
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Icon(icon, color: Colors.white, size: 20),
-        ),
+        RastIconBox(icon: icon, size: 36),
         SizedBox(width: Responsive.spacing(context, 10)),
-        Text(
-          title,
-          style: TextStyle(
-            color: RastUi.primaryText(context),
-            fontSize: Responsive.fontSize(context, 18),
-            fontWeight: FontWeight.w700,
+        Expanded(
+          child: Text(
+            title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: RastTokens.ink(context),
+              fontSize: Responsive.fontSize(context, 17),
+              fontWeight: FontWeight.w800,
+            ),
           ),
         ),
       ],
@@ -2020,73 +2024,61 @@ class _BookFlowScreenState extends State<BookFlowScreen>
 
   Widget _buildStepDate() {
     final today = DateTime.now();
-    final days = List.generate(10, (i) => today.add(Duration(days: i)));
+    final days = List.generate(14, (i) => today.add(Duration(days: i)));
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _buildSectionTitle(_tr('chooseDate'), Icons.calendar_month_outlined),
 
-        SizedBox(height: Responsive.spacing(context, 18)),
+        SizedBox(height: Responsive.spacing(context, 16)),
 
-        Container(
-          width: double.infinity,
-          padding: EdgeInsets.symmetric(
-            horizontal: Responsive.spacing(context, 12),
-            vertical: Responsive.spacing(context, 14),
-          ),
-          decoration: BoxDecoration(
-            color: const Color(0xFFF8F8FB),
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: const Color(0xFFE5E3EA)),
-          ),
-          child: SizedBox(
-            height: 106,
-            child: ListView.separated(
-              scrollDirection: Axis.horizontal,
-              physics: const BouncingScrollPhysics(),
-              itemCount: days.length,
-              separatorBuilder: (_, __) => const SizedBox(width: 10),
-              itemBuilder: (context, index) {
-                final day = days[index];
+        // شريط أيام أفقي: اليوم وغداً بأسماء واضحة، والمختار بتدرج الهوية
+        SizedBox(
+          height: 96,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            physics: const BouncingScrollPhysics(),
+            itemCount: days.length,
+            separatorBuilder: (_, __) => const SizedBox(width: 8),
+            itemBuilder: (context, index) {
+              final day = days[index];
+              final selected =
+                  _selectedDate != null && DateUtils.isSameDay(_selectedDate, day);
+              final top = index == 0
+                  ? L(_lang, 'اليوم', 'Today')
+                  : index == 1
+                  ? L(_lang, 'غداً', 'Tomorrow')
+                  : _weekdayLabel(day);
 
-                final selected =
-                    _selectedDate != null &&
-                    DateUtils.isSameDay(_selectedDate, day);
-
-                final isToday = DateUtils.isSameDay(today, day);
-
-                return InkWell(
+              return Pressable(
+                child: GestureDetector(
                   onTap: () {
+                    HapticFeedback.selectionClick();
                     setState(() {
                       _selectedDate = day;
                     });
                   },
-                  borderRadius: BorderRadius.circular(18),
                   child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 180),
-                    width: 72,
-                    padding: const EdgeInsets.symmetric(
-                      vertical: 10,
-                      horizontal: 6,
-                    ),
+                    duration: const Duration(milliseconds: 240),
+                    curve: Curves.easeOutCubic,
+                    width: 68,
+                    padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
                     decoration: BoxDecoration(
-                      color: selected ? const Color(0xFF6254E7) : Colors.white,
+                      gradient: selected ? RastTokens.brandGradient : null,
+                      color: selected ? null : RastTokens.fill(context),
                       borderRadius: BorderRadius.circular(18),
                       border: Border.all(
                         color: selected
-                            ? const Color(0xFF6254E7)
-                            : isToday
-                            ? const Color(0xFF6254E7).withValues(alpha: 0.40)
-                            : const Color(0xFFE5E3EA),
-                        width: selected ? 1.5 : 1,
+                            ? Colors.transparent
+                            : index == 0
+                            ? RastTokens.brand.withValues(alpha: 0.35)
+                            : RastTokens.line(context),
                       ),
                       boxShadow: selected
                           ? [
                               BoxShadow(
-                                color: const Color(
-                                  0xFF6254E7,
-                                ).withValues(alpha: 0.22),
+                                color: RastTokens.brand.withValues(alpha: 0.3),
                                 blurRadius: 12,
                                 offset: const Offset(0, 5),
                               ),
@@ -2097,73 +2089,46 @@ class _BookFlowScreenState extends State<BookFlowScreen>
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         Text(
-                          _weekdayLabel(day),
+                          top,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          textAlign: TextAlign.center,
                           style: TextStyle(
-                            color: selected
-                                ? Colors.white.withValues(alpha: 0.85)
-                                : const Color(0xFF777486),
-                            fontSize: Responsive.fontSize(context, 10),
-                            fontWeight: FontWeight.w600,
+                            color: selected ? Colors.white.withValues(alpha: 0.9) : RastTokens.muted(context),
+                            fontSize: Responsive.fontSize(context, 10.5),
+                            fontWeight: FontWeight.w700,
                           ),
                         ),
-
-                        const SizedBox(height: 6),
-
+                        const SizedBox(height: 4),
                         Text(
                           DateFormat('d').format(day),
-                          maxLines: 1,
                           style: TextStyle(
-                            color: selected
-                                ? Colors.white
-                                : const Color(0xFF262333),
+                            color: selected ? Colors.white : RastTokens.ink(context),
                             fontSize: Responsive.fontSize(context, 22),
                             fontWeight: FontWeight.w900,
+                            height: 1.1,
                           ),
                         ),
-
-                        const SizedBox(height: 3),
-
+                        const SizedBox(height: 2),
                         Text(
                           _monthLabel(day),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          textAlign: TextAlign.center,
                           style: TextStyle(
-                            color: selected
-                                ? Colors.white.withValues(alpha: 0.80)
-                                : const Color(0xFF8A8795),
-                            fontSize: Responsive.fontSize(context, 9),
-                            fontWeight: FontWeight.w500,
+                            color: selected ? Colors.white.withValues(alpha: 0.85) : RastTokens.muted(context),
+                            fontSize: Responsive.fontSize(context, 9.5),
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
-
-                        if (isToday) ...[
-                          const SizedBox(height: 5),
-
-                          Container(
-                            width: 5,
-                            height: 5,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: selected
-                                  ? Colors.white
-                                  : const Color(0xFF6254E7),
-                            ),
-                          ),
-                        ],
                       ],
                     ),
                   ),
-                );
-              },
-            ),
+                ),
+              ).entrance(index, offset: 0.2);
+            },
           ),
         ),
 
-        SizedBox(height: Responsive.spacing(context, 16)),
+        SizedBox(height: Responsive.spacing(context, 14)),
 
         Material(
           color: Colors.transparent,
@@ -2183,58 +2148,35 @@ class _BookFlowScreenState extends State<BookFlowScreen>
                 });
               }
             },
-            borderRadius: BorderRadius.circular(18),
+            borderRadius: BorderRadius.circular(16),
             child: Container(
               width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
               decoration: BoxDecoration(
-                color: const Color(0xFFF8F8FB),
-                borderRadius: BorderRadius.circular(18),
-                border: Border.all(color: const Color(0xFFE3E1E9)),
+                color: RastTokens.fill(context),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: RastTokens.line(context)),
               ),
               child: Row(
                 children: [
-                  Container(
-                    width: 40,
-                    height: 40,
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF6254E7).withValues(alpha: 0.10),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: const Icon(
-                      Icons.event_available_rounded,
-                      size: 20,
-                      color: Color(0xFF6254E7),
-                    ),
-                  ),
-
+                  const RastIconBox(icon: Icons.event_available_rounded, size: 38),
                   SizedBox(width: Responsive.spacing(context, 12)),
-
                   Expanded(
                     child: Text(
                       _selectedDate != null
-                          ? DateFormat('yyyy-MM-dd').format(_selectedDate!)
+                          ? DateFormat('EEEE d MMMM yyyy', _isArabic ? 'ar' : 'en').format(_selectedDate!)
                           : _tr('chooseFromCalendar'),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        color: _selectedDate != null
-                            ? const Color(0xFF262333)
-                            : const Color(0xFF777486),
+                        color: _selectedDate != null ? RastTokens.ink(context) : RastTokens.muted(context),
                         fontSize: Responsive.fontSize(context, 13),
                         fontWeight: FontWeight.w700,
                       ),
                     ),
                   ),
-
                   const SizedBox(width: 8),
-
-                  const Icon(
-                    Icons.arrow_forward_ios_rounded,
-                    size: 14,
-                    color: Color(0xFF8B8797),
-                  ),
+                  Icon(Icons.edit_calendar_rounded, size: 18, color: RastTokens.brand),
                 ],
               ),
             ),
@@ -2263,163 +2205,148 @@ class _BookFlowScreenState extends State<BookFlowScreen>
   }
 
   Widget _buildStepTime() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _buildSectionTitle(_tr('chooseTime'), Icons.schedule_rounded),
-        SizedBox(height: Responsive.spacing(context, 12)),
-        if (_timeSlotsError != null) ...[
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: AppTheme.cardDecorationFor(context),
-            child: Column(
-              children: [
-                Icon(Icons.error_outline, color: AppTheme.error, size: 40),
-                const SizedBox(height: 10),
-                Text(
-                  _timeSlotsError!,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: Colors.white),
-                ),
-                const SizedBox(height: 12),
-                FilledButton.icon(
-                  onPressed: _loadingSlots ? null : _loadTimeSlots,
-                  icon: const Icon(Icons.refresh),
-                  label: Text(_tr('retry')),
-                ),
-              ],
-            ),
-          ),
-        ] else if (_loadingSlots)
-          const Center(
-            child: Padding(
-              padding: EdgeInsets.all(24),
-              child: CircularProgressIndicator(),
-            ),
-          )
-        else if (_timeSlots.isEmpty)
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: AppTheme.cardDecorationFor(context),
-            child: Text(_tr('noTimeSlots'), textAlign: TextAlign.center),
-          )
-        else
-          Column(
+    Widget chips() {
+      return LayoutBuilder(
+        builder: (context, c) {
+          final w = (c.maxWidth - 10) / 2;
+          var i = 0;
+          return Wrap(
+            spacing: 10,
+            runSpacing: 10,
             children: _timeSlots.map<Widget>((s) {
-              final slot = s is Map
-                  ? s as Map<String, dynamic>
-                  : <String, dynamic>{};
+              final slot = s is Map ? s as Map<String, dynamic> : <String, dynamic>{};
+              final selected = _selectedSlot?['id'] == slot['id'];
+              final primary = _timeSlotPrimaryLabel(slot);
+              final rawTime = DateFormatter.formatBookingTime(slot['start_time']?.toString());
+              final secondary = rawTime.isNotEmpty && rawTime != primary ? rawTime : null;
+              final index = i++;
 
-              final slotId = slot['id'];
-              final selected = _selectedSlot?['id'] == slotId;
-
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: Material(
-                  color: Colors.transparent,
-                  child: InkWell(
+              return SizedBox(
+                width: w,
+                child: Pressable(
+                  child: GestureDetector(
                     onTap: () {
+                      HapticFeedback.selectionClick();
                       setState(() {
                         _selectedSlot = slot;
                       });
                     },
-                    borderRadius: BorderRadius.circular(16),
                     child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 180),
-                      width: double.infinity,
-                      constraints: const BoxConstraints(minHeight: 60),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 11,
-                      ),
+                      duration: const Duration(milliseconds: 240),
+                      curve: Curves.easeOutCubic,
+                      constraints: const BoxConstraints(minHeight: 58),
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
                       decoration: BoxDecoration(
-                        color: selected
-                            ? const Color(0xFF6254E7)
-                            : const Color(0xFFF8F8FB),
+                        gradient: selected ? RastTokens.brandGradient : null,
+                        color: selected ? null : RastTokens.fill(context),
                         borderRadius: BorderRadius.circular(16),
-                        border: Border.all(
-                          color: selected
-                              ? const Color(0xFF6254E7)
-                              : const Color(0xFFE4E2E9),
-                          width: selected ? 1.5 : 1,
-                        ),
+                        border: Border.all(color: selected ? Colors.transparent : RastTokens.line(context)),
+                        boxShadow: selected
+                            ? [
+                                BoxShadow(
+                                  color: RastTokens.brand.withValues(alpha: 0.28),
+                                  blurRadius: 12,
+                                  offset: const Offset(0, 5),
+                                ),
+                              ]
+                            : null,
                       ),
                       child: Row(
                         children: [
-                          Container(
-                            width: 38,
-                            height: 38,
-                            alignment: Alignment.center,
-                            decoration: BoxDecoration(
-                              color: selected
-                                  ? Colors.white.withValues(alpha: 0.16)
-                                  : const Color(
-                                      0xFF6254E7,
-                                    ).withValues(alpha: 0.08),
-                              borderRadius: BorderRadius.circular(11),
-                            ),
-                            child: Icon(
-                              Icons.access_time_rounded,
-                              size: 18,
-                              color: selected
-                                  ? Colors.white
-                                  : const Color(0xFF6254E7),
-                            ),
+                          Icon(
+                            selected ? Icons.check_circle_rounded : Icons.access_time_rounded,
+                            size: 18,
+                            color: selected ? Colors.white : RastTokens.brand,
                           ),
-
-                          const SizedBox(width: 12),
-
+                          const SizedBox(width: 8),
                           Expanded(
-                            child: Text(
-                              _timeSlotPrimaryLabel(slot),
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              textAlign: TextAlign.start,
-                              style: TextStyle(
-                                color: selected
-                                    ? Colors.white
-                                    : RastUi.primaryText(context),
-                                fontSize: Responsive.fontSize(context, 13),
-                                fontWeight: FontWeight.w700,
-                              ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  primary,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: selected ? Colors.white : RastTokens.ink(context),
+                                    fontSize: Responsive.fontSize(context, 12.5),
+                                    fontWeight: FontWeight.w800,
+                                    height: 1.25,
+                                  ),
+                                ),
+                                if (secondary != null)
+                                  Text(
+                                    secondary,
+                                    maxLines: 1,
+                                    style: TextStyle(
+                                      color: selected ? Colors.white.withValues(alpha: 0.85) : RastTokens.muted(context),
+                                      fontSize: Responsive.fontSize(context, 10.5),
+                                    ),
+                                  ),
+                              ],
                             ),
-                          ),
-
-                          const SizedBox(width: 10),
-
-                          AnimatedContainer(
-                            duration: const Duration(milliseconds: 180),
-                            width: 25,
-                            height: 25,
-                            alignment: Alignment.center,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: selected
-                                  ? Colors.white
-                                  : Colors.transparent,
-                              border: Border.all(
-                                color: selected
-                                    ? Colors.white
-                                    : const Color(0xFFB8B6C2),
-                                width: 1.5,
-                              ),
-                            ),
-                            child: selected
-                                ? const Icon(
-                                    Icons.check_rounded,
-                                    size: 15,
-                                    color: Color(0xFF6254E7),
-                                  )
-                                : null,
                           ),
                         ],
                       ),
                     ),
                   ),
                 ),
-              );
+              ).entrance(index, offset: 0.15);
             }).toList(),
+          );
+        },
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _buildSectionTitle(_tr('chooseTime'), Icons.schedule_rounded),
+        if (_selectedDate != null) ...[
+          const SizedBox(height: 6),
+          Padding(
+            padding: const EdgeInsetsDirectional.only(start: 46),
+            child: Text(
+              DateFormat('EEEE d MMMM', _isArabic ? 'ar' : 'en').format(_selectedDate!),
+              style: TextStyle(fontSize: 12, color: RastTokens.muted(context), fontWeight: FontWeight.w600),
+            ),
           ),
+        ],
+        SizedBox(height: Responsive.spacing(context, 14)),
+        if (_timeSlotsError != null)
+          RastEmptyState(
+            icon: Icons.wifi_off_rounded,
+            color: RastTokens.danger,
+            title: _timeSlotsError!,
+            actionLabel: _tr('retry'),
+            onAction: _loadingSlots ? null : _loadTimeSlots,
+          )
+        else if (_loadingSlots)
+          LayoutBuilder(
+            builder: (context, c) => Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: List.generate(
+                6,
+                (_) => RastSkeleton(width: (c.maxWidth - 10) / 2, height: 58, radius: 16),
+              ),
+            ),
+          )
+        else if (_timeSlots.isEmpty)
+          RastEmptyState(
+            icon: Icons.event_busy_rounded,
+            title: _tr('noTimeSlots'),
+            message: L(
+              _lang,
+              'جرّب يوماً آخر من الخطوة السابقة.',
+              'Try another day from the previous step.',
+            ),
+            actionLabel: L(_lang, 'اختر يوماً آخر', 'Pick another day'),
+            onAction: _backStep,
+          )
+        else
+          chips(),
       ],
     );
   }
@@ -2436,77 +2363,130 @@ class _BookFlowScreenState extends State<BookFlowScreen>
     final labNameDisplay = labDisplay.isNotEmpty
         ? labDisplay
         : (widget.labName ?? '');
+
+    Widget detail(IconData icon, String label, String value) => Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        children: [
+          RastIconBox(icon: icon, size: 34),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label, style: TextStyle(fontSize: 11, color: RastTokens.muted(context))),
+                Text(
+                  value.isEmpty ? '—' : value,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700, color: RastTokens.ink(context)),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _buildSectionTitle(_tr('bookingSummary'), Icons.receipt_long_outlined),
         SizedBox(height: Responsive.spacing(context, 12)),
+
+        // تفاصيل الموعد
         Container(
-          padding: EdgeInsets.all(Responsive.spacing(context, 20)),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           decoration: BoxDecoration(
-            color: RastUi.panelSurface(context),
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: RastUi.softBorder(context)),
+            color: RastTokens.fill(context),
+            borderRadius: BorderRadius.circular(18),
           ),
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _confirmRow(_tr('test'), _serviceNameDisplay()),
-              _confirmRow(_tr('lab'), labNameDisplay),
+              detail(Icons.biotech_rounded, _tr('test'), _serviceNameDisplay()),
+              detail(Icons.apartment_rounded, _tr('lab'), labNameDisplay),
               if (_serviceType == 'in_clinic' && _nearestBranch != null)
-                _confirmRow(
-                  _tr('branch'),
-                  _nearestBranch!.displayLine(isArabic),
-                ),
-              _confirmRow(
+                detail(Icons.location_on_rounded, _tr('branch'), _nearestBranch!.displayLine(isArabic)),
+              detail(
+                _serviceType == 'home_service' ? Icons.home_rounded : Icons.storefront_rounded,
                 _tr('serviceType'),
-                _serviceType == 'home_service'
-                    ? _tr('homeServiceLabel')
-                    : _tr('inLab'),
+                _serviceType == 'home_service' ? _tr('homeServiceLabel') : _tr('inLab'),
               ),
-              _confirmRow(
-                _tr('date'),
-                _selectedDate != null
-                    ? DateFormat('yyyy-MM-dd', _lang).format(_selectedDate!)
-                    : '',
-              ),
-              _confirmRow(
-                _tr('time'),
-                _selectedSlot != null
-                    ? _timeSlotPrimaryLabel(_selectedSlot!)
-                    : '',
+              detail(
+                Icons.event_rounded,
+                '${_tr('date')} · ${_tr('time')}',
+                [
+                  if (_selectedDate != null)
+                    DateFormat('EEEE d MMMM', isArabic ? 'ar' : 'en').format(_selectedDate!),
+                  if (_selectedSlot != null) _timeSlotPrimaryLabel(_selectedSlot!),
+                ].join(' · '),
               ),
               if (_serviceType == 'home_service')
-                _confirmRow(_tr('address'), _addressController.text),
-              SizedBox(height: Responsive.spacing(context, 12)),
-              _buildBookingFor(),
-              CheckboxListTile(
-                value: _isNonSaudi,
-                onChanged: (v) {
-                  setState(() => _isNonSaudi = v ?? false);
-                  _loadConfirmPreview();
-                },
-                title: Text(
-                  _tr('nonSaudiVat'),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(fontSize: Responsive.fontSize(context, 13)),
-                ),
-                controlAffinity: ListTileControlAffinity.leading,
-                contentPadding: EdgeInsets.zero,
-                dense: true,
-                activeColor: AppTheme.primary,
+                detail(Icons.signpost_rounded, _tr('address'), _addressController.text),
+            ],
+          ),
+        ),
+
+        SizedBox(height: Responsive.spacing(context, 16)),
+        _buildBookingFor(),
+
+        Container(
+          margin: const EdgeInsets.only(top: 4),
+          decoration: BoxDecoration(
+            color: RastTokens.fill(context),
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: CheckboxListTile(
+            value: _isNonSaudi,
+            onChanged: (v) {
+              setState(() => _isNonSaudi = v ?? false);
+              _loadConfirmPreview();
+            },
+            title: Text(
+              _tr('nonSaudiVat'),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: Responsive.fontSize(context, 13), color: RastTokens.ink(context)),
+            ),
+            controlAffinity: ListTileControlAffinity.leading,
+            contentPadding: const EdgeInsetsDirectional.only(start: 4, end: 10),
+            dense: true,
+            activeColor: RastTokens.brand,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          ),
+        ),
+
+        SizedBox(height: Responsive.spacing(context, 16)),
+
+        // الفاتورة: صفوف واضحة وإجمالي بارز
+        Container(
+          padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+          decoration: BoxDecoration(
+            color: RastTokens.card(context),
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: RastTokens.brand.withValues(alpha: 0.18)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.payments_rounded, size: 18, color: RastTokens.brand),
+                  const SizedBox(width: 6),
+                  Text(
+                    _tr('amountDetails'),
+                    style: TextStyle(
+                      fontSize: Responsive.fontSize(context, 14),
+                      fontWeight: FontWeight.w800,
+                      color: RastTokens.ink(context),
+                    ),
+                  ),
+                  const Spacer(),
+                  if (_loadingPreview)
+                    const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2)),
+                ],
               ),
-              const Divider(height: 24),
-              Text(
-                _tr('amountDetails'),
-                style: TextStyle(
-                  fontSize: Responsive.fontSize(context, 14),
-                  fontWeight: FontWeight.w600,
-                  color: AppTheme.onSurface,
-                ),
-              ),
-              SizedBox(height: Responsive.spacing(context, 10)),
+              const SizedBox(height: 8),
               _buildConfirmAmounts(),
             ],
           ),
@@ -2518,19 +2498,45 @@ class _BookFlowScreenState extends State<BookFlowScreen>
   /// لمن التحليل؟ لي / لشخص آخر + اسمه
   Widget _buildBookingFor() {
     final myName = AuthService.currentUser?.name.trim() ?? '';
-    Widget chip(bool other, String label, IconData icon) {
+    Widget option(bool other, String label, IconData icon) {
       final selected = _forOther == other;
-      return ChoiceChip(
-        selected: selected,
-        showCheckmark: false,
-        avatar: Icon(icon, size: 18, color: selected ? Colors.white : AppTheme.primary),
-        label: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
-        labelStyle: TextStyle(
-          color: selected ? Colors.white : RastUi.primaryText(context),
-          fontWeight: FontWeight.w600,
+      return Expanded(
+        child: GestureDetector(
+          onTap: () {
+            HapticFeedback.selectionClick();
+            setState(() => _forOther = other);
+          },
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 220),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+            decoration: BoxDecoration(
+              color: selected ? RastTokens.brandSoft(context) : RastTokens.card(context),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: selected ? RastTokens.brand : RastTokens.line(context),
+                width: selected ? 1.6 : 1,
+              ),
+            ),
+            child: Row(
+              children: [
+                Icon(icon, size: 18, color: selected ? RastTokens.brand : RastTokens.muted(context)),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+                      color: selected ? RastTokens.brand : RastTokens.ink(context),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
-        selectedColor: AppTheme.primary,
-        onSelected: (_) => setState(() => _forOther = other),
       );
     }
 
@@ -2541,33 +2547,41 @@ class _BookFlowScreenState extends State<BookFlowScreen>
           _tr('bookingForTitle'),
           style: TextStyle(
             fontSize: Responsive.fontSize(context, 14),
-            fontWeight: FontWeight.w600,
-            color: AppTheme.onSurface,
+            fontWeight: FontWeight.w800,
+            color: RastTokens.ink(context),
           ),
         ),
         const SizedBox(height: 8),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
+        Row(
           children: [
-            chip(false, myName.isNotEmpty ? '${_tr('bookingForShort')} $myName' : _tr('bookingForMe'), Icons.person_outline),
-            chip(true, _tr('bookingForOther'), Icons.group_outlined),
+            option(false, myName.isNotEmpty ? '${_tr('bookingForShort')} $myName' : _tr('bookingForMe'), Icons.person_rounded),
+            const SizedBox(width: 8),
+            option(true, _tr('bookingForOther'), Icons.group_rounded),
           ],
         ),
-        if (_forOther) ...[
-          const SizedBox(height: 10),
-          _modernBookingField(
-            controller: _patientNameController,
-            label: _tr('patientNameLabel'),
-            hint: _tr('patientNameHint'),
-            icon: Icons.badge_outlined,
-          ),
-          const SizedBox(height: 6),
-          Text(
-            _tr('patientNameCartHint'),
-            style: TextStyle(fontSize: Responsive.fontSize(context, 11), color: AppTheme.onSurfaceVariant),
-          ),
-        ],
+        AnimatedSize(
+          duration: const Duration(milliseconds: 260),
+          curve: Curves.easeOutCubic,
+          child: _forOther
+              ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const SizedBox(height: 10),
+                    _modernBookingField(
+                      controller: _patientNameController,
+                      label: _tr('patientNameLabel'),
+                      hint: _tr('patientNameHint'),
+                      icon: Icons.badge_outlined,
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      _tr('patientNameCartHint'),
+                      style: TextStyle(fontSize: Responsive.fontSize(context, 11), color: RastTokens.muted(context)),
+                    ),
+                  ],
+                )
+              : const SizedBox(width: double.infinity),
+        ),
         const SizedBox(height: 8),
       ],
     );
@@ -2575,36 +2589,28 @@ class _BookFlowScreenState extends State<BookFlowScreen>
 
   Widget _confirmRow(String label, String value, {TextStyle? valueStyle}) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
+      padding: const EdgeInsets.symmetric(vertical: 5),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Expanded(
-            child: Align(
-              alignment: AlignmentDirectional.centerStart,
-              child: Text(
-                label,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.start,
-                style: const TextStyle(color: AppTheme.onSurfaceVariant),
-              ),
+            child: Text(
+              label,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.start,
+              style: TextStyle(color: RastTokens.muted(context), fontSize: 13),
             ),
           ),
-
           const SizedBox(width: 12),
-
           Flexible(
-            child: Align(
-              alignment: AlignmentDirectional.centerEnd,
-              child: Text(
-                value,
-                maxLines: 3,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.end,
-                style:
-                    valueStyle ?? const TextStyle(fontWeight: FontWeight.w600),
-              ),
+            child: Text(
+              value,
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.end,
+              style: valueStyle ??
+                  TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: RastTokens.ink(context)),
             ),
           ),
         ],
@@ -2691,7 +2697,7 @@ class _BookFlowScreenState extends State<BookFlowScreen>
                   '${vatRate.toStringAsFixed(0)}%',
               '+ ${_sar(vatAmount)}',
               valueStyle: const TextStyle(
-                color: Color.fromARGB(255, 255, 0, 0),
+                color: RastTokens.danger,
               ),
             ),
 
@@ -2741,7 +2747,7 @@ class _BookFlowScreenState extends State<BookFlowScreen>
             '${_tr('vat')} '
                 '${_vatRate.toStringAsFixed(0)}%',
             '+ ${_sar(_vatAmount)}',
-            valueStyle: const TextStyle(color: Color.fromARGB(255, 255, 0, 0)),
+            valueStyle: const TextStyle(color: RastTokens.danger, fontWeight: FontWeight.w700),
           ),
 
         Padding(
@@ -2770,49 +2776,52 @@ class _BookFlowScreenState extends State<BookFlowScreen>
 
     Widget backButton() {
       return SizedBox(
-        width: 54,
-        height: 54,
-        child: OutlinedButton(
-          onPressed: _backStep,
-          style: OutlinedButton.styleFrom(
-            foregroundColor: const Color(0xFF6254E7),
-            backgroundColor: const Color(0xFFF8F8FB),
-            side: const BorderSide(color: Color(0xFFE3E1E9)),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-            ),
-            padding: EdgeInsets.zero,
+        width: 52,
+        height: 52,
+        child: Material(
+          color: RastTokens.fill(context),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: BorderSide(color: RastTokens.line(context)),
           ),
-          child: const Icon(Icons.arrow_back_ios_new_rounded, size: 18),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(16),
+            onTap: () {
+              HapticFeedback.selectionClick();
+              _backStep();
+            },
+            child: Icon(
+              Directionality.of(context) == ui.TextDirection.rtl
+                  ? Icons.arrow_forward_rounded
+                  : Icons.arrow_back_rounded,
+              size: 20,
+              color: RastTokens.brand,
+            ),
+          ),
         ),
       );
     }
 
     if (!isConfirm) {
+      // زر «التالي» يتفعّل بصرياً فقط عند اكتمال اختيار الخطوة الحالية
+      final ready = switch (_step) {
+        1 => _selectedDate != null,
+        2 => _selectedSlot != null,
+        _ => true,
+      };
       return Row(
         children: [
-          if (_step > 0) ...[backButton(), const SizedBox(width: 12)],
-
+          if (_step > 0) ...[backButton(), const SizedBox(width: 10)],
           Expanded(
-            child: SizedBox(
-              height: 54,
-              child: GradientFilledButton(
+            child: AnimatedOpacity(
+              duration: const Duration(milliseconds: 220),
+              opacity: ready ? 1 : 0.6,
+              child: RastButton(
+                label: _tr('next'),
+                icon: Directionality.of(context) == ui.TextDirection.rtl
+                    ? Icons.arrow_back_rounded
+                    : Icons.arrow_forward_rounded,
                 onPressed: _nextStep,
-                style: FilledButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                ),
-                child: Text(
-                  _tr('next'),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: Responsive.fontSize(context, 14),
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
               ),
             ),
           ),
@@ -2823,109 +2832,36 @@ class _BookFlowScreenState extends State<BookFlowScreen>
     final busy = _creating || _addingToCart;
 
     return Column(
+      mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        // الإجراء الأساسي: حجز ودفع مباشر
+        RastButton(
+          label: _tr('instantBookPay'),
+          icon: Icons.flash_on_rounded,
+          loading: _creating,
+          onPressed: busy ? null : _createBooking,
+        ),
+        const SizedBox(height: 10),
         Row(
           children: [
             backButton(),
-
-            const SizedBox(width: 12),
-
+            const SizedBox(width: 10),
+            // يبقى المفتاح على زر الإضافة: منه تنطلق حركة «الطيران إلى السلة»
             Expanded(
               child: SizedBox(
-                height: 54,
-                child: GradientFilledButton(
+                key: _addToCartButtonKey,
+                height: 52,
+                child: RastButton(
+                  label: _tr('addToCart'),
+                  icon: Icons.add_shopping_cart_rounded,
+                  secondary: true,
+                  loading: _addingToCart,
                   onPressed: busy ? null : _addToCart,
-                  style: FilledButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 14),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                  ),
-                  child: _addingToCart
-                      ? const SizedBox(
-                          height: 22,
-                          width: 22,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.white,
-                          ),
-                        )
-                      : Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(
-                              Icons.shopping_cart_outlined,
-                              size: 19,
-                              color: Colors.white,
-                            ),
-
-                            const SizedBox(width: 8),
-
-                            Flexible(
-                              child: Text(
-                                _tr('addToCart'),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  fontSize: Responsive.fontSize(context, 13),
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
                 ),
               ),
             ),
           ],
-        ),
-
-        const SizedBox(height: 12),
-
-        // SECONDARY ACTION
-        SizedBox(
-          height: 52,
-          child: OutlinedButton(
-            onPressed: busy ? null : _createBooking,
-            style: OutlinedButton.styleFrom(
-              foregroundColor: const Color(0xFF6254E7),
-              backgroundColor: const Color(0xFFF8F8FB),
-              side: const BorderSide(color: Color(0xFFDCD9E7), width: 1.2),
-              padding: const EdgeInsets.symmetric(horizontal: 14),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-              ),
-            ),
-            child: _creating
-                ? const SizedBox(
-                    height: 22,
-                    width: 22,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(Icons.flash_on_rounded, size: 19),
-
-                      const SizedBox(width: 8),
-
-                      Flexible(
-                        child: Text(
-                          _tr('instantBookPay'),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: Responsive.fontSize(context, 13),
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-          ),
         ),
       ],
     );

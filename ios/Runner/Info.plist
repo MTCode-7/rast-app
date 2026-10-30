@@ -36,6 +36,23 @@
 	<string>نستخدم موقعك لعرض المختبرات القريبة وتحسين تجربة البحث داخل التطبيق</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>نحتاج إلى موقعك لعرض المختبرات القريبة وتسهيل العثور عليها</string>
+	<key>SKAdNetworkItems</key>
+	<array>
+		<dict>
+			<key>SKAdNetworkIdentifier</key>
+			<string>cstr6suwn9.skadnetwork</string>
+		</dict>
+		<dict>
+			<key>SKAdNetworkIdentifier</key>
+			<string>424m5254lk.skadnetwork</string>
+		</dict>
+		<dict>
+			<key>SKAdNetworkIdentifier</key>
+			<string>22mmun2rn5.skadnetwork</string>
+		</dict>
+	</array>
+	<key>NSUserTrackingUsageDescription</key>
+	<string>نستخدم هذا الإذن لقياس أداء إعلاناتنا وعرض عروض تناسبك. لا نشارك أسماء التحاليل أو بياناتك الصحية.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

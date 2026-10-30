@@ -165,7 +165,7 @@ class ApiConfig {
   static double priceFromMap(Map<String, dynamic>? map) {
     if (map == null) return 0.0;
     const keys = [
-      'price', 'final_price', 'base_price', 'sale_price',
+      'min_price', 'price', 'final_price', 'base_price', 'sale_price',
       'finalPrice', 'basePrice', 'salePrice',
     ];
     for (final k in keys) {

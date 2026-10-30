@@ -2,6 +2,8 @@ allprojects {
     repositories {
         google()
         mavenCentral()
+        // TikTok Business SDK يُنشر عبر JitPack
+        maven { url = uri("https://jitpack.io") }
     }
 }
 
